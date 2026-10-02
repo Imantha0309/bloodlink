@@ -20,6 +20,8 @@ type PrimaryAuthButtonProps = {
   disabled?: boolean;
   loadingLabel?: string;
   icon?: ComponentProps<typeof Feather>["name"];
+  /** Rendered at the far right instead of beside the label, e.g. "arrow-right". */
+  trailingIcon?: ComponentProps<typeof Feather>["name"];
 };
 
 /**
@@ -36,6 +38,7 @@ export function PrimaryAuthButton({
   disabled = false,
   loadingLabel,
   icon,
+  trailingIcon,
 }: PrimaryAuthButtonProps) {
   const isInactive = disabled || loading;
 
@@ -59,10 +62,18 @@ export function PrimaryAuthButton({
           <Text style={styles.label}>{loadingLabel ?? label}</Text>
         </View>
       ) : (
-        <View style={styles.content}>
+        <View style={[styles.content, trailingIcon !== undefined && styles.contentTrailing]}>
           {icon ? <Feather name={icon} size={17} color={Surface.onPrimary} /> : null}
 
           <Text style={styles.label}>{label}</Text>
+
+          {/* Pinned to the trailing edge so the label stays optically centred
+              regardless of how long it is. */}
+          {trailingIcon ? (
+            <View style={styles.trailing}>
+              <Feather name={trailingIcon} size={17} color={Surface.onPrimary} />
+            </View>
+          ) : null}
         </View>
       )}
     </Pressable>
@@ -97,6 +108,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
+  },
+
+  /** Fills the button so the label centres against the full width. */
+  contentTrailing: {
+    width: "100%",
+  },
+
+  trailing: {
+    position: "absolute",
+    right: 20,
   },
 
   label: {

@@ -170,7 +170,7 @@ export default function LoadingScreen() {
               accessibilityRole="button"
               accessibilityLabel="Get Started"
               onPress={() => {
-                router.push(ROUTES.login);
+                router.push(ROUTES.roleSelect);
               }}
             >
               <Text style={styles.getStartedText}>Get Started →</Text>

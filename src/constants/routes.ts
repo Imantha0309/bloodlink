@@ -11,6 +11,7 @@ import type { UserRole } from "@/services/auth/types";
 
 export const ROUTES = {
   splash: "/",
+  roleSelect: "/role-select",
   login: "/login",
   register: "/register",
   forgotPassword: "/forgot-password",

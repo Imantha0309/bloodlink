@@ -80,6 +80,18 @@ export const Surface = {
   /** Border for tinted red panels. */
   softRedBorder: "#FECDCA",
 
+  /** Tinted green panel background (donor card). */
+  softGreen: "#DCFAE6",
+
+  /** Border for tinted green panels. */
+  softGreenBorder: "#ABEFC6",
+
+  /** Tinted blue panel background (hospital card, information cards). */
+  softBlue: "#EFF4FF",
+
+  /** Border for tinted blue panels. */
+  softBlueBorder: "#C7D7FE",
+
   /** Low-emphasis icon wash (header back button, intro icon badge). */
   iconWash: "#F1F3F9",
 

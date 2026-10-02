@@ -1,4 +1,5 @@
 import { Feather } from "@expo/vector-icons";
+import type { ReactNode } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -7,11 +8,17 @@ import { Surface } from "@/constants/colors";
 import { Typography } from "@/constants/typography";
 
 type AuthHeaderProps = {
-  title: string;
+  /** Omit when the screen renders its own large title below the bar. */
+  title?: string;
   onBack: () => void;
   backAccessibilityLabel?: string;
   /** Bottom breathing room under the header, before the first card. */
   gap?: number;
+  /**
+   * Rendered at the trailing edge, after the title — e.g. a step indicator.
+   * Requires `title` to be omitted, since the centred title spans the full bar.
+   */
+  right?: ReactNode;
 };
 
 /**
@@ -24,6 +31,7 @@ export function AuthHeader({
   onBack,
   backAccessibilityLabel = "Go back",
   gap = 18,
+  right,
 }: AuthHeaderProps) {
   const insets = useSafeAreaInsets();
 
@@ -46,6 +54,8 @@ export function AuthHeader({
           {title}
         </Text>
       </View>
+
+      {right}
     </View>
   );
 }
@@ -54,7 +64,7 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "flex-start",
+    justifyContent: "space-between",
     paddingHorizontal: 20,
     paddingBottom: 4,
   },

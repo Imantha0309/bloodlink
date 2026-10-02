@@ -189,7 +189,7 @@ export default function LoginScreen() {
               <Text style={styles.footerPrompt}>Don&apos;t have an account?</Text>
 
               <Pressable
-                onPress={() => router.push(ROUTES.register)}
+                onPress={() => router.push(ROUTES.joinNetwork)}
                 accessibilityRole="link"
                 accessibilityLabel="Register"
                 hitSlop={10}

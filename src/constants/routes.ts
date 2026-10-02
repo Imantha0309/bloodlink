@@ -11,6 +11,7 @@ import type { UserRole } from "@/services/auth/types";
 
 export const ROUTES = {
   splash: "/",
+  joinNetwork: "/join-network",
   roleSelect: "/role-select",
   login: "/login",
   register: "/register",

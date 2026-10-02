@@ -65,6 +65,7 @@ function AppNavigator() {
       </Stack.Protected>
 
       <Stack.Protected guard={status === "unauthenticated"}>
+        <Stack.Screen name="join-network" options={{ contentStyle: screenBackground }} />
         <Stack.Screen name="role-select" options={{ contentStyle: screenBackground }} />
         <Stack.Screen name="login" options={{ contentStyle: screenBackground }} />
         <Stack.Screen name="register" options={{ contentStyle: screenBackground }} />

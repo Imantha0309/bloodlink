@@ -70,8 +70,8 @@ export function AvailabilityCard({ availability, onSaved }: AvailabilityCardProp
 
           <Text style={styles.subtitle}>
             {isAvailable
-              ? "Matching hospitals can see you and send alerts."
-              : "You are hidden from donor dispatch until you switch back on."}
+              ? "You are counted in the available-donor totals hospitals see."
+              : "You are left out of the available-donor totals until you switch back on."}
           </Text>
 
           {availability.lastDonationAt !== null ? (

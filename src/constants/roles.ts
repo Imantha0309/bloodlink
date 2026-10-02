@@ -11,7 +11,7 @@ import type { ComponentProps } from "react";
 import { Feather } from "@expo/vector-icons";
 
 import { Blood, Surface } from "@/constants/colors";
-import type { UserRole } from "@/services/auth/types";
+import type { SelfRegisterRole, UserRole } from "@/services/auth/types";
 
 /**
  * Roles offered on the "Choose Your Role" screen.
@@ -21,18 +21,32 @@ import type { UserRole } from "@/services/auth/types";
  */
 export const SELF_REGISTER_ROLES = ["recipient", "donor", "hospital"] as const satisfies readonly UserRole[];
 
-export type SelfRegisterRole = (typeof SELF_REGISTER_ROLES)[number];
+/** Re-exported so consumers have one place to import the role union from. */
+export type { SelfRegisterRole };
 
 /** Narrow guard for values arriving from a URL param. */
 export function isSelfRegisterRole(value: unknown): value is SelfRegisterRole {
   return typeof value === "string" && (SELF_REGISTER_ROLES as readonly string[]).includes(value);
 }
 
-/** Short label used in button copy, e.g. "Continue as Donor". */
-export const ROLE_LABEL: Record<SelfRegisterRole, string> = {
+/**
+ * Display name for every role, `admin` included.
+ *
+ * The dashboards label whichever role happens to be signed in, so they need all
+ * four; `ROLE_LABEL` is the button-copy subset of this.
+ */
+export const ROLE_NAME: Record<UserRole, string> = {
   recipient: "Recipient",
   donor: "Donor",
   hospital: "Hospital",
+  admin: "Administrator",
+};
+
+/** Short label used in button copy, e.g. "Continue as Donor". */
+export const ROLE_LABEL: Record<SelfRegisterRole, string> = {
+  recipient: ROLE_NAME.recipient,
+  donor: ROLE_NAME.donor,
+  hospital: ROLE_NAME.hospital,
 };
 
 type RoleAccent = {

@@ -10,6 +10,14 @@ export const USER_ROLES = ["recipient", "donor", "hospital", "admin"] as const;
 
 export type UserRole = (typeof USER_ROLES)[number];
 
+/**
+ * Roles a person may sign themselves up for — `admin` is provisioned.
+ *
+ * Defined here rather than in `@/constants/roles` so the domain layer does not
+ * depend on the presentation layer; that module re-exports it.
+ */
+export type SelfRegisterRole = Exclude<UserRole, "admin">;
+
 export type AuthUser = {
   id: string;
   role: UserRole;
@@ -17,6 +25,7 @@ export type AuthUser = {
   email: string | null;
   mobile: string | null;
   district?: string | null;
+  bloodGroup?: string | null;
 };
 
 export type AuthSession = {
@@ -31,25 +40,39 @@ export type SignInInput = {
   password: string;
 };
 
+export type SignUpInput = {
+  role: SelfRegisterRole;
+  fullName: string;
+  /** Email address or mobile number; the server decides which column it is. */
+  identifier: string;
+  password: string;
+  district?: string | null;
+  /** Required for donors, optional for recipients, unused by hospitals. */
+  bloodGroup?: string | null;
+  /** Donors only. */
+  lastDonationAt?: string | null;
+  /** Hospitals only — captured for the admin verification queue. */
+  registrationNumber?: string | null;
+};
+
+/** What `requestPasswordReset` hands back for the next step. */
+export type PasswordResetChallenge = {
+  resetId: string;
+  /**
+   * The one-time code, returned by the local backend because no SMS or email
+   * provider is wired up. `null`/absent against a real server.
+   */
+  devCode?: string | null;
+};
+
 /**
- * Machine-readable failure reasons. UI maps these to human copy so technical
- * detail never reaches the user.
+ * Machine-readable failure reasons.
+ *
+ * Re-exported from the shared API layer — kept as `AuthError` here because
+ * every existing auth call site refers to it by that name.
  */
-export type AuthErrorCode =
-  | "invalid_credentials"
-  | "network"
-  | "account_locked"
-  | "unknown";
-
-export class AuthError extends Error {
-  readonly code: AuthErrorCode;
-
-  constructor(code: AuthErrorCode, message?: string) {
-    super(message ?? code);
-    this.name = "AuthError";
-    this.code = code;
-  }
-}
+export { ApiError, ApiError as AuthError } from "@/services/api/errors";
+export type { ApiErrorCode, ApiErrorCode as AuthErrorCode } from "@/services/api/errors";
 
 export interface AuthService {
   /**
@@ -58,30 +81,20 @@ export interface AuthService {
    */
   signIn(input: SignInInput): Promise<AuthSession>;
 
+  /** Creates an account and signs the new user straight in. */
+  signUp(input: SignUpInput): Promise<AuthSession>;
+
   /** Session for the currently signed-in user, or `null` when signed out. */
   restoreSession(): Promise<AuthSession | null>;
 
   signOut(): Promise<void>;
-}
 
-/**
- * Maps a failure onto the copy the user should read. Anything unrecognised
- * falls back to a generic message rather than leaking internals.
- */
-export function authErrorMessage(error: unknown): string {
-  if (error instanceof AuthError) {
-    switch (error.code) {
-      case "invalid_credentials":
-        return "Incorrect email or password.";
-      case "network":
-        return "Unable to connect. Please try again.";
-      case "account_locked":
-        return "This account is temporarily locked. Please try again later.";
-      case "unknown":
-      default:
-        return "Something went wrong. Please try again.";
-    }
-  }
+  /** Starts password recovery. Rejects when the account does not exist. */
+  requestPasswordReset(identifier: string): Promise<PasswordResetChallenge>;
 
-  return "Unable to connect. Please try again.";
+  /** Exchanges a correct code for a single-use reset token. */
+  verifyPasswordResetCode(resetId: string, code: string): Promise<string>;
+
+  /** Completes recovery. Invalidates every existing session for the account. */
+  resetPassword(resetToken: string, newPassword: string): Promise<void>;
 }

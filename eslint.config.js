@@ -5,6 +5,8 @@ const expoConfig = require("eslint-config-expo/flat");
 module.exports = defineConfig([
   expoConfig,
   {
-    ignores: ["dist/*"],
+    // `server/` is a standalone Node backend with its own tsconfig and its own
+    // lint setup — the Expo/React Native rules here do not apply to it.
+    ignores: ["dist/*", "server/**"],
   }
 ]);

@@ -24,7 +24,7 @@ import { useAuthBack } from "@/hooks/use-auth-back";
  */
 export default function RoleSelectScreen() {
   const router = useRouter();
-  const handleBack = useAuthBack(ROUTES.login);
+  const handleBack = useAuthBack(ROUTES.register);
 
   // Deliberately no default: the user must choose, so the continue button's
   // disabled state is reachable.
@@ -41,7 +41,7 @@ export default function RoleSelectScreen() {
   return (
     <View style={styles.root}>
       <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
-        <AuthHeader gap={14} onBack={handleBack} right={<StepIndicator badge="3" label="STEP 1 OF 3 • PROFILE SETUP" />} />
+        <AuthHeader gap={14} onBack={handleBack} right={<StepIndicator badge="1" label="STEP 1 OF 4 • CHOOSE ROLE" />} />
 
         <ScrollView
           style={styles.scroll}

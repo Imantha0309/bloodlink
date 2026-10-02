@@ -1,114 +1,173 @@
-import { API_BASE_URL } from "@/services/config";
+import { request } from "@/services/api/client";
+import { ApiError } from "@/services/api/errors";
 
 import { clearSession, loadSession, saveSession } from "./session";
-import {
-  AuthError,
-  type AuthService,
-  type AuthSession,
-  type SignInInput,
+import type {
+  AuthService,
+  AuthSession,
+  AuthUser,
+  PasswordResetChallenge,
+  SignInInput,
+  SignUpInput,
 } from "./types";
 
 /**
- * Talks to the real BloodLink backend.
+ * Talks to the real BloodLink backend (`server/` in this repo).
  *
- * Inactive until `EXPO_PUBLIC_API_URL` is set — `src/services/auth/index.ts`
- * picks the mock adapter until then. The endpoints below are the contract this
- * screen expects; adjust paths and payload keys to match the server without
- * touching any UI code.
+ * Active whenever `EXPO_PUBLIC_API_URL` is set — `src/services/auth/index.ts`
+ * picks the mock adapter until then. All transport concerns (timeout, bearer
+ * token, error mapping) live in `@/services/api/client`.
  */
 
 const SIGN_IN_PATH = "/auth/sign-in";
+const REGISTER_PATH = "/auth/register";
+const ME_PATH = "/auth/me";
+const SIGN_OUT_PATH = "/auth/sign-out";
+const FORGOT_PASSWORD_PATH = "/auth/forgot-password";
+const VERIFY_OTP_PATH = "/auth/verify-otp";
+const RESET_PASSWORD_PATH = "/auth/reset-password";
 
-const REQUEST_TIMEOUT_MS = 15000;
+/** Narrows an unknown payload to a session we can store and trust. */
+function readSession(body: unknown): AuthSession {
+  const session = (body as { session?: Partial<AuthSession> } | null)?.session;
 
-/** Narrows an unknown JSON body to something we can safely read fields off. */
-function asRecord(value: unknown): Record<string, unknown> {
-  return typeof value === "object" && value !== null
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
-async function request<T>(path: string, init: RequestInit): Promise<T> {
-  const base = API_BASE_URL;
-
-  if (base === null) {
-    throw new AuthError("unknown", "EXPO_PUBLIC_API_URL is not configured");
+  if (
+    !session ||
+    typeof session.token !== "string" ||
+    typeof session.expiresAt !== "string" ||
+    typeof session.user !== "object" ||
+    session.user === null
+  ) {
+    throw new ApiError("unknown", "The server returned an unexpected response.");
   }
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
-  let response: Response;
-
-  try {
-    response = await fetch(`${base}${path}`, {
-      ...init,
-      signal: controller.signal,
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        ...init.headers,
-      },
-    });
-  } catch {
-    // Offline, DNS failure, or timeout — all surfaced as a connectivity
-    // problem rather than a credential problem.
-    throw new AuthError("network");
-  } finally {
-    clearTimeout(timer);
-  }
-
-  let body: unknown = null;
-
-  try {
-    body = await response.json();
-  } catch {
-    body = null;
-  }
-
-  if (response.status === 401 || response.status === 403) {
-    throw new AuthError("invalid_credentials");
-  }
-
-  if (response.status === 423) {
-    throw new AuthError("account_locked");
-  }
-
-  if (!response.ok) {
-    throw new AuthError("unknown");
-  }
-
-  return asRecord(body) as T;
+  return session as AuthSession;
 }
 
 export class HttpAuthService implements AuthService {
   async signIn(input: SignInInput): Promise<AuthSession> {
-    const body = await request<Record<string, unknown>>(SIGN_IN_PATH, {
+    const body = await request<unknown>(SIGN_IN_PATH, {
       method: "POST",
-      body: JSON.stringify({
+      anonymous: true,
+      body: {
         identifier: input.identifier.trim(),
         password: input.password,
-      }),
+      },
     });
 
-    const session = body.session as AuthSession | undefined;
+    const session = readSession(body);
 
-    if (!session || typeof session.token !== "string") {
-      throw new AuthError("unknown");
-    }
-
-    // Session is written here rather than by the screen, so every adapter has
-    // the same persistence behaviour.
+    // Written here rather than by the screen, so every adapter has the same
+    // persistence behaviour.
     await saveSession(session);
 
     return session;
   }
 
+  async signUp(input: SignUpInput): Promise<AuthSession> {
+    const body = await request<unknown>(REGISTER_PATH, {
+      method: "POST",
+      anonymous: true,
+      body: {
+        role: input.role,
+        fullName: input.fullName.trim(),
+        identifier: input.identifier.trim(),
+        password: input.password,
+        district: input.district ?? undefined,
+        bloodGroup: input.bloodGroup ?? undefined,
+        lastDonationAt: input.lastDonationAt ?? undefined,
+        registrationNumber: input.registrationNumber ?? undefined,
+      },
+    });
+
+    const session = readSession(body);
+
+    await saveSession(session);
+
+    return session;
+  }
+
+  /**
+   * Re-reads the stored session and confirms the token is still good.
+   *
+   * Without the server round-trip a token revoked on another device — or one
+   * invalidated by a password reset — would keep working until it expired. A
+   * connectivity failure is not proof the session is bad, so the cached value
+   * is kept in that case and the user is only signed out on an explicit 401.
+   */
   async restoreSession(): Promise<AuthSession | null> {
-    return loadSession();
+    const stored = await loadSession();
+
+    if (stored === null) {
+      return null;
+    }
+
+    try {
+      const body = await request<{ user?: AuthUser }>(ME_PATH);
+      const user = body.user;
+
+      if (!user || typeof user.id !== "string") {
+        return stored;
+      }
+
+      const refreshed: AuthSession = { ...stored, user };
+      await saveSession(refreshed);
+
+      return refreshed;
+    } catch (error) {
+      if (error instanceof ApiError && error.code === "unauthorized") {
+        await clearSession();
+        return null;
+      }
+
+      return stored;
+    }
   }
 
   async signOut(): Promise<void> {
+    try {
+      await request<void>(SIGN_OUT_PATH, { method: "POST" });
+    } catch {
+      // The local session is cleared regardless — a failed revoke must not
+      // leave the user stuck signed in.
+    }
+
     await clearSession();
+  }
+
+  async requestPasswordReset(identifier: string): Promise<PasswordResetChallenge> {
+    const body = await request<{ resetId?: string; devCode?: string }>(FORGOT_PASSWORD_PATH, {
+      method: "POST",
+      anonymous: true,
+      body: { identifier: identifier.trim() },
+    });
+
+    if (typeof body.resetId !== "string") {
+      throw new ApiError("unknown", "The server returned an unexpected response.");
+    }
+
+    return { resetId: body.resetId, devCode: body.devCode ?? null };
+  }
+
+  async verifyPasswordResetCode(resetId: string, code: string): Promise<string> {
+    const body = await request<{ resetToken?: string }>(VERIFY_OTP_PATH, {
+      method: "POST",
+      anonymous: true,
+      body: { resetId, code },
+    });
+
+    if (typeof body.resetToken !== "string") {
+      throw new ApiError("unknown", "The server returned an unexpected response.");
+    }
+
+    return body.resetToken;
+  }
+
+  async resetPassword(resetToken: string, newPassword: string): Promise<void> {
+    await request<void>(RESET_PASSWORD_PATH, {
+      method: "POST",
+      anonymous: true,
+      body: { resetToken, newPassword },
+    });
   }
 }

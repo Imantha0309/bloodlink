@@ -6,12 +6,13 @@
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "bloodlink",
-    "userInterfaceStyle": "dark",
-    "backgroundColor": "#1a0507",
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#F7F8FC",
     "ios": {
       "icon": "./assets/expo.icon"
     },
     "android": {
+      "package": "com.bloodlink.lk",
       "adaptiveIcon": {
         "backgroundColor": "#1a0507",
         "foregroundImage": "./assets/images/android-icon-foreground.png",

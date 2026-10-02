@@ -1,6 +1,6 @@
 import { createContext, use, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
-import { authService, type AuthSession, type SignInInput } from "@/services/auth";
+import { authService, type AuthSession, type SignInInput, type SignUpInput } from "@/services/auth";
 
 /**
  * Whether the stored session has been checked yet.
@@ -19,6 +19,8 @@ type AuthContextValue = {
    * `authService` directly, so navigation guards observe the new state.
    */
   signIn: (input: SignInInput) => Promise<AuthSession>;
+  /** Registers a new account and signs it in, with the same guarantee. */
+  signUp: (input: SignUpInput) => Promise<AuthSession>;
   signOut: () => Promise<void>;
 };
 
@@ -55,6 +57,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return next;
   }, []);
 
+  const signUp = useCallback(async (input: SignUpInput) => {
+    const next = await authService.signUp(input);
+
+    // Must land before the caller navigates, otherwise the dashboard guard is
+    // still closed and the redirect bounces straight back to registration.
+    setSession(next);
+
+    return next;
+  }, []);
+
   const signOut = useCallback(async () => {
     await authService.signOut();
     setSession(null);
@@ -65,9 +77,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       status: !isResolved ? "loading" : session !== null ? "authenticated" : "unauthenticated",
       session,
       signIn,
+      signUp,
       signOut,
     }),
-    [isResolved, session, signIn, signOut],
+    [isResolved, session, signIn, signUp, signOut],
   );
 
   return <AuthContext value={value}>{children}</AuthContext>;

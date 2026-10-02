@@ -1,9 +1,36 @@
-import { RoleDashboardPlaceholder } from "@/components/dashboard/role-dashboard-placeholder";
+import { useRouter } from "expo-router";
 
-/**
- * TODO: replace with the real recipient dashboard (open requests, match
- * notifications, history).
- */
+import { PrimaryAuthButton } from "@/components/auth/primary-auth-button";
+import { DashboardShell } from "@/components/dashboard/dashboard-shell";
+import { RequestList } from "@/components/dashboard/request-list";
+import { SectionHeading } from "@/components/dashboard/section-heading";
+import { StatGrid } from "@/components/dashboard/stat-grid";
+import { ROUTES } from "@/constants/routes";
+
 export default function RecipientDashboardScreen() {
-  return <RoleDashboardPlaceholder role="recipient" />;
+  const router = useRouter();
+
+  return (
+    <DashboardShell title="Recipient Dashboard">
+      {(summary) => (
+        <>
+          <StatGrid stats={summary.stats} />
+
+          <PrimaryAuthButton
+            label="Request Blood Now"
+            icon="alert-circle"
+            onPress={() => router.push(ROUTES.emergencyRequest)}
+          />
+
+          <SectionHeading label="Your requests" />
+
+          <RequestList
+            requests={summary.requests}
+            emptyTitle="No requests yet"
+            emptyMessage="Raise a request and it will appear here with its live status."
+          />
+        </>
+      )}
+    </DashboardShell>
+  );
 }

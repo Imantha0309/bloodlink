@@ -36,6 +36,12 @@ yarn-error.*
 # typescript
 *.tsbuildinfo
 
+# backend (server/) — local SQLite database and its journal files
+server/data/
+*.db
+*.db-shm
+*.db-wal
+
 example
 
 # generated native folders

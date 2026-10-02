@@ -16,6 +16,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { ActiveDonorsCard } from "@/components/auth/active-donors-card";
 import { AuthHeader } from "@/components/auth/auth-header";
 import { AuthIntroCard } from "@/components/auth/auth-intro-card";
+import { DevCredentialsHint } from "@/components/auth/dev-credentials-hint";
 import { EmergencyRequestCard } from "@/components/auth/emergency-request-card";
 import { FormAlert } from "@/components/auth/form-alert";
 import { PasswordInput } from "@/components/auth/password-input";
@@ -26,7 +27,7 @@ import { ROLE_HOME, ROUTES } from "@/constants/routes";
 import { Typography } from "@/constants/typography";
 import { useAuthBack } from "@/hooks/use-auth-back";
 import { useAuth } from "@/providers/auth-provider";
-import { authErrorMessage } from "@/services/auth";
+import { apiErrorMessage } from "@/services/auth";
 import { hasErrors, validateLoginForm, type LoginFormErrors } from "@/utils/validation";
 
 const NO_ERRORS: LoginFormErrors = { identifier: null, password: null };
@@ -88,7 +89,7 @@ export default function LoginScreen() {
 
       router.replace(ROLE_HOME[session.user.role]);
     } catch (error) {
-      setFormError(authErrorMessage(error));
+      setFormError(apiErrorMessage(error));
     } finally {
       setIsSubmitting(false);
     }
@@ -166,6 +167,13 @@ export default function LoginScreen() {
 
               <FormAlert message={formError} />
 
+              <DevCredentialsHint
+                onPick={(nextIdentifier, nextPassword) => {
+                  updateIdentifier(nextIdentifier);
+                  updatePassword(nextPassword);
+                }}
+              />
+
               <ActiveDonorsCard />
 
               <EmergencyRequestCard
@@ -181,7 +189,7 @@ export default function LoginScreen() {
               <Text style={styles.footerPrompt}>Don&apos;t have an account?</Text>
 
               <Pressable
-                onPress={() => router.push(ROUTES.roleSelect)}
+                onPress={() => router.push(ROUTES.register)}
                 accessibilityRole="link"
                 accessibilityLabel="Register"
                 hitSlop={10}

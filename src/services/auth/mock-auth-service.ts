@@ -2,22 +2,27 @@ import { normalizeContact } from "@/utils/contact";
 
 import { clearSession, loadSession, saveSession } from "./session";
 import {
-  AuthError,
+  ApiError,
   type AuthService,
   type AuthSession,
   type AuthUser,
+  type PasswordResetChallenge,
   type SignInInput,
+  type SignUpInput,
   type UserRole,
 } from "./types";
 
 /**
- * Local stand-in for the real authentication endpoint, used until
- * `EXPO_PUBLIC_API_URL` is configured.
+ * Local stand-in for the real authentication endpoint, used when
+ * `EXPO_PUBLIC_API_URL` is not configured.
  *
  * It deliberately does **not** accept any password. Credentials must match a
  * fixture below, otherwise it rejects with `invalid_credentials` — so the
  * failure path is genuinely reachable and the screen is never faked into a
  * success. Swap in `HttpAuthService` by setting the env var; no UI changes.
+ *
+ * Accounts created through `signUp` live only in memory for the lifetime of
+ * the process, which is enough to walk the registration flow offline.
  */
 
 type MockAccount = {
@@ -38,6 +43,7 @@ const MOCK_ACCOUNTS: MockAccount[] = [
       email: null,
       mobile: "0771234567",
       district: "Colombo",
+      bloodGroup: "O+",
     },
   },
   {
@@ -62,6 +68,7 @@ const MOCK_ACCOUNTS: MockAccount[] = [
       email: null,
       mobile: "0775551234",
       district: "Kandy",
+      bloodGroup: "A+",
     },
   },
   {
@@ -85,6 +92,12 @@ const FORCE_OFFLINE_PASSWORD = "offline";
 const LATENCY_MS = 700;
 
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
+
+/**
+ * The code the offline flow accepts. Fixed rather than random because there is
+ * no channel to deliver a real one — the reset screen shows it in a dev banner.
+ */
+export const MOCK_RESET_CODE = "123456";
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => {
@@ -110,19 +123,77 @@ function findAccount(identifier: string, password: string): MockAccount | undefi
   return MOCK_ACCOUNTS.find((account) => account.identifier === normalized && account.password === password);
 }
 
+/** Splits an identifier into the email/mobile columns, as the server does. */
+function splitIdentifier(identifier: string): { email: string | null; mobile: string | null } {
+  const normalized = normalizeContact(identifier);
+
+  if (normalized === null) {
+    return { email: null, mobile: null };
+  }
+
+  return normalized.includes("@")
+    ? { email: normalized, mobile: null }
+    : { email: null, mobile: normalized };
+}
+
 export class MockAuthService implements AuthService {
+  /** Pending resets, keyed by reset id. In-memory only. */
+  private readonly resets = new Map<string, { identifier: string; verified: boolean }>();
+
   async signIn(input: SignInInput): Promise<AuthSession> {
     await delay(LATENCY_MS);
 
     if (input.password === FORCE_OFFLINE_PASSWORD) {
-      throw new AuthError("network");
+      throw new ApiError("network");
     }
 
     const account = findAccount(input.identifier, input.password);
 
     if (account === undefined) {
-      throw new AuthError("invalid_credentials");
+      throw new ApiError("invalid_credentials", "Incorrect email or password.");
     }
+
+    const session = toSession(account.user);
+
+    await saveSession(session);
+
+    return session;
+  }
+
+  async signUp(input: SignUpInput): Promise<AuthSession> {
+    await delay(LATENCY_MS);
+
+    const normalized = normalizeContact(input.identifier);
+
+    if (normalized === null) {
+      throw new ApiError("validation", "Please enter a valid email address or mobile number.", {
+        identifier: "Please enter a valid email address or mobile number.",
+      });
+    }
+
+    if (MOCK_ACCOUNTS.some((account) => account.identifier === normalized)) {
+      throw new ApiError("conflict", "An account with those details already exists.", {
+        identifier: "An account with those details already exists.",
+      });
+    }
+
+    const { email, mobile } = splitIdentifier(input.identifier);
+
+    const account: MockAccount = {
+      identifier: normalized,
+      password: input.password,
+      user: {
+        id: `usr_mock_${MOCK_ACCOUNTS.length + 1}_${Date.now().toString(36)}`,
+        role: input.role,
+        fullName: input.fullName,
+        email,
+        mobile,
+        district: input.district ?? null,
+        bloodGroup: input.bloodGroup ?? null,
+      },
+    };
+
+    MOCK_ACCOUNTS.push(account);
 
     const session = toSession(account.user);
 
@@ -138,17 +209,77 @@ export class MockAuthService implements AuthService {
   async signOut(): Promise<void> {
     await clearSession();
   }
+
+  async requestPasswordReset(identifier: string): Promise<PasswordResetChallenge> {
+    await delay(LATENCY_MS);
+
+    const normalized = normalizeContact(identifier);
+    const account = MOCK_ACCOUNTS.find((candidate) => candidate.identifier === normalized);
+
+    if (account === undefined) {
+      throw new ApiError("not_found", "No account found with those details.");
+    }
+
+    const resetId = `rst_mock_${Date.now().toString(36)}`;
+    this.resets.set(resetId, { identifier: account.identifier, verified: false });
+
+    return { resetId, devCode: MOCK_RESET_CODE };
+  }
+
+  async verifyPasswordResetCode(resetId: string, code: string): Promise<string> {
+    await delay(LATENCY_MS);
+
+    const reset = this.resets.get(resetId);
+
+    if (reset === undefined) {
+      throw new ApiError("validation", "That code has expired. Request a new one.", {
+        code: "That code has expired. Request a new one.",
+      });
+    }
+
+    if (code !== MOCK_RESET_CODE) {
+      throw new ApiError("validation", "That code is not correct.", {
+        code: "That code is not correct.",
+      });
+    }
+
+    reset.verified = true;
+
+    return `mock_reset_token.${resetId}`;
+  }
+
+  async resetPassword(resetToken: string, newPassword: string): Promise<void> {
+    await delay(LATENCY_MS);
+
+    const resetId = resetToken.replace(/^mock_reset_token\./, "");
+    const reset = this.resets.get(resetId);
+
+    if (reset === undefined || !reset.verified) {
+      throw new ApiError("validation", "This reset link has expired. Start again.", {
+        resetToken: "This reset link has expired. Start again.",
+      });
+    }
+
+    const account = MOCK_ACCOUNTS.find((candidate) => candidate.identifier === reset.identifier);
+
+    if (account === undefined) {
+      throw new ApiError("not_found", "No account found with those details.");
+    }
+
+    account.password = newPassword;
+    this.resets.delete(resetId);
+  }
 }
 
 /**
- * Fixtures are exported for the dev-only credential helper screen only.
- * Nothing in the login UI should import this.
+ * Fixtures are exported for the dev-only credential hint on the sign-in screen.
+ * Nothing in the login flow depends on them.
  */
 export const MOCK_CREDENTIAL_HINT: readonly {
   identifier: string;
   password: string;
   role: UserRole;
-}[] = MOCK_ACCOUNTS.map((account) => ({
+}[] = MOCK_ACCOUNTS.slice(0, 4).map((account) => ({
   identifier: account.identifier,
   password: account.password,
   role: account.user.role,

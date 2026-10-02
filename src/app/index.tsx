@@ -1,5 +1,6 @@
 import { StatusBar } from "expo-status-bar";
-import { useEffect, useRef } from "react";
+import { useRouter } from "expo-router";
+import { useEffect, useState } from "react";
 import {
   Animated,
   Easing,
@@ -14,10 +15,14 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { Blood } from "@/constants/colors";
+import { ROUTES } from "@/constants/routes";
 
 export default function LoadingScreen() {
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const scaleAnim = useRef(new Animated.Value(0.85)).current;
+  const router = useRouter();
+  // Lazy `useState` initialisers rather than `useRef(...).current`: same stable
+  // per-instance Animated.Value, but nothing reads a ref during render.
+  const [fadeAnim] = useState(() => new Animated.Value(0));
+  const [scaleAnim] = useState(() => new Animated.Value(0.85));
 
   useEffect(() => {
     // =========================
@@ -42,17 +47,8 @@ export default function LoadingScreen() {
 
     intro.start();
 
-    // =========================
-    // GO TO MAIN APP
-    // =========================
-
-    const timer = setTimeout(() => {
-      // Loading finished — no destination route yet, so stay put.
-    }, 3000);
-
     return () => {
       intro.stop();
-      clearTimeout(timer);
     };
   }, [fadeAnim, scaleAnim]);
 
@@ -174,7 +170,7 @@ export default function LoadingScreen() {
               accessibilityRole="button"
               accessibilityLabel="Get Started"
               onPress={() => {
-                // TODO: Navigate to the first application screen when available.
+                router.push(ROUTES.login);
               }}
             >
               <Text style={styles.getStartedText}>Get Started →</Text>
@@ -208,8 +204,8 @@ export default function LoadingScreen() {
 ===================================================== */
 
 function LoadingDot({ delay }: { delay: number }) {
-  const opacity = useRef(new Animated.Value(0.3)).current;
-  const scale = useRef(new Animated.Value(0.8)).current;
+  const [opacity] = useState(() => new Animated.Value(0.3));
+  const [scale] = useState(() => new Animated.Value(0.8));
 
   useEffect(() => {
     const animation = Animated.loop(
@@ -249,7 +245,7 @@ function LoadingDot({ delay }: { delay: number }) {
     animation.start();
 
     return () => animation.stop();
-  }, []);
+  }, [delay, opacity, scale]);
 
   return (
     <Animated.View

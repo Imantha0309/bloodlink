@@ -1,98 +1,517 @@
-import * as Device from 'expo-device';
-import { Platform, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { StatusBar } from "expo-status-bar";
+import { useEffect, useRef } from "react";
+import {
+  Animated,
+  Easing,
+  Image,
+  Linking,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
-import { AnimatedIcon } from '@/components/animated-icon';
-import { HintRow } from '@/components/hint-row';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { WebBadge } from '@/components/web-badge';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { Blood } from "@/constants/colors";
 
-function getDevMenuHint() {
-  if (Platform.OS === 'web') {
-    return <ThemedText type="small">use browser devtools</ThemedText>;
-  }
-  if (Device.isDevice) {
-    return (
-      <ThemedText type="small">
-        shake device or press <ThemedText type="code">m</ThemedText> in terminal
-      </ThemedText>
-    );
-  }
-  const shortcut = Platform.OS === 'android' ? 'cmd+m (or ctrl+m)' : 'cmd+d';
+export default function LoadingScreen() {
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const scaleAnim = useRef(new Animated.Value(0.85)).current;
+
+  useEffect(() => {
+    // =========================
+    // LOGO FADE + SCALE
+    // =========================
+
+    const intro = Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 900,
+        easing: Easing.out(Easing.ease),
+        useNativeDriver: true,
+      }),
+
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        friction: 7,
+        tension: 45,
+        useNativeDriver: true,
+      }),
+    ]);
+
+    intro.start();
+
+    // =========================
+    // GO TO MAIN APP
+    // =========================
+
+    const timer = setTimeout(() => {
+      // Loading finished — no destination route yet, so stay put.
+    }, 3000);
+
+    return () => {
+      intro.stop();
+      clearTimeout(timer);
+    };
+  }, [fadeAnim, scaleAnim]);
+
   return (
-    <ThemedText type="small">
-      press <ThemedText type="code">{shortcut}</ThemedText>
-    </ThemedText>
-  );
-}
+    <View style={styles.container}>
+      <StatusBar style="dark" />
 
-export default function HomeScreen() {
-  return (
-    <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
-        <ThemedView style={styles.heroSection}>
-          <AnimatedIcon />
-          <ThemedText type="title" style={styles.title}>
-            Welcome to&nbsp;Expo
-          </ThemedText>
-        </ThemedView>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+          bounces={false}
+        >
+          {/* ================= LOGO ================= */}
 
-        <ThemedText type="code" style={styles.code}>
-          get started
-        </ThemedText>
+          <Animated.View
+            style={[
+              styles.logoContainer,
+              {
+                opacity: fadeAnim,
+                transform: [{ scale: scaleAnim }],
+              },
+            ]}
+          >
+            <View style={styles.logo}>
+              <View style={styles.logoDrop} />
+            </View>
 
-        <ThemedView type="backgroundElement" style={styles.stepContainer}>
-          <HintRow
-            title="Try editing"
-            hint={<ThemedText type="code">src/app/index.tsx</ThemedText>}
-          />
-          <HintRow title="Dev tools" hint={getDevMenuHint()} />
-          <HintRow
-            title="Fresh start"
-            hint={<ThemedText type="code">npm run reset-project</ThemedText>}
-          />
-        </ThemedView>
+            <View style={styles.brandArea}>
+              <View style={styles.brandRow}>
+                <Text style={styles.brandName}>BloodLink</Text>
 
-        {Platform.OS === 'web' && <WebBadge />}
+                <View style={styles.proBadge}>
+                  <Text style={styles.proText}>PRO</Text>
+                </View>
+              </View>
+
+              <Text style={styles.brandSubtitle}>
+                National Blood Transfusion Service • LK
+              </Text>
+            </View>
+          </Animated.View>
+
+          {/* ================= HERO ================= */}
+
+          <Animated.View
+            style={[
+              styles.heroContainer,
+              {
+                opacity: fadeAnim,
+              },
+            ]}
+          >
+            <Image
+              source={require("../../assets/images/loadingScreenimage.png")}
+              style={styles.heroImage}
+              resizeMode="cover"
+            />
+          </Animated.View>
+
+          {/* ================= TEXT ================= */}
+
+          <Animated.View
+            style={[
+              styles.textArea,
+              {
+                opacity: fadeAnim,
+                transform: [
+                  {
+                    translateY: fadeAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [20, 0],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <Text style={styles.smallLabel}>RAPID LIFE CONNECTION</Text>
+
+            <Text style={styles.title}>Every drop connects a</Text>
+
+            <Text style={styles.redTitle}>life in critical seconds.</Text>
+
+            <Text style={styles.description}>
+              Connecting donors, hospitals and blood
+              {"\n"}
+              banks across Sri Lanka in real-time.
+            </Text>
+          </Animated.View>
+
+          {/* ================= LOADING ================= */}
+
+          <Animated.View
+            style={[
+              styles.loadingArea,
+              {
+                opacity: fadeAnim,
+              },
+            ]}
+          >
+            <View style={styles.loadingDots}>
+              <LoadingDot delay={0} />
+              <LoadingDot delay={180} />
+              <LoadingDot delay={360} />
+            </View>
+
+            <Text style={styles.loadingText}>
+              Connecting you to life-saving services
+            </Text>
+          </Animated.View>
+
+          {/* ================= GET STARTED ================= */}
+
+          <Animated.View style={[styles.actionArea, { opacity: fadeAnim }]}>
+            <Pressable
+              style={styles.getStartedButton}
+              accessibilityRole="button"
+              accessibilityLabel="Get Started"
+              onPress={() => {
+                // TODO: Navigate to the first application screen when available.
+              }}
+            >
+              <Text style={styles.getStartedText}>Get Started →</Text>
+            </Pressable>
+
+            <Pressable
+              style={styles.nbtsLink}
+              accessibilityRole="link"
+              accessibilityLabel="Visit National Blood Transfusion Service website"
+              onPress={() => {
+                Linking.openURL("https://nbts.health.gov.lk/");
+              }}
+            >
+              <Text style={styles.nbtsLinkText}>
+                Visit National Blood Transfusion Service
+              </Text>
+            </Pressable>
+          </Animated.View>
+
+          {/* ================= FOOTER ================= */}
+
+          <Text style={styles.footer}>NBTS & Ministry of Health Endorsed</Text>
+        </ScrollView>
       </SafeAreaView>
-    </ThemedView>
+    </View>
   );
 }
+
+/* =====================================================
+   LOADING DOT
+===================================================== */
+
+function LoadingDot({ delay }: { delay: number }) {
+  const opacity = useRef(new Animated.Value(0.3)).current;
+  const scale = useRef(new Animated.Value(0.8)).current;
+
+  useEffect(() => {
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.delay(delay),
+
+        Animated.parallel([
+          Animated.timing(opacity, {
+            toValue: 1,
+            duration: 350,
+            useNativeDriver: true,
+          }),
+
+          Animated.timing(scale, {
+            toValue: 1.2,
+            duration: 350,
+            useNativeDriver: true,
+          }),
+        ]),
+
+        Animated.parallel([
+          Animated.timing(opacity, {
+            toValue: 0.3,
+            duration: 350,
+            useNativeDriver: true,
+          }),
+
+          Animated.timing(scale, {
+            toValue: 0.8,
+            duration: 350,
+            useNativeDriver: true,
+          }),
+        ]),
+      ]),
+    );
+
+    animation.start();
+
+    return () => animation.stop();
+  }, []);
+
+  return (
+    <Animated.View
+      style={[
+        styles.loadingDot,
+        {
+          opacity,
+          transform: [{ scale }],
+        },
+      ]}
+    />
+  );
+}
+
+/* =====================================================
+   STYLES
+===================================================== */
+
+/**
+ * Vertical spacing scale. Every gap between sections comes from this so the
+ * screen stays balanced instead of stretching or crowding unevenly.
+ */
+const GAP = 14;
+const GAP_SM = 10;
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: 'center',
-    flexDirection: 'row',
+    backgroundColor: "#FFFFFF",
   },
+
   safeArea: {
     flex: 1,
-    paddingHorizontal: Spacing.four,
-    alignItems: 'center',
-    gap: Spacing.three,
-    paddingBottom: BottomTabInset + Spacing.three,
-    maxWidth: MaxContentWidth,
   },
-  heroSection: {
-    alignItems: 'center',
-    justifyContent: 'center',
+
+  scroll: {
     flex: 1,
-    paddingHorizontal: Spacing.four,
-    gap: Spacing.four,
   },
+
+  content: {
+    flexGrow: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: GAP,
+    paddingHorizontal: 22,
+    paddingTop: 20,
+    paddingBottom: 18,
+  },
+
+  /* ================= LOGO ================= */
+
+  logoContainer: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  logo: {
+    width: 46,
+    height: 46,
+    borderRadius: 14,
+    backgroundColor: "#D7193F",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: GAP_SM,
+  },
+
+  logoDrop: {
+    width: 21,
+    height: 27,
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 14,
+    borderTopRightRadius: 14,
+    borderBottomLeftRadius: 14,
+    borderBottomRightRadius: 4,
+    transform: [{ rotate: "45deg" }],
+  },
+
+  brandArea: {
+    alignItems: "flex-start",
+    flexShrink: 1,
+  },
+
+  brandRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  brandName: {
+    fontSize: 21,
+    fontWeight: "800",
+    color: "#1D2632",
+    letterSpacing: -0.6,
+  },
+
+  proBadge: {
+    marginLeft: 7,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 5,
+    backgroundColor: "#FFF0F3",
+  },
+
+  proText: {
+    fontSize: 7,
+    fontWeight: "900",
+    color: "#D7193F",
+  },
+
+  brandSubtitle: {
+    marginTop: 3,
+    fontSize: 8,
+    color: "#858D97",
+  },
+
+  /* ================= HERO ================= */
+
+  heroContainer: {
+    width: "100%",
+    aspectRatio: 1802 / 873,
+    borderRadius: 26,
+    overflow: "hidden",
+    backgroundColor: "#F4F5F6",
+    position: "relative",
+
+    shadowColor: "#8B9299",
+    shadowOpacity: 0.18,
+    shadowRadius: 18,
+    shadowOffset: {
+      width: 0,
+      height: 8,
+    },
+
+    elevation: 5,
+  },
+
+  heroImage: {
+    width: "100%",
+    height: "100%",
+  },
+
+  /* ================= TEXT ================= */
+
+  textArea: {
+    width: "100%",
+    alignItems: "center",
+  },
+
+  smallLabel: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: "#D7193F",
+    letterSpacing: 0.5,
+    marginBottom: GAP_SM,
+  },
+
   title: {
-    textAlign: 'center',
+    textAlign: "center",
+    fontSize: 25,
+    lineHeight: 30,
+    fontWeight: "800",
+    color: "#18212D",
+    letterSpacing: -0.6,
   },
-  code: {
-    textTransform: 'uppercase',
+
+  redTitle: {
+    textAlign: "center",
+    fontSize: 25,
+    lineHeight: 30,
+    fontWeight: "800",
+    color: "#D7193F",
+    letterSpacing: -0.6,
   },
-  stepContainer: {
-    gap: Spacing.three,
-    alignSelf: 'stretch',
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.four,
-    borderRadius: Spacing.four,
+
+  description: {
+    textAlign: "center",
+    marginTop: GAP_SM,
+    fontSize: 11.5,
+    lineHeight: 17,
+    color: "#78818C",
+  },
+
+  /* ================= LOADING ================= */
+
+  loadingArea: {
+    alignItems: "center",
+  },
+
+  loadingDots: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: GAP_SM,
+  },
+
+  loadingDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 7,
+    backgroundColor: "#D7193F",
+    marginHorizontal: 3,
+  },
+
+  loadingText: {
+    fontSize: 8.5,
+    color: "#8A929C",
+    fontWeight: "500",
+  },
+
+  /* ================= ACTIONS ================= */
+
+  actionArea: {
+    width: "100%",
+    alignItems: "center",
+  },
+
+  getStartedButton: {
+    width: "100%",
+    minHeight: 52,
+    borderRadius: 14,
+    backgroundColor: Blood.primary,
+    alignItems: "center",
+    justifyContent: "center",
+
+    shadowColor: Blood.glow,
+    shadowOpacity: 0.55,
+    shadowRadius: 14,
+    shadowOffset: {
+      width: 0,
+      height: 6,
+    },
+
+    elevation: 8,
+  },
+
+  getStartedText: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#FFFFFF",
+    letterSpacing: 0.2,
+  },
+
+  nbtsLink: {
+    marginTop: GAP_SM,
+
+    /* Grows the touch target toward 44dp without moving the text. */
+    paddingVertical: 12,
+  },
+
+  nbtsLinkText: {
+    fontSize: 13,
+    color: Blood.dark,
+    textAlign: "center",
+    textDecorationLine: "underline",
+  },
+
+  /* ================= FOOTER ================= */
+
+  footer: {
+    fontSize: 7.5,
+    color: "#7B838D",
+    textAlign: "center",
   },
 });

@@ -40,6 +40,21 @@ type DashboardShellProps = {
   /** Shown under the role name in the header. */
   title: string;
   children: (summary: DashboardSummary, helpers: DashboardHelpers) => ReactNode;
+  /**
+   * Replaces the default role/title/sign-out header.
+   *
+   * The recipient home supplies its own compact header, which has no sign-out —
+   * that moves to the Profile tab. Omit this and the default header renders, so
+   * the other three role dashboards are unaffected.
+   */
+  header?: ReactNode;
+  /**
+   * Rendered below the scroll area, outside it.
+   *
+   * Used for the tab bar, which must stay pinned to the bottom rather than
+   * scrolling away with the content.
+   */
+  footer?: ReactNode;
 };
 
 /**
@@ -50,7 +65,7 @@ type DashboardShellProps = {
  * pull-to-refresh and the sign-out affordance all live here once. The role
  * screens supply only their content via a render prop.
  */
-export function DashboardShell({ title, children }: DashboardShellProps) {
+export function DashboardShell({ title, children, header, footer }: DashboardShellProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { session, signOut } = useAuth();
@@ -169,33 +184,35 @@ export function DashboardShell({ title, children }: DashboardShellProps) {
     <View style={styles.root}>
       <StatusBar style="dark" />
 
-      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        <View style={styles.headerText}>
-          <Text style={styles.eyebrow}>{ROLE_NAME[role].toUpperCase()}</Text>
+      {header ?? (
+        <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+          <View style={styles.headerText}>
+            <Text style={styles.eyebrow}>{ROLE_NAME[role].toUpperCase()}</Text>
 
-          <Text style={styles.title} numberOfLines={1} accessibilityRole="header">
-            {title}
-          </Text>
+            <Text style={styles.title} numberOfLines={1} accessibilityRole="header">
+              {title}
+            </Text>
+          </View>
+
+          <Pressable
+            onPress={() => {
+              void handleSignOut();
+            }}
+            disabled={isSigningOut}
+            accessibilityRole="button"
+            accessibilityLabel="Sign out"
+            accessibilityState={{ disabled: isSigningOut }}
+            hitSlop={6}
+            style={({ pressed }) => [
+              styles.signOut,
+              pressed && styles.signOutPressed,
+              isSigningOut && styles.signOutDisabled,
+            ]}
+          >
+            <Feather name="log-out" size={18} color={Surface.text} />
+          </Pressable>
         </View>
-
-        <Pressable
-          onPress={() => {
-            void handleSignOut();
-          }}
-          disabled={isSigningOut}
-          accessibilityRole="button"
-          accessibilityLabel="Sign out"
-          accessibilityState={{ disabled: isSigningOut }}
-          hitSlop={6}
-          style={({ pressed }) => [
-            styles.signOut,
-            pressed && styles.signOutPressed,
-            isSigningOut && styles.signOutDisabled,
-          ]}
-        >
-          <Feather name="log-out" size={18} color={Surface.text} />
-        </Pressable>
-      </View>
+      )}
 
       <ScrollView
         style={styles.flex}
@@ -214,6 +231,9 @@ export function DashboardShell({ title, children }: DashboardShellProps) {
           {summary !== null ? children(summary, { reload, applyAvailability }) : null}
         </AsyncState>
       </ScrollView>
+
+      {/* Outside the ScrollView so a tab bar stays pinned to the bottom. */}
+      {footer}
     </View>
   );
 }

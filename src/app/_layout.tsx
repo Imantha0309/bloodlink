@@ -62,6 +62,20 @@ function AppNavigator() {
           options={{ contentStyle: screenBackground }}
         />
         <Stack.Screen name="dashboard/admin" options={{ contentStyle: screenBackground }} />
+
+        {/* Destinations the recipient home links to. Shared placeholders until
+            each is built. */}
+        <Stack.Screen name="dashboard/requests" options={{ contentStyle: screenBackground }} />
+        <Stack.Screen name="dashboard/alerts" options={{ contentStyle: screenBackground }} />
+        <Stack.Screen name="dashboard/profile" options={{ contentStyle: screenBackground }} />
+        <Stack.Screen
+          name="dashboard/request-detail"
+          options={{ contentStyle: screenBackground }}
+        />
+        <Stack.Screen name="donors" options={{ contentStyle: screenBackground }} />
+        <Stack.Screen name="compatibility" options={{ contentStyle: screenBackground }} />
+        <Stack.Screen name="blood-bank-detail" options={{ contentStyle: screenBackground }} />
+        <Stack.Screen name="location" options={{ contentStyle: screenBackground }} />
       </Stack.Protected>
 
       <Stack.Protected guard={status === "unauthenticated"}>

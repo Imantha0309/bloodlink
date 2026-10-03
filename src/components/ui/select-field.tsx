@@ -1,4 +1,5 @@
 import { Feather } from "@expo/vector-icons";
+import type { ComponentProps } from "react";
 import { useState } from "react";
 import {
   FlatList,
@@ -23,6 +24,17 @@ type SelectFieldProps = {
   onChange: (value: string) => void;
   placeholder?: string;
   error?: string | null;
+  /** Leading glyph, e.g. a pin for a facility field. */
+  icon?: ComponentProps<typeof Feather>["name"];
+  /**
+   * Replaces the chevron — a check mark once a verified value is chosen.
+   *
+   * Falls back to the chevron when omitted, so every existing caller keeps its
+   * current affordance.
+   */
+  trailingIcon?: ComponentProps<typeof Feather>["name"];
+  /** Supporting line under the field. Hidden while an error is showing. */
+  caption?: string;
 };
 
 /**
@@ -38,9 +50,13 @@ export function SelectField({
   onChange,
   placeholder = "Select an option",
   error = null,
+  icon,
+  trailingIcon,
+  caption,
 }: SelectFieldProps) {
   const [isOpen, setIsOpen] = useState(false);
   const hasError = error !== null;
+  const hasCaption = caption !== undefined && caption !== "" && !hasError;
 
   function handleSelect(option: string) {
     onChange(option);
@@ -63,12 +79,20 @@ export function SelectField({
           pressed && styles.fieldPressed,
         ]}
       >
+        {icon !== undefined ? <Feather name={icon} size={15} color={Surface.textMuted} /> : null}
+
         <Text style={value === null ? styles.placeholder : styles.value} numberOfLines={1}>
           {value ?? placeholder}
         </Text>
 
-        <Feather name="chevron-down" size={16} color={Surface.textMuted} />
+        <Feather
+          name={trailingIcon ?? "chevron-down"}
+          size={16}
+          color={trailingIcon === undefined ? Surface.textMuted : Blood.primary}
+        />
       </Pressable>
+
+      {hasCaption ? <Text style={styles.caption}>{caption}</Text> : null}
 
       <FieldError message={error} />
 
@@ -168,6 +192,13 @@ const styles = StyleSheet.create({
     ...Typography.input,
     color: Surface.textMuted,
     flex: 1,
+  },
+
+  caption: {
+    ...Typography.small,
+    fontSize: 10,
+    color: Surface.textMuted,
+    marginTop: 6,
   },
 
   modal: {

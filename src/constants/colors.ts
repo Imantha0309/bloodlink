@@ -95,6 +95,17 @@ export const Surface = {
   /** Low-emphasis icon wash (header back button, intro icon badge). */
   iconWash: "#F1F3F9",
 
+  /** Secondary accent for informational iconography (quick actions, info cards). */
+  accentBlue: "#4D73B8",
+
+  /**
+   * Readable green for text and pills on `softGreen`.
+   *
+   * `online` is the bright dot colour and is too light to read as text on a pale
+   * green fill, so success copy uses this darker green instead.
+   */
+  successText: "#16834A",
+
   /** Destructive / validation messages. */
   danger: "#B42318",
 

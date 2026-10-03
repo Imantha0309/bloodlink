@@ -9,12 +9,12 @@
     "userInterfaceStyle": "light",
     "backgroundColor": "#F7F8FC",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/images/icon.png"
     },
     "android": {
       "package": "com.bloodlink.lk",
       "adaptiveIcon": {
-        "backgroundColor": "#1a0507",
+        "backgroundColor": "#D7193F",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"

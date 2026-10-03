@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Blood, Surface } from "@/constants/colors";
@@ -16,6 +17,8 @@ type OptionChipsProps<T extends string> = {
   labelFor?: (value: T) => string;
   /** Optional per-option caption, e.g. "Universal donor". */
   captionFor?: (value: T) => string | undefined;
+  /** Rendered at the trailing edge of the label row, e.g. a "Push Alerts" note. */
+  labelRight?: ReactNode;
 };
 
 /**
@@ -33,12 +36,17 @@ export function OptionChips<T extends string>({
   error = null,
   labelFor,
   captionFor,
+  labelRight,
 }: OptionChipsProps<T>) {
   const caption = value !== null ? captionFor?.(value) : undefined;
 
   return (
     <View>
-      <Text style={styles.label}>{label}</Text>
+      <View style={styles.labelRow}>
+        <Text style={styles.label}>{label}</Text>
+
+        {labelRight}
+      </View>
 
       <View style={styles.row}>
         {options.map((option) => {
@@ -73,10 +81,18 @@ export function OptionChips<T extends string>({
 }
 
 const styles = StyleSheet.create({
+  labelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    marginBottom: 8,
+  },
+
   label: {
     ...Typography.label,
     color: Surface.text,
-    marginBottom: 8,
+    flexShrink: 1,
   },
 
   row: {

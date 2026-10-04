@@ -10,13 +10,12 @@ import { ContactCard } from "@/components/emergency/contact-card";
 import { CoverageCard } from "@/components/emergency/coverage-card";
 import { MapPreview } from "@/components/emergency/map-preview";
 import { PrivacyNotice } from "@/components/emergency/privacy-notice";
+import { RequestReview, type RequestReviewData } from "@/components/emergency/request-review";
+import { SectionHeading } from "@/components/emergency/section-heading";
 import { StepHeader } from "@/components/emergency/step-header";
 import { StepProgress } from "@/components/emergency/step-progress";
 import { UnitsStepper } from "@/components/emergency/units-stepper";
-import {
-  UrgencyCardList,
-  urgencyTitle,
-} from "@/components/emergency/urgency-card-list";
+import { UrgencyCardList } from "@/components/emergency/urgency-card-list";
 import { OptionChips } from "@/components/ui/option-chips";
 import { SelectField } from "@/components/ui/select-field";
 import { TextField } from "@/components/ui/text-field";
@@ -24,7 +23,7 @@ import { BLOOD_GROUP_NOTES, BLOOD_GROUPS, type BloodGroup } from "@/constants/bl
 import { Blood, Surface } from "@/constants/colors";
 import type { UrgencyLevel } from "@/constants/emergency";
 import { HOSPITAL_NAMES, findHospitalByName } from "@/constants/hospitals";
-import { Radius } from "@/constants/radius";
+import { HIT_SLOP_MIN, Radius } from "@/constants/radius";
 import { ROLE_HOME, ROUTES } from "@/constants/routes";
 import { Typography } from "@/constants/typography";
 import { useAuth } from "@/providers/auth-provider";
@@ -36,6 +35,7 @@ import {
 import {
   asBloodGroup,
   validateEmergencyForm,
+  ValidationMessages,
   type EmergencyFormErrors,
   type EmergencyFormValues,
 } from "@/utils/validation";
@@ -48,6 +48,54 @@ const STEP_TITLES = [
   "Location & Hospital Details",
   "Review Request",
 ] as const;
+
+/**
+ * Header titles differ from the step names: the final step is named rather than
+ * numbered, because there is no step 4 to be "Step 3 of".
+ */
+const STEP_HEADER_TITLES = [
+  "Request Step 1",
+  "Request Step 2",
+  "Request Review",
+] as const;
+
+/**
+ * Labels for the footer's back link, which name the step being returned to.
+ *
+ * Deliberately shorter than `STEP_TITLES`: those read as headings on the progress
+ * bar, while this sits in 9.5px grey under a button.
+ */
+const STEP_BACK_LABELS = ["Blood Group", "Blood Group"] as const;
+
+/** Primary action per step. The last one submits; the others advance the wizard. */
+const STEP_CTA_LABELS = ["Continue", "Review Request", "Send Emergency Request Now"] as const;
+
+/**
+ * Which step owns each field.
+ *
+ * Drives both the per-step inline errors and the jump-to-step behaviour when the
+ * final send finds something missing, so a field can never be validated on a
+ * step the user cannot see.
+ */
+const STEP_FIELDS: readonly (readonly (keyof EmergencyFormErrors)[])[] = [
+  ["patientName", "bloodGroup"],
+  ["hospital", "ward", "district", "units", "contactName", "contactMobile"],
+  ["notes"],
+];
+
+/** Narrows a full error object down to the fields a single step renders. */
+function pickFields(
+  all: EmergencyFormErrors,
+  fields: readonly (keyof EmergencyFormErrors)[],
+): Partial<EmergencyFormErrors> {
+  const picked: Partial<EmergencyFormErrors> = {};
+
+  for (const field of fields) {
+    picked[field] = all[field];
+  }
+
+  return picked;
+}
 
 const DEFAULT_UNITS = 2;
 
@@ -77,6 +125,24 @@ function composeNotes(ward: string, notes: string): string | null {
   return rest === "" ? wardLine : `${wardLine}\n${rest}`;
 }
 
+/**
+ * Red pill that sits on the "Units Required" heading line.
+ *
+ * Lives here rather than in `UnitsStepper` so it can span the heading row's full
+ * width instead of the selector's.
+ */
+function CriticalNeedBadge() {
+  return (
+    <View style={styles.criticalBadge}>
+      <View style={styles.criticalDot} />
+
+      <Text style={styles.criticalText} numberOfLines={1}>
+        Critical Need
+      </Text>
+    </View>
+  );
+}
+
 export default function EmergencyRequestScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -101,6 +167,8 @@ export default function EmergencyRequestScreen() {
 
   const [errors, setErrors] = useState<Partial<EmergencyFormErrors>>({});
   const [formError, setFormError] = useState<string | null>(null);
+  const [broadcastEnabled, setBroadcastEnabled] = useState(true);
+  const [broadcastError, setBroadcastError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [created, setCreated] = useState<EmergencyRequest | null>(null);
 
@@ -119,49 +187,24 @@ export default function EmergencyRequestScreen() {
   }, []);
 
   /**
-   * Validates every field, then reports only the ones on the visible step.
+   * The whole form in validator shape.
    *
-   * Returns whether the step can be left, so callers do not have to run the
-   * validator themselves.
+   * `units` is a number in state because the stepper needs to clamp it, so it is
+   * stringified here rather than changing the validator's contract.
    */
-  const validateStep = useCallback(
-    (target: number): boolean => {
-      const all: EmergencyFormValues = {
-        patientName,
-        bloodGroup: bloodGroup ?? "",
-        units: String(units),
-        hospital: hospital ?? "",
-        ward,
-        district: selectedHospital?.district ?? "",
-        contactName,
-        contactMobile,
-        urgency: urgency ?? "standard",
-        notes,
-      };
-
-      const next = validateEmergencyForm(all);
-
-      // Step 1 is patient identity, step 2 the facility and urgency details, and
-      // step 3 review — so notes are the only field that only matters at the end.
-      const visible =
-        target === 0
-          ? { patientName: next.patientName, bloodGroup: next.bloodGroup }
-          : target === 1
-            ? {
-                hospital: next.hospital,
-                ward: next.ward,
-                district: next.district,
-                units: next.units,
-                contactName: next.contactName,
-                contactMobile: next.contactMobile,
-              }
-            : { notes: next.notes };
-
-      setErrors(visible);
-      setFormError(null);
-
-      return !Object.values(visible).some((message) => message !== null);
-    },
+  const buildValues = useCallback(
+    (): EmergencyFormValues => ({
+      patientName,
+      bloodGroup: bloodGroup ?? "",
+      units: String(units),
+      hospital: hospital ?? "",
+      ward,
+      district: selectedHospital?.district ?? "",
+      contactName,
+      contactMobile,
+      urgency: urgency ?? "standard",
+      notes,
+    }),
     [
       patientName,
       bloodGroup,
@@ -176,6 +219,53 @@ export default function EmergencyRequestScreen() {
     ],
   );
 
+  /**
+   * Validates every field, then reports only the ones on the visible step.
+   *
+   * Returns whether the step can be left, so callers do not have to run the
+   * validator themselves.
+   */
+  const validateStep = useCallback(
+    (target: number): boolean => {
+      const all = validateEmergencyForm(buildValues());
+      const visible = pickFields(all, STEP_FIELDS[target] ?? []);
+
+      setErrors(visible);
+      setFormError(null);
+
+      return !Object.values(visible).some((message) => message !== null);
+    },
+    [buildValues],
+  );
+
+  /**
+   * Gate for the final send.
+   *
+   * Step 3 only renders `notes`, so validating the visible step alone would let a
+   * request with no blood group or no ward reach the server. This runs the whole
+   * validator and moves the user to the earliest step that owns an error, so
+   * there is always somewhere they can go and fix it.
+   */
+  const validateAll = useCallback((): boolean => {
+    const all = validateEmergencyForm(buildValues());
+
+    setErrors(all);
+
+    const errorStep = STEP_FIELDS.findIndex((fields) =>
+      fields.some((field) => all[field] !== null),
+    );
+
+    if (errorStep === -1) {
+      setFormError(null);
+      return true;
+    }
+
+    setFormError(null);
+    setStep(errorStep);
+
+    return false;
+  }, [buildValues]);
+
   const handleBack = useCallback(() => {
     if (step > 0) {
       setStep(step - 1);
@@ -188,6 +278,27 @@ export default function EmergencyRequestScreen() {
       router.replace(backFallback);
     }
   }, [step, router, backFallback]);
+
+  /** Sends the user to the step that owns the row they tapped Edit on. */
+  const handleEdit = useCallback((target: 0 | 1) => {
+    setFormError(null);
+    setStep(target);
+  }, []);
+
+  const handleEditAll = useCallback(() => {
+    setErrors({});
+    setFormError(null);
+    setBroadcastError(null);
+    setStep(0);
+  }, []);
+
+  function handleToggleBroadcast(next: boolean) {
+    setBroadcastEnabled(next);
+
+    if (next) {
+      setBroadcastError(null);
+    }
+  }
 
   async function handleSubmit() {
     if (isSubmitting) {
@@ -223,12 +334,24 @@ export default function EmergencyRequestScreen() {
       return;
     }
 
-    if (!validateStep(step)) {
+    if (step < TOTAL_STEPS - 1) {
+      if (validateStep(step)) {
+        setStep(step + 1);
+      }
+
       return;
     }
 
-    if (step < TOTAL_STEPS - 1) {
-      setStep(step + 1);
+    // Final step: the whole form has to be sound, not just this step's notes.
+    if (!broadcastEnabled) {
+      setErrors({});
+      setBroadcastError(ValidationMessages.broadcastDisabled);
+      return;
+    }
+
+    setBroadcastError(null);
+
+    if (!validateAll()) {
       return;
     }
 
@@ -278,21 +401,28 @@ export default function EmergencyRequestScreen() {
     return (
       <>
         <View style={styles.section}>
-          <Text style={styles.sectionHeading}>Where is the patient admitted?</Text>
+          <Text style={styles.pageTitle}>Where is the patient admitted?</Text>
 
           <Text style={styles.sectionBody}>
             Enter hospital information to notify nearby{"\n"}donors within emergency
             radius.
           </Text>
 
-          <MapPreview area={area} areaDetail="Emergency coverage" />
+          {/* Map and coverage card share a wrapper so the card can overlap the
+              map's lower edge; a gap between them here would cancel the pull-up. */}
+          <View style={styles.mapGroup}>
+            <MapPreview area={area} />
 
-          <CoverageCard radiusKm={SAMPLE_RADIUS_KM} onlineDonors={SAMPLE_ONLINE_DONORS} />
+            <CoverageCard radiusKm={SAMPLE_RADIUS_KM} onlineDonors={SAMPLE_ONLINE_DONORS} />
+          </View>
         </View>
 
-        <View style={styles.sectionTight}>
+        <View style={styles.section}>
+          <SectionHeading label="Hospital Name" icon="home" />
+
           <SelectField
             label="Hospital Name"
+            hideLabel
             value={hospital}
             options={HOSPITAL_NAMES}
             onChange={(value) => {
@@ -303,12 +433,19 @@ export default function EmergencyRequestScreen() {
             placeholder="Select the admitting hospital"
             icon="map-pin"
             trailingIcon={selectedHospital?.verified === true ? "check-circle" : undefined}
+            trailingTone="success"
             caption={selectedHospital?.note}
             error={errors.hospital}
+            size="dense"
           />
+        </View>
+
+        <View style={styles.section}>
+          <SectionHeading label="Ward & Room Details" icon="clipboard" />
 
           <TextField
             label="Ward & Room Details"
+            hideLabel
             value={ward}
             onChangeText={(value) => {
               setWard(value);
@@ -318,11 +455,12 @@ export default function EmergencyRequestScreen() {
             icon="home"
             autoCapitalize="sentences"
             error={errors.ward}
+            size="dense"
           />
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionHeading}>Units Required</Text>
+        <View style={styles.unitsCard}>
+          <SectionHeading label="Units Required" icon="droplet" right={<CriticalNeedBadge />} />
 
           <UnitsStepper
             units={units}
@@ -330,17 +468,16 @@ export default function EmergencyRequestScreen() {
               setUnits(value);
               clearError("units");
             }}
-            badge="Critical Need"
             error={errors.units}
           />
         </View>
 
         <View style={styles.section}>
           <View style={styles.urgencyHeading}>
-            <Text style={styles.sectionHeading}>Emergency Urgency Level</Text>
+            <SectionHeading label="Emergency Urgency Level" icon="alert-octagon" />
 
             <View style={styles.pushAlerts}>
-              <Feather name="zap" size={10} color={Blood.primary} />
+              <Feather name="zap" size={9} color={Blood.primary} />
 
               <Text style={styles.pushAlertsText}>Push Alerts</Text>
             </View>
@@ -350,7 +487,7 @@ export default function EmergencyRequestScreen() {
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionHeading}>Patient Contact Person</Text>
+          <SectionHeading label="Patient Contact Person" icon="user" />
 
           <ContactCard
             name={contactName}
@@ -380,18 +517,30 @@ export default function EmergencyRequestScreen() {
   // ---------------------------------------------------------------- step 3
 
   function renderStepThree() {
+    const review: RequestReviewData = {
+      patientName,
+      bloodGroup,
+      units,
+      hospital,
+      district: selectedHospital?.district ?? null,
+      ward,
+      urgency,
+      contactName,
+      contactMobile,
+    };
+
     return (
       <>
-        <View style={styles.summaryCard}>
-          <SummaryRow label="Patient" value={patientName} />
-          <SummaryRow label="Blood Group" value={bloodGroup ?? "—"} />
-          <SummaryRow label="Hospital" value={hospital ?? "—"} />
-          <SummaryRow label="Ward" value={ward} />
-          <SummaryRow label="Units" value={`${units} Units`} />
-          <SummaryRow label="Urgency" value={urgencyTitle(urgency)} />
-          <SummaryRow label="Contact" value={contactLabel(contactName, contactMobile)} last />
-        </View>
+        <RequestReview
+          data={review}
+          broadcastEnabled={broadcastEnabled}
+          onToggleBroadcast={handleToggleBroadcast}
+          broadcastError={broadcastError}
+          onEdit={handleEdit}
+        />
 
+        {/* Below the certification card rather than inside the summary: the
+            review copy above it is fixed, this is the one free-text field. */}
         <TextField
           label="Notes for Donors (optional)"
           value={notes}
@@ -421,11 +570,12 @@ export default function EmergencyRequestScreen() {
             </View>
 
             <Text style={styles.successTitle} accessibilityRole="header">
-              Request submitted
+              Emergency Request Broadcast
             </Text>
 
             <Text style={styles.successBody}>
-              Nearby verified donors are being notified now. Keep the contact number reachable.
+              Your request has been sent to nearby verified donors. Keep the contact number
+              reachable.
             </Text>
 
             <View style={styles.reference}>
@@ -452,15 +602,39 @@ export default function EmergencyRequestScreen() {
 
   const isLastStep = step === TOTAL_STEPS - 1;
   const stepTitle = STEP_TITLES[step] ?? STEP_TITLES[0];
+  const headerTitle = STEP_HEADER_TITLES[step] ?? STEP_HEADER_TITLES[0];
+
+  // The final step reads as one sentence plus a percentage, because there is no
+  // later step to name on the trailing edge.
+  const progress =
+    isLastStep
+      ? { leading: `STEP ${TOTAL_STEPS} OF ${TOTAL_STEPS}: FINAL VERIFICATION`, trailing: "100%" }
+      : { label: stepTitle };
 
   return (
     <View style={styles.root}>
       <StepHeader
-        title={`Request Step ${step + 1}`}
+        title={headerTitle}
         onBack={handleBack}
+        right={
+          <Pressable
+            onPress={() => {
+              if (session !== null) {
+                router.push(ROLE_HOME[session.user.role]);
+              }
+            }}
+            disabled={session === null}
+            accessibilityRole="button"
+            accessibilityLabel="Open profile"
+            hitSlop={HIT_SLOP_MIN / 2}
+            style={({ pressed }) => [styles.avatar, pressed && styles.avatarPressed]}
+          >
+            <Feather name="user" size={12} color={Blood.primary} />
+          </Pressable>
+        }
       />
 
-      <StepProgress current={step + 1} total={TOTAL_STEPS} label={stepTitle} />
+      <StepProgress current={step + 1} total={TOTAL_STEPS} {...progress} />
 
       <ScrollView
         style={styles.flex}
@@ -474,20 +648,32 @@ export default function EmergencyRequestScreen() {
       </ScrollView>
 
       {/* Outside the ScrollView so the action stays reachable at any scroll depth. */}
-      <View style={[styles.actions, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+      <View style={[styles.actions, { paddingBottom: Math.max(insets.bottom, 10) }]}>
         {/* In the footer rather than the scroll area: a rejected submission is
             the one error the user must not have to scroll to find. */}
         <FormAlert message={formError} />
 
         <PrimaryAuthButton
-          label={isLastStep ? "Submit Request" : "Continue"}
-          loadingLabel="Submitting..."
+          label={STEP_CTA_LABELS[step] ?? STEP_CTA_LABELS[0]}
+          loadingLabel={isLastStep ? "Broadcasting Emergency Request..." : "Submitting..."}
+          icon={isLastStep ? "zap" : undefined}
+          size="compact"
           trailingIcon={isLastStep ? undefined : "arrow-right"}
           loading={isSubmitting}
           onPress={handleContinue}
         />
 
-        {isLastStep ? null : (
+        {isLastStep ? (
+          <Pressable
+            onPress={handleEditAll}
+            accessibilityRole="button"
+            accessibilityLabel="Edit all details and return to the first step"
+            hitSlop={8}
+            style={styles.backLink}
+          >
+            <Text style={styles.editAllText}>Edit All Details</Text>
+          </Pressable>
+        ) : (
           <Pressable
             onPress={handleBack}
             accessibilityRole="button"
@@ -495,45 +681,16 @@ export default function EmergencyRequestScreen() {
             hitSlop={8}
             style={styles.backLink}
           >
-            <Feather name="arrow-left" size={11} color={Surface.textMuted} />
+            <Feather name="arrow-left" size={10} color={Surface.textMuted} />
 
             <Text style={styles.backLinkText}>
-              Back to {step === 0 ? "start" : STEP_TITLES[step - 1]}
+              Back to {step === 0 ? "start" : STEP_BACK_LABELS[step - 1]}
             </Text>
           </Pressable>
         )}
       </View>
     </View>
   );
-}
-
-type SummaryRowProps = {
-  label: string;
-  value: string;
-  /** Drops the hairline under the final row. */
-  last?: boolean;
-};
-
-function SummaryRow({ label, value, last = false }: SummaryRowProps) {
-  return (
-    <View style={[styles.summaryRow, last && styles.summaryRowLast]}>
-      <Text style={styles.summaryLabel} numberOfLines={1}>
-        {label}
-      </Text>
-
-      <Text style={styles.summaryValue} numberOfLines={2}>
-        {value}
-      </Text>
-    </View>
-  );
-}
-
-function contactLabel(name: string, mobile: string): string {
-  if (name.trim() === "" && mobile.trim() === "") {
-    return "—";
-  }
-
-  return mobile.trim() === "" ? name.trim() : `${name.trim()} (${mobile.trim()})`;
 }
 
 const styles = StyleSheet.create({
@@ -547,35 +704,71 @@ const styles = StyleSheet.create({
   },
 
   content: {
-    gap: 18,
+    gap: 12,
     paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 20,
+    paddingTop: 12,
+    paddingBottom: 16,
   },
 
   section: {
-    gap: 10,
+    gap: 7,
   },
 
-  sectionTight: {
-    gap: 14,
+  /** Map plus the coverage card that overlaps it — no gap between them. */
+  mapGroup: {
+    marginTop: 2,
   },
 
-  sectionHeading: {
-    ...Typography.label,
-    fontSize: 12,
-    letterSpacing: -0.1,
+  pageTitle: {
+    ...Typography.cardTitle,
+    fontSize: 16,
+    lineHeight: 21,
+    letterSpacing: -0.3,
     color: Surface.text,
   },
 
   sectionBody: {
     ...Typography.small,
     fontSize: 9.5,
-    fontWeight: "500",
     lineHeight: 13,
+    fontWeight: "500",
     letterSpacing: 0.1,
     color: Surface.textMuted,
-    marginTop: -4,
+  },
+
+  unitsCard: {
+    gap: 7,
+    borderRadius: Radius.field,
+    padding: 10,
+    backgroundColor: Surface.card,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Surface.border,
+  },
+
+  criticalBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: Radius.pill,
+    backgroundColor: Surface.softRed,
+  },
+
+  criticalDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: Blood.primary,
+  },
+
+  criticalText: {
+    ...Typography.micro,
+    fontSize: 7.5,
+    lineHeight: 11,
+    letterSpacing: 0.2,
+    fontWeight: "700",
+    color: Blood.primary,
   },
 
   urgencyHeading: {
@@ -589,7 +782,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 3,
-    paddingHorizontal: 7,
+    paddingHorizontal: 6,
     paddingVertical: 3,
     borderRadius: Radius.pill,
     backgroundColor: Surface.softRed,
@@ -597,16 +790,17 @@ const styles = StyleSheet.create({
 
   pushAlertsText: {
     ...Typography.micro,
-    fontSize: 8,
+    fontSize: 7.5,
+    lineHeight: 11,
     letterSpacing: 0.2,
     fontWeight: "700",
     color: Blood.primary,
   },
 
   actions: {
-    gap: 8,
+    gap: 6,
     paddingHorizontal: 16,
-    paddingTop: 10,
+    paddingTop: 8,
     backgroundColor: Surface.card,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: Surface.border,
@@ -617,56 +811,40 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 4,
-    minHeight: 28,
+    minHeight: 24,
   },
 
   backLinkText: {
     ...Typography.micro,
-    fontSize: 9.5,
+    fontSize: 9,
     fontWeight: "500",
     letterSpacing: 0.1,
     color: Surface.textMuted,
   },
 
-  summaryCard: {
-    borderRadius: Radius.field,
-    paddingHorizontal: 13,
-    backgroundColor: Surface.card,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Surface.border,
-  },
-
-  summaryRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-    paddingVertical: 11,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Surface.border,
-  },
-
-  summaryRowLast: {
-    borderBottomWidth: 0,
-  },
-
-  summaryLabel: {
+  editAllText: {
     ...Typography.micro,
-    fontSize: 9.5,
-    fontWeight: "500",
+    fontSize: 9,
+    fontWeight: "600",
     letterSpacing: 0.1,
     color: Surface.textMuted,
-    flexShrink: 0,
+    textAlign: "center",
   },
 
-  summaryValue: {
-    ...Typography.small,
-    fontSize: 11,
-    fontWeight: "600",
-    letterSpacing: -0.1,
-    color: Surface.text,
-    flex: 1,
-    textAlign: "right",
+  /** Profile affordance in the header, present on every step. */
+  avatar: {
+    width: 26,
+    height: 26,
+    borderRadius: Radius.full,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Surface.softRed,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Surface.softRedBorder,
+  },
+
+  avatarPressed: {
+    backgroundColor: Surface.softRedBorder,
   },
 
   successWrap: {

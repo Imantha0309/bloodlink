@@ -23,11 +23,11 @@ export const Colors = {
 export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
 
 export const Blood = {
-  primary: "#D7193F",
-  dark: "#B71C1C",
-  light: "#EF5350",
-  glow: "rgba(215, 25, 63, 0.30)",
-  ripple: "rgba(215, 25, 63, 0.35)",
+  primary: "#C8102E",
+  dark: "#B51224",
+  light: "#E5566B",
+  glow: "rgba(200, 16, 46, 0.30)",
+  ripple: "rgba(200, 16, 46, 0.35)",
 } as const;
 
 export const Spacing = {
@@ -51,49 +51,52 @@ export const MaxContentWidth = 800;
  */
 export const Surface = {
   /** Page background — pale blue-grey. */
-  background: "#F7F8FC",
+  background: "#F7F9FC",
 
   /** Raised cards and inputs. */
   card: "#FFFFFF",
 
   /** Hairline borders and dividers. */
-  border: "#E5E7EB",
+  border: "#E4E8ED",
 
   /** Slightly stronger border, used for pressed / focused inputs. */
   borderStrong: "#D0D5DD",
 
   /** Primary readable text. */
-  text: "#172033",
+  text: "#18212B",
 
   /** Supporting copy — labels, subtitles. */
-  textSecondary: "#667085",
+  textSecondary: "#687586",
 
   /** Placeholders and decorative meta text. */
-  textMuted: "#98A2B3",
+  textMuted: "#929AA6",
 
   /** Text on top of `Blood.primary`. */
   onPrimary: "#FFFFFF",
 
   /** Tinted red panel background (emergency card). */
-  softRed: "#FFE4E2",
+  softRed: "#FFF0F1",
 
   /** Border for tinted red panels. */
   softRedBorder: "#FECDCA",
 
   /** Tinted green panel background (donor card). */
-  softGreen: "#DCFAE6",
+  softGreen: "#EAF8EF",
 
   /** Border for tinted green panels. */
   softGreenBorder: "#ABEFC6",
 
   /** Tinted blue panel background (hospital card, information cards). */
-  softBlue: "#EFF4FF",
+  softBlue: "#EAF2FF",
 
   /** Border for tinted blue panels. */
   softBlueBorder: "#C7D7FE",
 
   /** Low-emphasis icon wash (header back button, intro icon badge). */
   iconWash: "#F1F3F9",
+
+  /** Water body inside the decorative map preview. */
+  mapWater: "#8FD7E8",
 
   /** Secondary accent for informational iconography (quick actions, info cards). */
   accentBlue: "#4D73B8",
@@ -107,7 +110,7 @@ export const Surface = {
   successText: "#16834A",
 
   /** Destructive / validation messages. */
-  danger: "#B42318",
+  danger: "#B51224",
 
   /** "Online now" dot on donor avatars. */
   online: "#12B76A",

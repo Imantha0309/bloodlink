@@ -18,12 +18,13 @@ type ContactCardProps = {
 };
 
 /**
- * Contact person for the request, as one card with two borderless inputs.
+ * Contact person for the request, as one row.
  *
- * The design shows a single row — "Kamal Perera (077 889 9123)" — but the
- * service takes the name and the number as separate fields, so both live in one
- * bordered card rather than being flattened into a string and split again. A
- * hairline separates them.
+ * The design shows a single line — "Kamal Perera (077 889 9123)" — but the
+ * service takes the name and the number as separate fields. So the row keeps one
+ * border and one line, with the two editable fields either side of a pair of
+ * literal parentheses, rather than flattening them into a string and splitting it
+ * again on the way out.
  */
 export function ContactCard({
   name,
@@ -34,56 +35,50 @@ export function ContactCard({
   mobileError = null,
   caption,
 }: ContactCardProps) {
-  const hasError = nameError !== null || mobileError !== null;
+  const error = nameError ?? mobileError;
 
   return (
     <View>
-      <View style={[styles.card, hasError && styles.cardError]}>
-        <View style={styles.row}>
-          <Feather name="user" size={15} color={Surface.textMuted} />
+      <View style={[styles.card, error !== null && styles.cardError]}>
+        <Feather name="user" size={12} color={Surface.textMuted} />
 
-          <TextInput
-            value={name}
-            onChangeText={onChangeName}
-            placeholder="Contact person"
-            placeholderTextColor={Surface.textMuted}
-            style={styles.input}
-            autoCapitalize="words"
-            autoComplete="name"
-            accessibilityLabel="Contact person"
-            selectionColor={Blood.primary}
-          />
+        <TextInput
+          value={name}
+          onChangeText={onChangeName}
+          placeholder="Contact person"
+          placeholderTextColor={Surface.textMuted}
+          style={[styles.input, styles.inputName]}
+          autoCapitalize="words"
+          autoComplete="name"
+          returnKeyType="next"
+          accessibilityLabel="Contact person"
+          selectionColor={Blood.primary}
+        />
 
-          <Feather name="phone" size={15} color={Blood.primary} />
-        </View>
+        <Text style={styles.paren}>(</Text>
 
-        <View style={styles.divider} />
+        <TextInput
+          value={mobile}
+          onChangeText={onChangeMobile}
+          placeholder="077 000 0000"
+          placeholderTextColor={Surface.textMuted}
+          style={[styles.input, styles.inputMobile]}
+          keyboardType="phone-pad"
+          autoComplete="tel"
+          returnKeyType="done"
+          accessibilityLabel="Contact mobile number"
+          selectionColor={Blood.primary}
+        />
 
-        <View style={styles.row}>
-          <Feather name="smartphone" size={15} color={Surface.textMuted} />
+        <Text style={styles.paren}>)</Text>
 
-          <TextInput
-            value={mobile}
-            onChangeText={onChangeMobile}
-            placeholder="Mobile number"
-            placeholderTextColor={Surface.textMuted}
-            style={styles.input}
-            keyboardType="phone-pad"
-            autoComplete="tel"
-            accessibilityLabel="Contact mobile number"
-            selectionColor={Blood.primary}
-          />
-
-          {/* Keeps the phone glyph in the trailing column aligned with the row above. */}
-          <View style={styles.trailingSpacer} />
-        </View>
+        {/* Not a button — the number is already editable in the row. */}
+        <Feather name="phone" size={12} color={Blood.primary} />
       </View>
 
-      {nameError !== null ? <FieldError message={nameError} /> : null}
+      <FieldError message={error} reserveSpace={false} />
 
-      {mobileError !== null ? <FieldError message={mobileError} /> : null}
-
-      {caption !== undefined && !hasError ? (
+      {caption !== undefined && error === null ? (
         <Text style={styles.caption}>{caption}</Text>
       ) : null}
     </View>
@@ -92,8 +87,12 @@ export function ContactCard({
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: Radius.field,
-    paddingHorizontal: 13,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    minHeight: 40,
+    borderRadius: Radius.sm,
+    paddingHorizontal: 10,
     backgroundColor: Surface.card,
     borderWidth: 1,
     borderColor: Surface.border,
@@ -103,37 +102,42 @@ const styles = StyleSheet.create({
     borderColor: Surface.danger,
   },
 
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    minHeight: 44,
-  },
-
-  divider: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: Surface.border,
-  },
-
   input: {
     ...Typography.input,
-    flex: 1,
-    color: Surface.text,
-    // Android adds its own vertical padding, which would break the row height.
+    // Android adds its own vertical padding that breaks the fixed row height.
     paddingVertical: 0,
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: "600",
+    letterSpacing: -0.05,
+    color: Surface.text,
   },
 
-  trailingSpacer: {
-    width: 15,
+  inputName: {
+    flex: 1,
+  },
+
+  inputMobile: {
+    // Fixed width so the number cannot wrap mid-number at 375px.
+    flexShrink: 0,
+    width: 82,
+  },
+
+  paren: {
+    ...Typography.micro,
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: "600",
+    color: Surface.textMuted,
   },
 
   caption: {
     ...Typography.micro,
-    fontSize: 8.5,
+    fontSize: 7.5,
+    lineHeight: 11,
     fontWeight: "500",
-    lineHeight: 12,
     letterSpacing: 0.1,
     color: Surface.textMuted,
-    marginTop: 6,
+    marginTop: 5,
   },
 });

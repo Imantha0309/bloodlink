@@ -8,7 +8,16 @@ type StepProgressProps = {
   current: number;
   total: number;
   /** Short name of the visible step, shown on the trailing edge. */
-  label: string;
+  label?: string;
+  /**
+   * Replaces the leading `Step N of M` text.
+   *
+   * The final step reads as one sentence rather than a counter plus a label,
+   * because there is no next step left to name.
+   */
+  leading?: string;
+  /** Shown on the trailing edge instead of `label`, e.g. `"100%"`. */
+  trailing?: string;
 };
 
 /**
@@ -18,42 +27,50 @@ type StepProgressProps = {
  * three-step request wizard needs the bar itself to show how much is left.
  * Segments are `flex: 1` so the bar spans any width without fixed pixel maths.
  */
-export function StepProgress({ current, total, label }: StepProgressProps) {
+export function StepProgress({ current, total, label, leading, trailing }: StepProgressProps) {
+  const leadingText = leading ?? `Step ${current} of ${total}`;
+  const trailingText = trailing ?? label;
+
   return (
     <View style={styles.container}>
       <View style={styles.labels}>
         <View style={styles.counter}>
           <View style={styles.dot} />
 
-          <Text style={styles.counterText}>
-            Step {current} of {total}
+          <Text style={styles.counterText} numberOfLines={1}>
+            {leadingText}
           </Text>
         </View>
 
-        <Text style={styles.label} numberOfLines={1}>
-          {label}
-        </Text>
+        {trailingText === undefined ? null : (
+          <Text style={styles.label} numberOfLines={1}>
+            {trailingText}
+          </Text>
+        )}
       </View>
 
       <View
         style={styles.track}
         accessibilityRole="progressbar"
-        accessibilityValue={{ min: 1, max: total, now: current }}
-        accessibilityLabel={`Step ${current} of ${total}: ${label}`}
+        accessibilityValue={{
+          min: 1,
+          max: total,
+          now: current,
+          text: `${Math.round((current / total) * 100)}%`,
+        }}
+        accessibilityLabel={`Step ${current} of ${total}${label === undefined ? "" : `: ${label}`}`}
       >
         {Array.from({ length: total }, (_unused, index) => {
           const step = index + 1;
-          const isDone = step < current;
-          const isCurrent = step === current;
+          const isFilled = step <= current;
+          // Completed segments stay dimmed only while there is work left. On the
+          // final step the bar has to read as one solid 100% fill.
+          const isDimmed = step < current && current < total;
 
           return (
             <View
               key={step}
-              style={[
-                styles.segment,
-                (isDone || isCurrent) && styles.segmentFilled,
-                isCurrent && styles.segmentCurrent,
-              ]}
+              style={[styles.segment, isFilled && styles.segmentFilled, isDimmed && styles.segmentDimmed]}
             />
           );
         })}
@@ -82,6 +99,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
+    // Lets the long final-step string truncate instead of shoving the
+    // trailing percentage off the edge on narrow phones.
+    flexShrink: 1,
   },
 
   dot: {
@@ -119,13 +139,12 @@ const styles = StyleSheet.create({
     backgroundColor: Surface.border,
   },
 
-  /** Completed and current segments share the fill; current is made taller. */
+  /** Completed and current segments share the fill; only past steps dim. */
   segmentFilled: {
     backgroundColor: Blood.primary,
-    opacity: 0.4,
   },
 
-  segmentCurrent: {
-    opacity: 1,
+  segmentDimmed: {
+    opacity: 0.4,
   },
 });

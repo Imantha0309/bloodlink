@@ -39,6 +39,7 @@ export const ValidationMessages = {
   contactNameRequired: "Please enter a contact person.",
   wardRequired: "Please enter the ward and room.",
   notesTooLong: "Please keep notes under 500 characters.",
+  broadcastDisabled: "Turn on broadcast radius to send this request.",
 } as const;
 
 /** Mirrors `PASSWORD_MIN_LENGTH` in the server's password module. */

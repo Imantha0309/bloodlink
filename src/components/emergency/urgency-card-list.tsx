@@ -2,18 +2,17 @@ import { Feather } from "@expo/vector-icons";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { URGENCY_OPTIONS, type UrgencyLevel } from "@/constants/emergency";
-import { Elevation, Surface } from "@/constants/colors";
+import { Blood, Surface } from "@/constants/colors";
 import { Radius } from "@/constants/radius";
 import { Typography } from "@/constants/typography";
 
 /**
  * Copy for the request wizard.
  *
- * `URGENCY_OPTIONS` already carries the colour treatment and the canonical
- * level names, and the dashboard's request card renders those — so the wording
- * the wizard shows is kept here rather than overwriting the shared constant.
- * `emergency.ts` stays the single source of truth for which levels exist and how
- * each one is coloured.
+ * `URGENCY_OPTIONS` already carries the level names and the per-level icon, and
+ * the dashboard's request card renders those — so only the wizard's own wording
+ * and its badge live here rather than overwriting the shared constant.
+ * `emergency.ts` stays the single source of truth for which levels exist.
  */
 const WIZARD_COPY: Record<
   UrgencyLevel,
@@ -52,9 +51,13 @@ type UrgencyCardListProps = {
 /**
  * Single-select urgency choice, rendered as full-width cards.
  *
- * Chips cannot carry the two-line title-plus-subtitle plus a badge at this
- * density, so the wizard gets cards instead. Selection is exclusive by
- * construction — `onChange` replaces the value rather than toggling.
+ * Chips cannot carry the icon, the two-line title-plus-subtitle and a badge at
+ * this density, so the wizard gets cards instead. Each card is one row — icon,
+ * copy, radio — so all three keep the same height whether or not they carry a
+ * badge, and selection changes only the border, the icon and the radio.
+ *
+ * Selection is exclusive by construction: `onChange` replaces the value rather
+ * than toggling.
  */
 export function UrgencyCardList({ value, onChange }: UrgencyCardListProps) {
   return (
@@ -76,12 +79,17 @@ export function UrgencyCardList({ value, onChange }: UrgencyCardListProps) {
               pressed && !isSelected && styles.cardPressed,
             ]}
           >
-            <View style={styles.top}>
-              <View style={styles.heading}>
-                <Text
-                  style={[styles.title, isSelected && styles.titleSelected]}
-                  numberOfLines={1}
-                >
+            <View style={[styles.icon, isSelected && styles.iconSelected]}>
+              <Feather
+                name={option.icon}
+                size={13}
+                color={isSelected ? Surface.onPrimary : Surface.textSecondary}
+              />
+            </View>
+
+            <View style={styles.copy}>
+              <View style={styles.titleRow}>
+                <Text style={styles.title} numberOfLines={1}>
                   {copy.title}
                 </Text>
 
@@ -94,20 +102,16 @@ export function UrgencyCardList({ value, onChange }: UrgencyCardListProps) {
                 ) : null}
               </View>
 
-              <Feather
-                name={isSelected ? "radio" : "circle"}
-                size={16}
-                color={isSelected ? Surface.danger : Surface.textMuted}
-              />
+              <Text style={styles.subtitle} numberOfLines={2}>
+                {copy.subtitle}
+              </Text>
             </View>
 
-            <Text style={styles.subtitle} numberOfLines={2}>
-              {copy.subtitle}
-            </Text>
-
-            {/* A red spine reinforces the selected state without adding another
-                full border, which would fight the tinted fill. */}
-            {isSelected ? <View style={styles.spine} /> : null}
+            <Feather
+              name={isSelected ? "radio" : "circle"}
+              size={14}
+              color={isSelected ? Blood.primary : Surface.textMuted}
+            />
           </Pressable>
         );
       })}
@@ -117,68 +121,77 @@ export function UrgencyCardList({ value, onChange }: UrgencyCardListProps) {
 
 const styles = StyleSheet.create({
   list: {
-    gap: 8,
+    gap: 6,
   },
 
   card: {
-    position: "relative",
-    gap: 4,
-    overflow: "hidden",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
     borderRadius: Radius.field,
-    paddingHorizontal: 12,
-    paddingVertical: 11,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
     backgroundColor: Surface.card,
-    borderWidth: 1.5,
+    borderWidth: 1,
     borderColor: Surface.border,
-    ...Elevation.card,
   },
 
+  /** White fill with a red border — the fill stays neutral so the red reads. */
   cardSelected: {
-    borderColor: Surface.danger,
-    backgroundColor: Surface.softRed,
+    borderColor: Blood.primary,
+    borderWidth: 1.5,
   },
 
   cardPressed: {
     borderColor: Surface.borderStrong,
   },
 
-  top: {
-    flexDirection: "row",
+  icon: {
+    width: 26,
+    height: 26,
+    borderRadius: Radius.full,
     alignItems: "center",
-    justifyContent: "space-between",
-    gap: 8,
+    justifyContent: "center",
+    backgroundColor: Surface.iconWash,
   },
 
-  heading: {
+  iconSelected: {
+    backgroundColor: Blood.primary,
+  },
+
+  copy: {
+    flex: 1,
+    gap: 2,
+    flexShrink: 1,
+  },
+
+  titleRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 7,
-    flexShrink: 1,
+    gap: 6,
   },
 
   title: {
     ...Typography.body,
-    fontSize: 12.5,
+    fontSize: 11,
+    lineHeight: 14,
     fontWeight: "700",
-    letterSpacing: -0.2,
+    letterSpacing: -0.1,
     color: Surface.text,
     flexShrink: 1,
   },
 
-  titleSelected: {
-    color: Surface.danger,
-  },
-
   badge: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: Radius.sm,
-    backgroundColor: Surface.danger,
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    borderRadius: 5,
+    backgroundColor: Blood.primary,
   },
 
   badgeText: {
     ...Typography.micro,
-    fontSize: 7,
+    fontSize: 6.5,
+    lineHeight: 9,
     letterSpacing: 0.4,
     fontWeight: "700",
     color: Surface.onPrimary,
@@ -186,19 +199,10 @@ const styles = StyleSheet.create({
 
   subtitle: {
     ...Typography.micro,
-    fontSize: 9,
+    fontSize: 8.5,
+    lineHeight: 12,
     fontWeight: "500",
-    lineHeight: 13,
     letterSpacing: 0.1,
     color: Surface.textSecondary,
-  },
-
-  spine: {
-    position: "absolute",
-    top: 0,
-    bottom: 0,
-    left: 0,
-    width: 3,
-    backgroundColor: Surface.danger,
   },
 });

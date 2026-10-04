@@ -15,8 +15,6 @@ type UnitsStepperProps = {
   /** Current quantity. */
   units: number;
   onChange: (units: number) => void;
-  /** Badges the urgency, e.g. a red "Critical Need" chip. */
-  badge?: string;
   error?: string | null;
 };
 
@@ -24,19 +22,28 @@ function formatUnits(units: number): string {
   return `${units} Unit${units === 1 ? "" : "s"}`;
 }
 
-/** Thousands separator, so 3 units reads "1,350 ml" rather than "1350 ml". */
+/**
+ * Total volume for a quantity.
+ *
+ * No thousands separator: the design shows `1350 ml Total`, not `1,350 ml`, and
+ * the cap of 20 units keeps the number four digits at most.
+ */
 function formatMl(ml: number): string {
-  return ml.toLocaleString("en-US");
+  return String(ml);
 }
 
 /**
  * Quantity stepper for whole-blood units, with the total volume kept live.
  *
+ * Just the note and the pale-blue selector — the card's heading, and the
+ * "Critical Need" badge that sits on that heading's line, belong to the caller so
+ * the heading row spans the full card width.
+ *
  * The two buttons clamp rather than disable at the bounds: a greyed button is
  * clearer about *why* nothing happens when you keep tapping, and the disabled
  * state still has to be announced. Callers own the bounds via `UNITS_MIN`/`UNITS_MAX`.
  */
-export function UnitsStepper({ units, onChange, badge, error = null }: UnitsStepperProps) {
+export function UnitsStepper({ units, onChange, error = null }: UnitsStepperProps) {
   const atMin = units <= UNITS_MIN;
   const atMax = units >= UNITS_MAX;
 
@@ -52,21 +59,9 @@ export function UnitsStepper({ units, onChange, badge, error = null }: UnitsStep
 
   return (
     <View>
-      <View style={styles.labelRow}>
-        <Text style={styles.unitNote}>
-          1 Unit = ~{ML_PER_UNIT} ml Whole Blood
-        </Text>
-
-        {badge !== undefined ? (
-          <View style={styles.badge}>
-            <View style={styles.badgeDot} />
-
-            <Text style={styles.badgeText} numberOfLines={1}>
-              {badge}
-            </Text>
-          </View>
-        ) : null}
-      </View>
+      <Text style={styles.unitNote}>
+        1 Unit = {ML_PER_UNIT} ml Whole Blood
+      </Text>
 
       <View style={[styles.card, error !== null && styles.cardError]}>
         <Pressable
@@ -84,7 +79,7 @@ export function UnitsStepper({ units, onChange, badge, error = null }: UnitsStep
         >
           <Feather
             name="minus"
-            size={16}
+            size={15}
             color={atMin ? Surface.textMuted : Surface.text}
           />
         </Pressable>
@@ -112,58 +107,25 @@ export function UnitsStepper({ units, onChange, badge, error = null }: UnitsStep
         >
           <Feather
             name="plus"
-            size={16}
+            size={15}
             color={atMax ? Surface.textMuted : Surface.text}
           />
         </Pressable>
       </View>
 
-      <FieldError message={error} />
+      <FieldError message={error} reserveSpace={false} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  labelRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 8,
-    marginBottom: 8,
-  },
-
   unitNote: {
     ...Typography.micro,
-    fontSize: 9,
+    fontSize: 8.5,
+    lineHeight: 12,
     fontWeight: "500",
     letterSpacing: 0.1,
     color: Surface.textMuted,
-    flexShrink: 1,
-  },
-
-  badge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: Radius.pill,
-    backgroundColor: Surface.softRed,
-  },
-
-  badgeDot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: Surface.danger,
-  },
-
-  badgeText: {
-    ...Typography.micro,
-    fontSize: 8,
-    letterSpacing: 0.2,
-    fontWeight: "700",
-    color: Surface.danger,
   },
 
   card: {
@@ -171,8 +133,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
-    borderRadius: Radius.field,
-    padding: 12,
+    marginTop: 7,
+    borderRadius: Radius.sm,
+    padding: 10,
     backgroundColor: Surface.softBlue,
     borderWidth: 1,
     borderColor: Surface.softBlueBorder,
@@ -183,9 +146,9 @@ const styles = StyleSheet.create({
   },
 
   stepper: {
-    width: 38,
-    height: 38,
-    borderRadius: Radius.sm,
+    width: 34,
+    height: 34,
+    borderRadius: 9,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: Surface.card,
@@ -204,20 +167,21 @@ const styles = StyleSheet.create({
   total: {
     flex: 1,
     alignItems: "center",
-    gap: 2,
+    gap: 1,
   },
 
   quantity: {
-    fontSize: 19,
-    lineHeight: 24,
+    fontSize: 16,
+    lineHeight: 21,
     fontWeight: "800",
-    letterSpacing: -0.5,
+    letterSpacing: -0.4,
     color: Surface.text,
   },
 
   volume: {
     ...Typography.micro,
-    fontSize: 9,
+    fontSize: 8.5,
+    lineHeight: 12,
     fontWeight: "500",
     letterSpacing: 0.1,
     color: Surface.textSecondary,

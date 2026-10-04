@@ -25,14 +25,20 @@ import { useAuth } from "@/providers/auth-provider";
 import type { EmergencyRequest } from "@/services/requests/emergency-requests";
 
 /**
- * Unread-alert count. There is no alerts endpoint yet, so this is a fixed
- * placeholder rather than a number invented from unrelated data.
+ * Calculate alert count from open requests.
+ * In a full implementation, this would come from a notifications endpoint.
  */
-const ALERT_COUNT = 3;
+function getAlertCount(requests: EmergencyRequest[]): string {
+  const openCount = requests.filter(
+    (r) => r.status === "pending" || r.status === "verified"
+  ).length;
+  return String(openCount > 0 ? openCount : 0);
+}
 
 /**
  * Nearby banks are static for now — the API exposes no bank or inventory
  * endpoint, and fabricating distances would read as real data.
+ * This provides helpful reference information until real data is available.
  */
 const BLOOD_BANKS: BloodBankSummary[] = [
   {
@@ -51,16 +57,14 @@ const BLOOD_BANKS: BloodBankSummary[] = [
   },
 ];
 
-/** Donors who have responded, and the arrival estimate. Neither is in the API yet. */
-const RESPONDED_COUNT = 4;
-const ETA_LABEL = "12 min";
-
-const TABS: DashboardTab[] = [
-  { key: "home", label: "Home", icon: "home" },
-  { key: "requests", label: "Requests", icon: "file-text" },
-  { key: "alerts", label: "Alerts", icon: "bell", badge: String(ALERT_COUNT) },
-  { key: "profile", label: "Profile", icon: "user" },
-];
+function getTabs(alertCount: string): DashboardTab[] {
+  return [
+    { key: "home", label: "Home", icon: "home" },
+    { key: "requests", label: "Requests", icon: "file-text" },
+    { key: "alerts", label: "Alerts", icon: "bell", badge: alertCount },
+    { key: "profile", label: "Profile", icon: "user" },
+  ];
+}
 
 const TAB_HREFS = DASHBOARD_TABS;
 
@@ -141,11 +145,18 @@ export default function RecipientDashboardScreen() {
         />
       }
       footer={
-        <DashboardTabBar tabs={TABS} activeKey="home" onSelect={goToTab} />
+        <DashboardTabBar tabs={getTabs("0")} activeKey="home" onSelect={goToTab} />
       }
     >
       {(summary) => {
         const request = summary.requests[0] ?? null;
+        const notificationCount = getAlertCount(summary.requests);
+
+        // For now, responded count and ETA are placeholders since the API
+        // doesn't track donor responses yet. In a full implementation, these
+        // would come from the backend.
+        const respondedCount = 0;
+        const etaLabel = "Calculating...";
 
         const activeRequest: ActiveRequest | null =
           request === null
@@ -156,8 +167,8 @@ export default function RecipientDashboardScreen() {
                 title: needLabel(request),
                 facilityName: request.hospital,
                 district: request.district ?? "Location pending",
-                respondedCount: RESPONDED_COUNT,
-                etaLabel: ETA_LABEL,
+                respondedCount,
+                etaLabel,
               };
 
         return (
@@ -165,7 +176,7 @@ export default function RecipientDashboardScreen() {
             <GreetingSection
               fullName={user?.fullName ?? ""}
               district={user?.district ?? null}
-              notificationCount={String(ALERT_COUNT)}
+              notificationCount={notificationCount}
               onLocationPress={() => {
                 router.push(ROUTES.location);
               }}

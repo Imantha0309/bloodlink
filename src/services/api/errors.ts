@@ -52,6 +52,22 @@ export class ApiError extends Error {
   }
 }
 
+/** Copy for a failure we have no specific wording for. */
+const GENERIC_FAILURE = "Something went wrong. Please try again.";
+
+/**
+ * The server's own message, when it actually supplied one.
+ *
+ * `ApiError` falls back to its own code when `message` is omitted, so reading
+ * `error.message` directly can surface the bare word `"validation"` to the user.
+ * A message identical to the code carries no wording, so it is discarded.
+ */
+function serverMessage(error: ApiError): string {
+  return error.message.length > 0 && error.message !== error.code
+    ? error.message
+    : GENERIC_FAILURE;
+}
+
 /**
  * Maps a failure onto the copy the user should read. Anything unrecognised
  * falls back to a generic message rather than leaking internals.
@@ -68,18 +84,22 @@ export function apiErrorMessage(error: unknown): string {
       case "validation":
         // The server's validation copy is written for humans, so it is safe to
         // show directly.
-        return error.message;
+        return serverMessage(error);
       case "not_found":
-        return error.message;
+        return serverMessage(error);
       case "conflict":
-        return error.message;
+        return serverMessage(error);
       case "unauthorized":
         return "Your session has expired. Please sign in again.";
       case "unknown":
       default:
-        return "Something went wrong. Please try again.";
+        return serverMessage(error);
     }
   }
 
-  return "Unable to connect. Please try again.";
+  // `client.ts` funnels every transport failure into `ApiError("network")`, so
+  // reaching here means something unexpected failed inside the app itself —
+  // storage, or serialising the request body. Reporting that as a connectivity
+  // problem would point the reader at the network instead of the real fault.
+  return GENERIC_FAILURE;
 }

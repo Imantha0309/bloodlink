@@ -4,7 +4,7 @@ import { EmptyNote } from "@/components/dashboard/empty-note";
 import { RequestCard } from "@/components/dashboard/request-card";
 import type { BloodGroup } from "@/constants/blood-groups";
 import { CAN_DONATE_TO } from "@/constants/blood-groups";
-import type { EmergencyRequest } from "@/services/requests/emergency-requests";
+import type { DonorResponse, EmergencyRequest } from "@/services/requests/emergency-requests";
 
 type RequestListProps = {
   requests: readonly EmergencyRequest[];
@@ -16,6 +16,8 @@ type RequestListProps = {
    * treatment. Presentation only — the server already decided what to return.
    */
   donorGroup?: BloodGroup | null;
+  canAccept?: boolean;
+  onDonorResponse?: (id: string, response: DonorResponse) => Promise<DonorResponse>;
 };
 
 /** A triage list, or the "nothing here" note when it is empty. */
@@ -24,6 +26,8 @@ export function RequestList({
   emptyTitle = "Nothing to show",
   emptyMessage = "There are no requests here right now.",
   donorGroup = null,
+  canAccept = true,
+  onDonorResponse,
 }: RequestListProps) {
   if (requests.length === 0) {
     return <EmptyNote title={emptyTitle} message={emptyMessage} />;
@@ -38,6 +42,8 @@ export function RequestList({
           key={request.id}
           request={request}
           matchesDonor={servable?.includes(request.bloodGroup) ?? false}
+          canAccept={canAccept}
+          onDonorResponse={onDonorResponse}
         />
       ))}
     </View>

@@ -1,6 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import type { ComponentProps } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { useState } from "react";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Blood, Surface } from "@/constants/colors";
 import {
@@ -10,7 +11,12 @@ import {
 } from "@/constants/emergency";
 import { Radius } from "@/constants/radius";
 import { Typography } from "@/constants/typography";
-import type { EmergencyRequest, RequestStatus } from "@/services/requests/emergency-requests";
+import type {
+  DonorResponse,
+  EmergencyRequest,
+  RequestStatus,
+} from "@/services/requests/emergency-requests";
+import { apiErrorMessage } from "@/services/auth";
 
 // Keyed lookup so the card can colour itself from the same catalogue the form
 // renders, rather than keeping a second copy of the palette.
@@ -89,13 +95,39 @@ type RequestCardProps = {
   request: EmergencyRequest;
   /** Adds the shared "compatible with you" treatment on the donor dashboard. */
   matchesDonor?: boolean;
+  canAccept?: boolean;
+  onDonorResponse?: (id: string, response: DonorResponse) => Promise<DonorResponse>;
 };
 
 /** One emergency request, as it appears in every dashboard's triage list. */
-export function RequestCard({ request, matchesDonor = false }: RequestCardProps) {
+export function RequestCard({
+  request,
+  matchesDonor = false,
+  canAccept = true,
+  onDonorResponse,
+}: RequestCardProps) {
+  const [localResponse, setLocalResponse] = useState<DonorResponse | null>(null);
+  const [isResponding, setIsResponding] = useState(false);
+  const [responseError, setResponseError] = useState<string | null>(null);
   const urgency = URGENCY_BY_LEVEL[request.urgency];
   const status = STATUS_META[request.status];
   const posted = timeAgo(request.createdAt);
+  const donorResponse = request.donorResponse ?? localResponse;
+
+  async function handleDonorResponse(next: DonorResponse) {
+    if (!onDonorResponse || isResponding) return;
+
+    setIsResponding(true);
+    setResponseError(null);
+
+    try {
+      setLocalResponse(await onDonorResponse(request.id, next));
+    } catch (caught) {
+      setResponseError(apiErrorMessage(caught));
+    } finally {
+      setIsResponding(false);
+    }
+  }
 
   return (
     <View style={[styles.card, matchesDonor && styles.cardMatching]}>
@@ -165,6 +197,54 @@ export function RequestCard({ request, matchesDonor = false }: RequestCardProps)
           <Text style={styles.anonymous}>Zero-login request</Text>
         ) : null}
       </View>
+
+      {matchesDonor && donorResponse !== null ? (
+        <View style={[styles.responseStatus, donorResponse === "accepted" ? styles.accepted : styles.declined]}>
+          <Feather
+            name={donorResponse === "accepted" ? "check-circle" : "x-circle"}
+            size={14}
+            color={donorResponse === "accepted" ? Surface.online : Surface.textSecondary}
+          />
+          <Text style={styles.responseStatusText}>
+            {donorResponse === "accepted" ? "You accepted this request" : "You declined this request"}
+          </Text>
+        </View>
+      ) : null}
+
+      {matchesDonor && donorResponse === null && onDonorResponse ? (
+        <View style={styles.actions}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Accept request for ${request.patientName}`}
+            disabled={isResponding || !canAccept}
+            onPress={() => void handleDonorResponse("accepted")}
+            style={({ pressed }) => [styles.acceptButton, pressed && styles.pressed, (isResponding || !canAccept) && styles.disabled]}
+          >
+            {isResponding ? (
+              <ActivityIndicator size="small" color={Surface.card} />
+            ) : (
+              <Feather name="check" size={15} color={Surface.card} />
+            )}
+            <Text style={styles.acceptText}>Accept & respond</Text>
+          </Pressable>
+
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Decline request for ${request.patientName}`}
+            disabled={isResponding}
+            onPress={() => void handleDonorResponse("declined")}
+            style={({ pressed }) => [styles.declineButton, pressed && styles.pressed, isResponding && styles.disabled]}
+          >
+            <Text style={styles.declineText}>Decline</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {matchesDonor && donorResponse === null && !canAccept && onDonorResponse ? (
+        <Text style={styles.responseHint}>Turn on your availability to accept a request. You can still decline it.</Text>
+      ) : null}
+
+      {responseError !== null ? <Text style={styles.responseError}>{responseError}</Text> : null}
     </View>
   );
 }
@@ -306,6 +386,87 @@ const styles = StyleSheet.create({
   anonymous: {
     ...Typography.micro,
     fontSize: 9.5,
+    color: Surface.textMuted,
+  },
+
+  actions: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 2,
+  },
+
+  acceptButton: {
+    minHeight: 42,
+    flex: 1,
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 7,
+    paddingHorizontal: 12,
+    borderRadius: Radius.sm,
+    backgroundColor: Blood.primary,
+  },
+
+  acceptText: {
+    ...Typography.small,
+    fontWeight: "700",
+    color: Surface.card,
+  },
+
+  declineButton: {
+    minHeight: 42,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    borderRadius: Radius.sm,
+    borderWidth: 1,
+    borderColor: Surface.borderStrong,
+    backgroundColor: Surface.card,
+  },
+
+  declineText: {
+    ...Typography.small,
+    fontWeight: "600",
+    color: Surface.textSecondary,
+  },
+
+  pressed: {
+    opacity: 0.78,
+  },
+
+  disabled: {
+    opacity: 0.55,
+  },
+
+  responseStatus: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: Radius.sm,
+  },
+
+  accepted: {
+    backgroundColor: Surface.softGreen,
+  },
+
+  declined: {
+    backgroundColor: Surface.iconWash,
+  },
+
+  responseStatusText: {
+    ...Typography.small,
+    color: Surface.textSecondary,
+  },
+
+  responseError: {
+    ...Typography.small,
+    color: Surface.danger,
+  },
+
+  responseHint: {
+    ...Typography.micro,
     color: Surface.textMuted,
   },
 });

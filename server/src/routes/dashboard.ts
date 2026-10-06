@@ -9,6 +9,7 @@
 import { Router } from "express";
 
 import { db } from "../db";
+import { CAN_DONATE_TO } from "../lib/blood-compatibility";
 import { requireAuth } from "../middleware/auth";
 import {
   toEmergencyRequest,
@@ -18,18 +19,6 @@ import {
 } from "../types";
 
 export const dashboardRouter = Router();
-
-/** Recipient blood groups a donor of a given group can give to. */
-const CAN_DONATE_TO: Record<BloodGroup, readonly BloodGroup[]> = {
-  "O-": ["O-", "O+", "A-", "A+", "B-", "B+", "AB-", "AB+"],
-  "O+": ["O+", "A+", "B+", "AB+"],
-  "A-": ["A-", "A+", "AB-", "AB+"],
-  "A+": ["A+", "AB+"],
-  "B-": ["B-", "B+", "AB-", "AB+"],
-  "B+": ["B+", "AB+"],
-  "AB-": ["AB-", "AB+"],
-  "AB+": ["AB+"],
-};
 
 export type DashboardStat = {
   key: string;
@@ -81,12 +70,15 @@ function relevantRequests(role: UserRole, userId: string, bloodGroup: BloodGroup
 
     return db
       .prepare(
-        `SELECT * FROM emergency_requests
-          WHERE status IN ('pending', 'verified')
-            AND blood_group IN (${placeholders})
+        `SELECT r.*, dr.response AS donor_response, dr.stage AS donor_stage
+           FROM emergency_requests r
+           LEFT JOIN donor_request_responses dr
+             ON dr.request_id = r.id AND dr.donor_id = ?
+          WHERE r.status IN ('pending', 'verified')
+            AND r.blood_group IN (${placeholders})
           ${order}`,
       )
-      .all(...targets) as EmergencyRequestRow[];
+      .all(userId, ...targets) as EmergencyRequestRow[];
   }
 
   return db

@@ -8,7 +8,7 @@
 
 import { z } from "zod";
 
-import { BLOOD_GROUPS, URGENCY_LEVELS } from "../types";
+import { BLOOD_GROUPS, DONOR_RESPONSES, DONATION_STAGES, URGENCY_LEVELS } from "../types";
 import { normalizeContact } from "./contact";
 import { ApiError } from "./errors";
 import { PASSWORD_MIN_LENGTH, isPasswordAcceptable } from "./passwords";
@@ -94,6 +94,18 @@ export const emergencyRequestSchema = z.object({
     }),
   urgency: z.enum(URGENCY_LEVELS),
   notes: z.string().trim().max(500, "Please keep notes under 500 characters.").optional(),
+});
+
+export const donorResponseSchema = z.object({
+  response: z.enum(DONOR_RESPONSES),
+});
+
+export const donorStageSchema = z.object({
+  stage: z.enum(DONATION_STAGES),
+});
+
+export const checkInSchema = z.object({
+  token: z.string().trim().min(20),
 });
 
 /**

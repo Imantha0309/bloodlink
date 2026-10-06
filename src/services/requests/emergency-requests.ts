@@ -13,6 +13,8 @@ import type { UrgencyLevel } from "@/constants/emergency";
 import { hasRemoteApi } from "@/services/config";
 
 export type RequestStatus = "pending" | "verified" | "fulfilled" | "cancelled";
+export type DonorResponse = "accepted" | "declined";
+export type DonationStage = "accepted" | "en_route" | "arrived" | "completed";
 
 export type EmergencyRequest = {
   id: string;
@@ -29,6 +31,10 @@ export type EmergencyRequest = {
   createdAt: string;
   /** True when it came through the account-free urgent path. */
   isAnonymous: boolean;
+  /** This donor's persisted decision, null until they respond. */
+  donorResponse: DonorResponse | null;
+  /** Progress from acceptance through hospital intake. */
+  donorStage: DonationStage | null;
 };
 
 export type EmergencyRequestInput = {
@@ -59,6 +65,8 @@ const MOCK_REQUESTS: EmergencyRequest[] = [
     status: "pending",
     createdAt: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
     isAnonymous: true,
+    donorResponse: null,
+    donorStage: null,
   },
   {
     id: "req_mock_2",
@@ -74,6 +82,8 @@ const MOCK_REQUESTS: EmergencyRequest[] = [
     status: "verified",
     createdAt: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(),
     isAnonymous: false,
+    donorResponse: null,
+    donorStage: null,
   },
 ];
 
@@ -117,6 +127,8 @@ export async function createEmergencyRequest(
       status: "pending",
       createdAt: new Date().toISOString(),
       isAnonymous: true,
+      donorResponse: null,
+      donorStage: null,
     };
 
     MOCK_REQUESTS.unshift(created);
@@ -195,4 +207,36 @@ export async function getEmergencyRequest(id: string): Promise<EmergencyRequestD
       ? (body.compatibleDonorGroups as BloodGroup[])
       : [],
   };
+}
+
+export async function respondToEmergencyRequest(
+  id: string,
+  response: DonorResponse,
+): Promise<DonorResponse> {
+  if (!hasRemoteApi) {
+    const found = MOCK_REQUESTS.find((item) => item.id === id);
+
+    if (!found) {
+      throw new ApiError("not_found", "That request could not be found.");
+    }
+
+    if (found.status !== "pending" && found.status !== "verified") {
+      throw new ApiError("conflict", "This request is no longer accepting responses.");
+    }
+
+    found.donorResponse = response;
+    found.donorStage = response === "accepted" ? "accepted" : null;
+    return response;
+  }
+
+  const body = await request<{ response?: unknown }>(
+    `/emergency-requests/${encodeURIComponent(id)}/response`,
+    { method: "POST", body: { response } },
+  );
+
+  if (body.response !== "accepted" && body.response !== "declined") {
+    throw new ApiError("unknown", "The server returned an unexpected response.");
+  }
+
+  return body.response;
 }

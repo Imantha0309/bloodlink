@@ -1,8 +1,10 @@
 import { useMemo } from "react";
-import { StyleSheet, Text } from "react-native";
+import { Feather } from "@expo/vector-icons";
+import { StyleSheet, Text, View } from "react-native";
 
 import { AvailabilityCard } from "@/components/dashboard/availability-card";
 import { DashboardShell, type DashboardHelpers } from "@/components/dashboard/dashboard-shell";
+import { DonorTabBar } from "@/components/dashboard/donor-tab-bar";
 import { RequestList } from "@/components/dashboard/request-list";
 import { SectionHeading } from "@/components/dashboard/section-heading";
 import { StatGrid } from "@/components/dashboard/stat-grid";
@@ -11,6 +13,7 @@ import { Surface } from "@/constants/colors";
 import { Typography } from "@/constants/typography";
 import { useAuth } from "@/providers/auth-provider";
 import type { DashboardSummary } from "@/services/dashboard/dashboard";
+import { respondToEmergencyRequest } from "@/services/requests/emergency-requests";
 
 /** Requests nobody has closed yet — the ones a donor can still act on. */
 function isOpen(status: string): boolean {
@@ -19,7 +22,7 @@ function isOpen(status: string): boolean {
 
 export default function DonorDashboardScreen() {
   return (
-    <DashboardShell title="Donor Dashboard">
+    <DashboardShell title="Donor Home" bottomNavigation={<DonorTabBar active="home" />}>
       {(summary, helpers) => <DonorContent summary={summary} helpers={helpers} />}
     </DashboardShell>
   );
@@ -56,8 +59,15 @@ function DonorContent({
     };
   }, [summary.requests, donorGroup]);
 
+  const firstName = session?.user.fullName.trim().split(/\s+/)[0] ?? "Donor";
+
   return (
     <>
+      <View style={styles.intro}>
+        <Text style={styles.greeting}>Hello, {firstName}</Text>
+        <Text style={styles.introText}>Your availability can help someone get blood in time.</Text>
+      </View>
+
       {summary.availability !== null ? (
         <AvailabilityCard
           availability={summary.availability}
@@ -72,13 +82,26 @@ function DonorContent({
       <StatGrid stats={summary.stats} />
 
       <SectionHeading
-        label={donorGroup === null ? "Open requests" : `Compatible with ${donorGroup}`}
-        trailing={<Text style={styles.count}>{matching.length}</Text>}
+        label={donorGroup === null ? "Emergency requests" : `Requests for ${donorGroup} donors`}
+        trailing={
+          <View style={styles.liveBadge}>
+            <Feather name="radio" size={11} color={Surface.online} />
+            <Text style={styles.liveText}>LIVE · {matching.length}</Text>
+          </View>
+        }
       />
+
+      <Text style={styles.liveHint}>New matching requests refresh automatically every 10 seconds.</Text>
 
       <RequestList
         requests={matching}
         donorGroup={donorGroup}
+        canAccept={summary.availability?.isAvailable ?? false}
+        onDonorResponse={async (id, response) => {
+          const saved = await respondToEmergencyRequest(id, response);
+          helpers.reload();
+          return saved;
+        }}
         emptyTitle={donorGroup === null ? "No blood group on your profile" : "No matching requests"}
         emptyMessage={
           donorGroup === null
@@ -106,6 +129,39 @@ function DonorContent({
 }
 
 const styles = StyleSheet.create({
+  intro: {
+    gap: 4,
+    paddingTop: 2,
+  },
+
+  greeting: {
+    ...Typography.screenTitle,
+    color: Surface.text,
+  },
+
+  introText: {
+    ...Typography.small,
+    color: Surface.textSecondary,
+  },
+
+  liveBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+
+  liveText: {
+    ...Typography.micro,
+    color: Surface.online,
+    fontWeight: "700",
+  },
+
+  liveHint: {
+    ...Typography.micro,
+    color: Surface.textMuted,
+    marginTop: -14,
+  },
+
   count: {
     ...Typography.micro,
     color: Surface.textSecondary,
@@ -117,3 +173,4 @@ const styles = StyleSheet.create({
     marginTop: -10,
   },
 });
+

@@ -1,12 +1,13 @@
 import { Feather } from "@expo/vector-icons";
 import { useState } from "react";
-import { ActivityIndicator, StyleSheet, Switch, Text, View } from "react-native";
+import { ActivityIndicator, Alert, Pressable, StyleSheet, Switch, Text, View } from "react-native";
 
 import { Blood, Surface } from "@/constants/colors";
 import { Radius } from "@/constants/radius";
 import { Typography } from "@/constants/typography";
 import { apiErrorMessage } from "@/services/auth";
 import {
+  deleteDonorAvailability,
   setDonorAvailability,
   type DonorAvailability,
 } from "@/services/dashboard/dashboard";
@@ -52,6 +53,34 @@ export function AvailabilityCard({ availability, onSaved }: AvailabilityCardProp
     }
   }
 
+  function confirmRemove() {
+    Alert.alert(
+      "Remove availability record?",
+      "You will be paused and hidden from available-donor totals. You can set your availability again at any time.",
+      [
+        { text: "Keep record", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: () => void handleRemove(),
+        },
+      ],
+    );
+  }
+
+  async function handleRemove() {
+    if (isSaving) return;
+    setIsSaving(true);
+    setError(null);
+    try {
+      onSaved(await deleteDonorAvailability());
+    } catch (caught) {
+      setError(apiErrorMessage(caught));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
   return (
     <View style={[styles.card, isAvailable ? styles.cardActive : styles.cardPaused]}>
       <View style={styles.row}>
@@ -65,11 +94,17 @@ export function AvailabilityCard({ availability, onSaved }: AvailabilityCardProp
 
         <View style={styles.text}>
           <Text style={styles.title}>
-            {isAvailable ? "You are available" : "You are paused"}
+            {!availability.recordExists
+              ? "Availability record removed"
+              : isAvailable
+                ? "You are available"
+                : "You are paused"}
           </Text>
 
           <Text style={styles.subtitle}>
-            {isAvailable
+            {!availability.recordExists
+              ? "You are hidden from dispatch. Set availability again whenever you are ready."
+              : isAvailable
               ? "You are counted in the available-donor totals hospitals see."
               : "You are left out of the available-donor totals until you switch back on."}
           </Text>
@@ -94,6 +129,19 @@ export function AvailabilityCard({ availability, onSaved }: AvailabilityCardProp
           />
         )}
       </View>
+
+      {availability.recordExists ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Remove availability record"
+          disabled={isSaving}
+          onPress={confirmRemove}
+          style={({ pressed }) => [styles.removeButton, pressed && styles.removePressed]}
+        >
+          <Feather name="trash-2" size={13} color={Surface.danger} />
+          <Text style={styles.removeText}>Remove availability record</Text>
+        </Pressable>
+      ) : null}
 
       {error !== null ? (
         <View style={styles.error}>
@@ -177,5 +225,23 @@ const styles = StyleSheet.create({
     ...Typography.small,
     color: Surface.danger,
     flex: 1,
+  },
+
+  removeButton: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 5,
+  },
+
+  removePressed: {
+    opacity: 0.65,
+  },
+
+  removeText: {
+    ...Typography.micro,
+    color: Surface.danger,
+    fontWeight: "700",
   },
 });

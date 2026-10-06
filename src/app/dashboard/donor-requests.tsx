@@ -10,7 +10,11 @@ import { Blood, Surface } from "@/constants/colors";
 import { useAuth } from "@/providers/auth-provider";
 import type { DashboardSummary } from "@/services/dashboard/dashboard";
 import { isBloodGroup } from "@/constants/blood-groups";
-import { respondToEmergencyRequest } from "@/services/requests/emergency-requests";
+import {
+  deleteEmergencyResponse,
+  respondToEmergencyRequest,
+  updateEmergencyResponse,
+} from "@/services/requests/emergency-requests";
 
 export default function DonorRequestsScreen() {
   return (
@@ -69,10 +73,16 @@ function RequestsContent({ summary, helpers }: { summary: DashboardSummary; help
         requests={open}
         donorGroup={donorGroup}
         canAccept={summary.availability?.isAvailable ?? false}
-        onDonorResponse={async (id, response) => {
-          const saved = await respondToEmergencyRequest(id, response);
+        onDonorResponse={async (id, response, isUpdate) => {
+          const saved = isUpdate
+            ? await updateEmergencyResponse(id, response)
+            : await respondToEmergencyRequest(id, response);
           helpers.reload();
           return saved;
+        }}
+        onRemoveDonorResponse={async (id) => {
+          await deleteEmergencyResponse(id);
+          helpers.reload();
         }}
         emptyTitle={donorGroup ? "No matching requests" : "Add your blood group"}
         emptyMessage={donorGroup ? "We refresh this list automatically when a compatible request arrives." : "Set your blood group in your donor profile to receive matches."}

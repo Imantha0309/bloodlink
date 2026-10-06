@@ -7,13 +7,14 @@ import { Blood, Surface } from "@/constants/colors";
 import { ROUTES } from "@/constants/routes";
 import { Typography } from "@/constants/typography";
 
-export type DonorTab = "home" | "requests" | "transit" | "intake";
+export type DonorTab = "home" | "requests" | "transit" | "intake" | "profile";
 
 const TABS: { id: DonorTab; label: string; icon: React.ComponentProps<typeof Feather>["name"]; route: string }[] = [
   { id: "home", label: "Home", icon: "home", route: ROUTES.donorHome },
   { id: "requests", label: "Requests", icon: "droplet", route: ROUTES.donorRequests },
   { id: "transit", label: "In Transit", icon: "navigation", route: ROUTES.donorTransit },
   { id: "intake", label: "Intake QR", icon: "grid", route: ROUTES.donorIntake },
+  { id: "profile", label: "Profile", icon: "user", route: ROUTES.donorProfile },
 ];
 
 export function DonorTabBar({ active }: { active: DonorTab }) {

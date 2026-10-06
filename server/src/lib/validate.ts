@@ -9,7 +9,8 @@
 import { z } from "zod";
 
 import { BLOOD_GROUPS, DONOR_RESPONSES, DONATION_STAGES, URGENCY_LEVELS } from "../types";
-import { normalizeContact } from "./contact";
+import { DISTRICTS } from "./geo";
+import { normalizeContact, normalizeEmail, normalizeMobile } from "./contact";
 import { ApiError } from "./errors";
 import { PASSWORD_MIN_LENGTH, isPasswordAcceptable } from "./passwords";
 
@@ -55,6 +56,27 @@ export const registerSchema = z.object({
   lastDonationAt: z.string().trim().min(1).optional(),
   /** Hospitals only. Captured for the admin verification queue. */
   registrationNumber: z.string().trim().min(1).optional(),
+});
+
+export const donorProfileSchema = z.object({
+  fullName: z.string().trim().min(2, "Please enter your full name."),
+  email: z.string().trim().nullable(),
+  mobile: z.string().trim().nullable(),
+  district: z.enum(DISTRICTS),
+  bloodGroup: bloodGroupSchema,
+}).superRefine((profile, context) => {
+  if (profile.email !== null && profile.email !== "" && normalizeEmail(profile.email) === null) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["email"], message: "Enter a valid email address." });
+  }
+  if (profile.mobile !== null && profile.mobile !== "" && normalizeMobile(profile.mobile) === null) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["mobile"], message: "Enter a valid Sri Lankan mobile number." });
+  }
+  if (
+    (profile.email === null || profile.email === "") &&
+    (profile.mobile === null || profile.mobile === "")
+  ) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["mobile"], message: "Provide an email address or mobile number." });
+  }
 });
 
 export const forgotPasswordSchema = z.object({

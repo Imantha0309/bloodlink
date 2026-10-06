@@ -89,9 +89,15 @@ donorsRouter.put("/me/availability", requireAuth, (request, response) => {
      VALUES (?, ?, ?, ?)
      ON CONFLICT(user_id) DO UPDATE SET
        is_available = excluded.is_available,
-       last_donation_at = COALESCE(excluded.last_donation_at, donor_availability.last_donation_at),
+       last_donation_at = CASE WHEN ? = 1 THEN excluded.last_donation_at ELSE donor_availability.last_donation_at END,
        updated_at = excluded.updated_at`,
-  ).run(user.id, input.isAvailable ? 1 : 0, input.lastDonationAt ?? null, timestamp);
+  ).run(
+    user.id,
+    input.isAvailable ? 1 : 0,
+    input.lastDonationAt ?? null,
+    timestamp,
+    input.lastDonationAt !== undefined ? 1 : 0,
+  );
 
   const row = db
     .prepare("SELECT * FROM donor_availability WHERE user_id = ?")
@@ -101,7 +107,41 @@ donorsRouter.put("/me/availability", requireAuth, (request, response) => {
     availability: {
       isAvailable: row.is_available === 1,
       lastDonationAt: row.last_donation_at,
+      recordExists: true,
     },
+  });
+});
+
+/** Read the donor's availability record; a missing record means paused. */
+donorsRouter.get("/me/availability", requireAuth, (request, response) => {
+  const user = request.user!;
+  if (user.role !== "donor") {
+    throw new ApiError("unauthorized", "Only donors can view donor availability.", { status: 403 });
+  }
+
+  const row = db
+    .prepare("SELECT is_available, last_donation_at FROM donor_availability WHERE user_id = ?")
+    .get(user.id) as { is_available: number; last_donation_at: string | null } | undefined;
+
+  response.json({
+    availability: {
+      isAvailable: row?.is_available === 1,
+      lastDonationAt: row?.last_donation_at ?? null,
+      recordExists: row !== undefined,
+    },
+  });
+});
+
+/** Delete the self-service record; missing availability is treated as paused. */
+donorsRouter.delete("/me/availability", requireAuth, (request, response) => {
+  const user = request.user!;
+  if (user.role !== "donor") {
+    throw new ApiError("unauthorized", "Only donors can remove donor availability.", { status: 403 });
+  }
+
+  db.prepare("DELETE FROM donor_availability WHERE user_id = ?").run(user.id);
+  response.json({
+    availability: { isAvailable: false, lastDonationAt: null, recordExists: false },
   });
 });
 
@@ -125,6 +165,38 @@ donorsRouter.get("/me/commitments", requireAuth, (request, response) => {
     .all(user.id) as EmergencyRequestRow[];
 
   response.json({ commitments: rows.map(toEmergencyRequest), updatedAt: now() });
+});
+
+/** Read every response the donor has created, including declined responses. */
+donorsRouter.get("/me/responses", requireAuth, (request, response) => {
+  const user = request.user!;
+  if (user.role !== "donor") {
+    throw new ApiError("unauthorized", "Only donors can view donor responses.", { status: 403 });
+  }
+
+  const rows = db
+    .prepare(
+      `SELECT r.*, dr.response AS donor_response, dr.stage AS donor_stage,
+              dr.created_at AS response_created_at, dr.updated_at AS response_updated_at
+         FROM donor_request_responses dr
+         JOIN emergency_requests r ON r.id = dr.request_id
+        WHERE dr.donor_id = ?
+        ORDER BY dr.updated_at DESC`,
+    )
+    .all(user.id) as (EmergencyRequestRow & {
+    response_created_at: string;
+    response_updated_at: string;
+  })[];
+
+  response.json({
+    responses: rows.map((row) => ({
+      request: toEmergencyRequest(row),
+      response: row.donor_response,
+      stage: row.donor_stage,
+      createdAt: row.response_created_at,
+      updatedAt: row.response_updated_at,
+    })),
+  });
 });
 
 /** The donor can only start travelling after accepting the matched request. */

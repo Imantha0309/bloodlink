@@ -31,7 +31,7 @@ export type DashboardSummary = {
   role: UserRole;
   stats: DashboardStat[];
   requests: ReturnType<typeof toEmergencyRequest>[];
-  availability: { isAvailable: boolean; lastDonationAt: string | null } | null;
+  availability: { isAvailable: boolean; lastDonationAt: string | null; recordExists: boolean } | null;
 };
 
 function countOpenRequests(where = "", params: unknown[] = []): number {
@@ -64,13 +64,23 @@ function relevantRequests(role: UserRole, userId: string, bloodGroup: BloodGroup
   }
 
   // A donor only sees requests their blood group can actually serve.
+  if (role === "donor" && bloodGroup === null) {
+    return [];
+  }
+
   if (role === "donor" && bloodGroup !== null) {
     const targets = CAN_DONATE_TO[bloodGroup];
     const placeholders = targets.map(() => "?").join(", ");
 
     return db
       .prepare(
-        `SELECT r.*, dr.response AS donor_response, dr.stage AS donor_stage
+        `SELECT r.*, dr.response AS donor_response, dr.stage AS donor_stage,
+          EXISTS (
+            SELECT 1 FROM donor_request_responses accepted
+             WHERE accepted.request_id = r.id
+               AND accepted.response = 'accepted'
+               AND accepted.donor_id <> ?
+          ) AS accepted_by_other_donor
            FROM emergency_requests r
            LEFT JOIN donor_request_responses dr
              ON dr.request_id = r.id AND dr.donor_id = ?
@@ -78,7 +88,7 @@ function relevantRequests(role: UserRole, userId: string, bloodGroup: BloodGroup
             AND r.blood_group IN (${placeholders})
           ${order}`,
       )
-      .all(userId, ...targets) as EmergencyRequestRow[];
+      .all(userId, userId, ...targets) as EmergencyRequestRow[];
   }
 
   return db
@@ -106,6 +116,7 @@ dashboardRouter.get("/me", requireAuth, (request, response) => {
     availability = {
       isAvailable,
       lastDonationAt: row?.last_donation_at ?? null,
+      recordExists: row !== undefined,
     };
 
     const matching =

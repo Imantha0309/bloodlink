@@ -25,6 +25,7 @@ export type DashboardStat = {
 export type DonorAvailability = {
   isAvailable: boolean;
   lastDonationAt: string | null;
+  recordExists: boolean;
 };
 
 export type DashboardSummary = {
@@ -36,7 +37,11 @@ export type DashboardSummary = {
 };
 
 /** Availability state when running without a backend. */
-let offlineAvailability: DonorAvailability = { isAvailable: true, lastDonationAt: null };
+let offlineAvailability: DonorAvailability = {
+  isAvailable: false,
+  lastDonationAt: null,
+  recordExists: false,
+};
 
 function readSummary(body: unknown): DashboardSummary | null {
   if (typeof body !== "object" || body === null) {
@@ -115,7 +120,7 @@ export async function getDashboardSummary(): Promise<DashboardSummary> {
 
 export async function setDonorAvailability(isAvailable: boolean): Promise<DonorAvailability> {
   if (!hasRemoteApi) {
-    offlineAvailability = { ...offlineAvailability, isAvailable };
+    offlineAvailability = { ...offlineAvailability, isAvailable, recordExists: true };
 
     return offlineAvailability;
   }
@@ -129,5 +134,20 @@ export async function setDonorAvailability(isAvailable: boolean): Promise<DonorA
     throw new ApiError("unknown", "The server returned an unexpected response.");
   }
 
+  return body.availability;
+}
+
+export async function deleteDonorAvailability(): Promise<DonorAvailability> {
+  if (!hasRemoteApi) {
+    offlineAvailability = { isAvailable: false, lastDonationAt: null, recordExists: false };
+    return offlineAvailability;
+  }
+
+  const body = await request<{ availability?: DonorAvailability }>("/donors/me/availability", {
+    method: "DELETE",
+  });
+  if (!body.availability) {
+    throw new ApiError("unknown", "The server returned an unexpected response.");
+  }
   return body.availability;
 }

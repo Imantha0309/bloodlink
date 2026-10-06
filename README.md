@@ -329,8 +329,10 @@ backend, stop the server and try to sign in: you should get
   code is shown on screen because the local backend has no SMS provider
 - **Emergency requests** — the zero-login form itself, plus a confirmation with
   a reference number
-- **Four role dashboards** — fed by `GET /dashboard/me`, with a working donor
-  availability toggle
+- **Donor CRUD** — create/read/update/remove availability, create/read/update/
+  withdraw emergency responses, and see response status history
+- **Four role dashboards** — fed by `GET /dashboard/me`, with donor availability
+  and emergency-response controls
 
 ## Layout
 

@@ -17,7 +17,8 @@ type RequestListProps = {
    */
   donorGroup?: BloodGroup | null;
   canAccept?: boolean;
-  onDonorResponse?: (id: string, response: DonorResponse) => Promise<DonorResponse>;
+  onDonorResponse?: (id: string, response: DonorResponse, isUpdate: boolean) => Promise<DonorResponse>;
+  onRemoveDonorResponse?: (id: string) => Promise<void>;
 };
 
 /** A triage list, or the "nothing here" note when it is empty. */
@@ -28,6 +29,7 @@ export function RequestList({
   donorGroup = null,
   canAccept = true,
   onDonorResponse,
+  onRemoveDonorResponse,
 }: RequestListProps) {
   if (requests.length === 0) {
     return <EmptyNote title={emptyTitle} message={emptyMessage} />;
@@ -44,6 +46,7 @@ export function RequestList({
           matchesDonor={servable?.includes(request.bloodGroup) ?? false}
           canAccept={canAccept}
           onDonorResponse={onDonorResponse}
+          onRemoveDonorResponse={onRemoveDonorResponse}
         />
       ))}
     </View>

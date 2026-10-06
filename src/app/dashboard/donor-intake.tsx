@@ -9,6 +9,7 @@ import { DonorTabBar } from "@/components/dashboard/donor-tab-bar";
 import { Blood, Surface } from "@/constants/colors";
 import { Radius } from "@/constants/radius";
 import { Typography } from "@/constants/typography";
+import { useAuth } from "@/providers/auth-provider";
 import { apiErrorMessage } from "@/services/auth";
 import {
   createDonorCheckInTicket,
@@ -26,6 +27,7 @@ export default function DonorIntakeScreen() {
 }
 
 function IntakeContent() {
+  const { session } = useAuth();
   const [commitment, setCommitment] = useState<DonorCommitment | null>(null);
   const [ticket, setTicket] = useState<DonorCheckInTicket | null>(null);
   const [loading, setLoading] = useState(true);
@@ -120,7 +122,18 @@ function IntakeContent() {
               ) : <ActivityIndicator size="large" color={Blood.primary} />}
             </View>
 
-            <Text style={styles.holdText}>Keep your screen bright. Let hospital staff scan this code to confirm arrival.</Text>
+            <View style={styles.passDetails}>
+              <Text style={styles.detailsTitle}>Pass details</Text>
+              <PassDetail label="Donor" value={session?.user.fullName ?? "Donor"} />
+              <PassDetail label="Patient" value={commitment.patientName} />
+              <PassDetail label="Hospital" value={commitment.hospital} />
+              {commitment.district ? <PassDetail label="District" value={commitment.district} /> : null}
+              <PassDetail label="Blood group" value={commitment.bloodGroup} />
+              <PassDetail label="Units requested" value={String(commitment.units)} />
+              <PassDetail label="Case reference" value={`#${commitment.id.slice(-6).toUpperCase()}`} />
+            </View>
+
+            <Text style={styles.holdText}>The QR contains a secure, single-use check-in ticket. The details above help staff confirm the correct donation case.</Text>
             <View style={styles.tokenRow}>
               <Feather name="clock" size={13} color={Blood.primary} />
               <Text style={styles.tokenText}>This QR expires at {expiresText}. Refresh if needed.</Text>
@@ -152,6 +165,15 @@ function IntakeContent() {
   );
 }
 
+function PassDetail({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.passDetailRow}>
+      <Text style={styles.passDetailLabel}>{label}</Text>
+      <Text style={styles.passDetailValue} numberOfLines={2}>{value}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   headline: { flexDirection: "row", alignItems: "center", gap: 12 },
   headIcon: { width: 43, height: 43, alignItems: "center", justifyContent: "center", borderRadius: 15, backgroundColor: Surface.softRed },
@@ -169,6 +191,11 @@ const styles = StyleSheet.create({
   scanInfo: { flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 4 },
   scanInfoText: { ...Typography.small, color: Surface.textSecondary },
   qrWrap: { alignSelf: "center", alignItems: "center", justifyContent: "center", width: 244, height: 244, borderRadius: 18, backgroundColor: "white", borderWidth: 1, borderColor: Surface.border },
+  passDetails: { padding: 12, gap: 8, borderRadius: 14, backgroundColor: Surface.background, borderWidth: 1, borderColor: Surface.border },
+  detailsTitle: { ...Typography.small, color: Surface.text, fontWeight: "800", marginBottom: 2 },
+  passDetailRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12 },
+  passDetailLabel: { ...Typography.micro, color: Surface.textMuted, flex: 1 },
+  passDetailValue: { ...Typography.micro, color: Surface.text, fontWeight: "700", textAlign: "right", flex: 1.5 },
   holdText: { ...Typography.small, color: Surface.textSecondary, textAlign: "center", paddingHorizontal: 8 },
   tokenRow: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 6, padding: 10, borderRadius: 12, backgroundColor: Surface.softRed },
   tokenText: { ...Typography.micro, color: Blood.primary, fontWeight: "700" },

@@ -96,7 +96,8 @@ type RequestCardProps = {
   /** Adds the shared "compatible with you" treatment on the donor dashboard. */
   matchesDonor?: boolean;
   canAccept?: boolean;
-  onDonorResponse?: (id: string, response: DonorResponse) => Promise<DonorResponse>;
+  onDonorResponse?: (id: string, response: DonorResponse, isUpdate: boolean) => Promise<DonorResponse>;
+  onRemoveDonorResponse?: (id: string) => Promise<void>;
 };
 
 /** One emergency request, as it appears in every dashboard's triage list. */
@@ -105,14 +106,22 @@ export function RequestCard({
   matchesDonor = false,
   canAccept = true,
   onDonorResponse,
+  onRemoveDonorResponse,
 }: RequestCardProps) {
-  const [localResponse, setLocalResponse] = useState<DonorResponse | null>(null);
+  const [localResponse, setLocalResponse] = useState<{
+    basedOn: DonorResponse | null;
+    value: DonorResponse | null;
+  } | null>(null);
   const [isResponding, setIsResponding] = useState(false);
   const [responseError, setResponseError] = useState<string | null>(null);
   const urgency = URGENCY_BY_LEVEL[request.urgency];
   const status = STATUS_META[request.status];
   const posted = timeAgo(request.createdAt);
-  const donorResponse = request.donorResponse ?? localResponse;
+  const donorResponse = localResponse?.basedOn === request.donorResponse
+    ? localResponse.value
+    : request.donorResponse;
+  const canEditResponse = donorResponse !== null &&
+    (donorResponse === "declined" || request.donorStage === null || request.donorStage === "accepted");
 
   async function handleDonorResponse(next: DonorResponse) {
     if (!onDonorResponse || isResponding) return;
@@ -121,7 +130,24 @@ export function RequestCard({
     setResponseError(null);
 
     try {
-      setLocalResponse(await onDonorResponse(request.id, next));
+      setLocalResponse({
+        basedOn: request.donorResponse,
+        value: await onDonorResponse(request.id, next, donorResponse !== null),
+      });
+    } catch (caught) {
+      setResponseError(apiErrorMessage(caught));
+    } finally {
+      setIsResponding(false);
+    }
+  }
+
+  async function handleRemoveResponse() {
+    if (!onRemoveDonorResponse || isResponding) return;
+    setIsResponding(true);
+    setResponseError(null);
+    try {
+      await onRemoveDonorResponse(request.id);
+      setLocalResponse({ basedOn: request.donorResponse, value: null });
     } catch (caught) {
       setResponseError(apiErrorMessage(caught));
     } finally {
@@ -211,7 +237,51 @@ export function RequestCard({
         </View>
       ) : null}
 
-      {matchesDonor && donorResponse === null && onDonorResponse ? (
+      {matchesDonor && request.acceptedByOtherDonor && donorResponse === null ? (
+        <View style={[styles.responseStatus, styles.acceptedByOther]}>
+          <Feather name="check-circle" size={14} color={Surface.online} />
+          <Text style={styles.responseStatusText}>Already accepted by another donor</Text>
+        </View>
+      ) : null}
+
+      {matchesDonor && !request.acceptedByOtherDonor && donorResponse !== null && canEditResponse && onDonorResponse ? (
+        <View style={styles.actions}>
+          <Pressable
+            accessibilityRole="button"
+            disabled={isResponding || (!canAccept && donorResponse !== "accepted")}
+            onPress={() => void handleDonorResponse("accepted")}
+            style={({ pressed }) => [styles.acceptButton, pressed && styles.pressed, isResponding && styles.disabled]}
+          >
+            <Feather name="check" size={14} color={Surface.card} />
+            <Text style={styles.acceptText}>Accept</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            disabled={isResponding}
+            onPress={() => void handleDonorResponse("declined")}
+            style={({ pressed }) => [styles.declineButton, pressed && styles.pressed, isResponding && styles.disabled]}
+          >
+            <Text style={styles.declineText}>Decline</Text>
+          </Pressable>
+          {onRemoveDonorResponse ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Remove your response"
+              disabled={isResponding}
+              onPress={() => void handleRemoveResponse()}
+              style={({ pressed }) => [styles.removeButton, pressed && styles.pressed, isResponding && styles.disabled]}
+            >
+              {isResponding ? <ActivityIndicator size="small" color={Surface.danger} /> : <Feather name="trash-2" size={14} color={Surface.danger} />}
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
+
+      {matchesDonor && donorResponse === "accepted" && !canEditResponse ? (
+        <Text style={styles.responseHint}>Transit has started. This response can no longer be changed or removed.</Text>
+      ) : null}
+
+      {matchesDonor && !request.acceptedByOtherDonor && donorResponse === null && onDonorResponse ? (
         <View style={styles.actions}>
           <Pressable
             accessibilityRole="button"
@@ -240,7 +310,7 @@ export function RequestCard({
         </View>
       ) : null}
 
-      {matchesDonor && donorResponse === null && !canAccept && onDonorResponse ? (
+      {matchesDonor && !request.acceptedByOtherDonor && donorResponse === null && !canAccept && onDonorResponse ? (
         <Text style={styles.responseHint}>Turn on your availability to accept a request. You can still decline it.</Text>
       ) : null}
 
@@ -430,6 +500,17 @@ const styles = StyleSheet.create({
     color: Surface.textSecondary,
   },
 
+  removeButton: {
+    minWidth: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: Radius.sm,
+    borderWidth: 1,
+    borderColor: Surface.softRedBorder,
+    backgroundColor: Surface.card,
+  },
+
   pressed: {
     opacity: 0.78,
   },
@@ -448,6 +529,10 @@ const styles = StyleSheet.create({
   },
 
   accepted: {
+    backgroundColor: Surface.softGreen,
+  },
+
+  acceptedByOther: {
     backgroundColor: Surface.softGreen,
   },
 

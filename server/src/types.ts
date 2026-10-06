@@ -67,6 +67,8 @@ export type EmergencyRequestRow = {
   /** Present on donor request feeds; null means not answered yet. */
   donor_response?: DonorResponse | null;
   donor_stage?: DonationStage | null;
+  /** True when another donor has already accepted this request. */
+  accepted_by_other_donor?: number | boolean;
   checkin_token_hash?: string | null;
   checkin_token_expires_at?: string | null;
 };
@@ -108,6 +110,7 @@ export type EmergencyRequestPayload = {
   /** Donor's response to this request; null when the donor has not responded. */
   donorResponse: DonorResponse | null;
   donorStage: DonationStage | null;
+  acceptedByOtherDonor: boolean;
 };
 
 export function toAuthUser(row: UserRow): AuthUser {
@@ -139,5 +142,6 @@ export function toEmergencyRequest(row: EmergencyRequestRow): EmergencyRequestPa
     isAnonymous: row.requester_user_id === null,
     donorResponse: row.donor_response ?? null,
     donorStage: row.donor_stage ?? null,
+    acceptedByOtherDonor: Boolean(row.accepted_by_other_donor),
   };
 }

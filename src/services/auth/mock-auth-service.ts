@@ -1,4 +1,4 @@
-import { normalizeContact } from "@/utils/contact";
+import { normalizeContact, normalizeEmail, normalizeMobile } from "@/utils/contact";
 
 import { clearSession, loadSession, saveSession } from "./session";
 import {
@@ -6,6 +6,7 @@ import {
   type AuthService,
   type AuthSession,
   type AuthUser,
+  type DonorProfileInput,
   type PasswordResetChallenge,
   type SignInInput,
   type SignUpInput,
@@ -120,7 +121,11 @@ function findAccount(identifier: string, password: string): MockAccount | undefi
     return undefined;
   }
 
-  return MOCK_ACCOUNTS.find((account) => account.identifier === normalized && account.password === password);
+  return MOCK_ACCOUNTS.find(
+    (account) =>
+      [account.identifier, account.user.email, account.user.mobile].includes(normalized) &&
+      account.password === password,
+  );
 }
 
 /** Splits an identifier into the email/mobile columns, as the server does. */
@@ -200,6 +205,51 @@ export class MockAuthService implements AuthService {
     await saveSession(session);
 
     return session;
+  }
+
+  async updateDonorProfile(input: DonorProfileInput): Promise<AuthUser> {
+    const session = await loadSession();
+    if (!session || session.user.role !== "donor") {
+      throw new ApiError("unauthorized", "Only donors can edit a donor profile.");
+    }
+
+    const account = MOCK_ACCOUNTS.find((candidate) => candidate.user.id === session.user.id);
+    if (!account) throw new ApiError("not_found", "Donor profile could not be found.");
+
+    const email = input.email?.trim() ? normalizeEmail(input.email) : null;
+    const mobile = input.mobile?.trim() ? normalizeMobile(input.mobile) : null;
+    if (input.email?.trim() && !email) {
+      throw new ApiError("validation", "Enter a valid email address.", { email: "Enter a valid email address." });
+    }
+    if (input.mobile?.trim() && !mobile) {
+      throw new ApiError("validation", "Enter a valid mobile number.", { mobile: "Enter a valid mobile number." });
+    }
+    if (mobile === null && email === null) {
+      throw new ApiError("validation", "Provide an email address or mobile number.", {
+        mobile: "Provide an email address or mobile number.",
+      });
+    }
+    if (MOCK_ACCOUNTS.some(
+      (candidate) => candidate !== account &&
+        [candidate.identifier, candidate.user.email, candidate.user.mobile].some((value) =>
+          value !== null && [email, mobile].includes(value),
+        ),
+    )) {
+      throw new ApiError("conflict", "That email or mobile number is already in use.");
+    }
+
+    account.identifier = mobile ?? email!;
+    account.user = {
+      ...account.user,
+      fullName: input.fullName.trim(),
+      email,
+      mobile,
+      district: input.district,
+      bloodGroup: input.bloodGroup,
+    };
+    const updatedSession = { ...session, user: account.user };
+    await saveSession(updatedSession);
+    return account.user;
   }
 
   async restoreSession(): Promise<AuthSession | null> {

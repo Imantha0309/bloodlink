@@ -60,6 +60,7 @@ function AppNavigator() {
         <Stack.Screen name="dashboard/donor-requests" options={{ contentStyle: screenBackground }} />
         <Stack.Screen name="dashboard/donor-transit" options={{ contentStyle: screenBackground }} />
         <Stack.Screen name="dashboard/donor-intake" options={{ contentStyle: screenBackground }} />
+        <Stack.Screen name="dashboard/donor-profile" options={{ contentStyle: screenBackground }} />
         <Stack.Screen
           name="dashboard/hospital"
           options={{ contentStyle: screenBackground }}

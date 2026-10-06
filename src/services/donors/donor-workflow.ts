@@ -3,11 +3,19 @@ import { request } from "@/services/api/client";
 import { hasRemoteApi } from "@/services/config";
 import {
   listEmergencyRequests,
+  type DonorResponse,
   type DonationStage,
   type EmergencyRequest,
 } from "@/services/requests/emergency-requests";
 
 export type DonorCommitment = EmergencyRequest & { donorStage: DonationStage };
+export type DonorResponseRecord = {
+  request: EmergencyRequest;
+  response: DonorResponse;
+  stage: DonationStage;
+  createdAt: string;
+  updatedAt: string;
+};
 export type DonorCheckInTicket = { ticket: string; expiresAt: string };
 
 const mockStages = new Map<string, DonationStage>();
@@ -29,6 +37,34 @@ export async function listDonorCommitments(): Promise<DonorCommitment[]> {
       typeof (item as DonorCommitment).id === "string" &&
       (item as DonorCommitment).donorResponse === "accepted" &&
       typeof (item as DonorCommitment).donorStage === "string",
+  );
+}
+
+export async function listDonorResponses(): Promise<DonorResponseRecord[]> {
+  if (!hasRemoteApi) {
+    const requests = await listEmergencyRequests();
+    return requests.flatMap((request) =>
+      request.donorResponse === null
+        ? []
+        : [{
+            request,
+            response: request.donorResponse,
+            stage: request.donorStage ?? "accepted",
+            createdAt: request.createdAt,
+            updatedAt: request.createdAt,
+          }],
+    );
+  }
+
+  const body = await request<{ responses?: unknown }>("/donors/me/responses");
+  if (!Array.isArray(body.responses)) return [];
+  return body.responses.filter(
+    (item): item is DonorResponseRecord =>
+      typeof item === "object" &&
+      item !== null &&
+      typeof (item as DonorResponseRecord).request?.id === "string" &&
+      ((item as DonorResponseRecord).response === "accepted" ||
+        (item as DonorResponseRecord).response === "declined"),
   );
 }
 

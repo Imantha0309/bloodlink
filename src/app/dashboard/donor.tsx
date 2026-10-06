@@ -13,7 +13,11 @@ import { Surface } from "@/constants/colors";
 import { Typography } from "@/constants/typography";
 import { useAuth } from "@/providers/auth-provider";
 import type { DashboardSummary } from "@/services/dashboard/dashboard";
-import { respondToEmergencyRequest } from "@/services/requests/emergency-requests";
+import {
+  deleteEmergencyResponse,
+  respondToEmergencyRequest,
+  updateEmergencyResponse,
+} from "@/services/requests/emergency-requests";
 
 /** Requests nobody has closed yet — the ones a donor can still act on. */
 function isOpen(status: string): boolean {
@@ -97,10 +101,16 @@ function DonorContent({
         requests={matching}
         donorGroup={donorGroup}
         canAccept={summary.availability?.isAvailable ?? false}
-        onDonorResponse={async (id, response) => {
-          const saved = await respondToEmergencyRequest(id, response);
+        onDonorResponse={async (id, response, isUpdate) => {
+          const saved = isUpdate
+            ? await updateEmergencyResponse(id, response)
+            : await respondToEmergencyRequest(id, response);
           helpers.reload();
           return saved;
+        }}
+        onRemoveDonorResponse={async (id) => {
+          await deleteEmergencyResponse(id);
+          helpers.reload();
         }}
         emptyTitle={donorGroup === null ? "No blood group on your profile" : "No matching requests"}
         emptyMessage={

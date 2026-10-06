@@ -13,8 +13,10 @@ import { Typography } from "@/constants/typography";
 import { apiErrorMessage } from "@/services/auth";
 import {
   listDonorCommitments,
+  listDonorResponses,
   startDonorTransit,
   type DonorCommitment,
+  type DonorResponseRecord,
 } from "@/services/donors/donor-workflow";
 
 export default function DonorTransitScreen() {
@@ -28,13 +30,19 @@ export default function DonorTransitScreen() {
 function TransitContent() {
   const router = useRouter();
   const [commitments, setCommitments] = useState<DonorCommitment[]>([]);
+  const [responses, setResponses] = useState<DonorResponseRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [workingId, setWorkingId] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     try {
-      setCommitments(await listDonorCommitments());
+      const [nextCommitments, nextResponses] = await Promise.all([
+        listDonorCommitments(),
+        listDonorResponses(),
+      ]);
+      setCommitments(nextCommitments);
+      setResponses(nextResponses);
       setError(null);
     } catch (caught) {
       setError(apiErrorMessage(caught));
@@ -147,6 +155,23 @@ function TransitContent() {
           {completed.slice(0, 3).map((item) => <Text key={item.id} style={styles.completedText}>✓  {item.patientName} · {item.hospital}</Text>)}
         </View>
       ) : null}
+
+      {responses.length > 0 ? (
+        <View style={styles.completedPanel}>
+          <Text style={styles.completedTitle}>Emergency response status</Text>
+          {responses.map((item) => (
+            <View key={item.request.id} style={styles.responseRow}>
+              <View style={styles.responseCopy}>
+                <Text style={styles.responsePatient} numberOfLines={1}>{item.request.patientName}</Text>
+                <Text style={styles.completedText}>{item.request.hospital} · {item.request.bloodGroup}</Text>
+              </View>
+              <View style={[styles.responseBadge, item.response === "accepted" ? styles.responseAccepted : styles.responseDeclined]}>
+                <Text style={styles.responseBadgeText}>{item.response === "accepted" ? "ACCEPTED" : "DECLINED"}</Text>
+              </View>
+            </View>
+          ))}
+        </View>
+      ) : null}
     </>
   );
 }
@@ -206,6 +231,13 @@ const styles = StyleSheet.create({
   completedPanel: { gap: 9, padding: 14, borderRadius: 16, backgroundColor: Surface.card, borderWidth: 1, borderColor: Surface.border },
   completedTitle: { ...Typography.cardTitle, color: Surface.text },
   completedText: { ...Typography.small, color: Surface.textSecondary },
+  responseRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  responseCopy: { flex: 1, gap: 2 },
+  responsePatient: { ...Typography.small, color: Surface.text, fontWeight: "700" },
+  responseBadge: { paddingVertical: 5, paddingHorizontal: 8, borderRadius: 12 },
+  responseAccepted: { backgroundColor: Surface.softGreen },
+  responseDeclined: { backgroundColor: Surface.iconWash },
+  responseBadgeText: { fontSize: 9, fontWeight: "800", color: Surface.textSecondary },
   error: { color: Surface.danger, ...Typography.small },
   pressed: { opacity: 0.78 },
 });

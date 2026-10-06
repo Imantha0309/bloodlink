@@ -35,6 +35,8 @@ export type EmergencyRequest = {
   donorResponse: DonorResponse | null;
   /** Progress from acceptance through hospital intake. */
   donorStage: DonationStage | null;
+  /** True when another donor has already accepted this request. */
+  acceptedByOtherDonor?: boolean;
 };
 
 export type EmergencyRequestInput = {
@@ -49,43 +51,8 @@ export type EmergencyRequestInput = {
   notes?: string | null;
 };
 
-/** Offline stand-in so the screens have something to render without a server. */
-const MOCK_REQUESTS: EmergencyRequest[] = [
-  {
-    id: "req_mock_1",
-    patientName: "R. M. Silva",
-    bloodGroup: "O-",
-    units: 3,
-    hospital: "National Hospital of Sri Lanka",
-    district: "Colombo",
-    contactName: "Ravindu Silva",
-    contactMobile: "0771234501",
-    urgency: "critical",
-    notes: "Road traffic accident. Theatre scheduled within the hour.",
-    status: "pending",
-    createdAt: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
-    isAnonymous: true,
-    donorResponse: null,
-    donorStage: null,
-  },
-  {
-    id: "req_mock_2",
-    patientName: "F. A. Rizwan",
-    bloodGroup: "A+",
-    units: 2,
-    hospital: "Kandy Teaching Hospital",
-    district: "Kandy",
-    contactName: "Fathima Rizwan",
-    contactMobile: "0775551234",
-    urgency: "urgent",
-    notes: "Post-operative transfusion.",
-    status: "verified",
-    createdAt: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(),
-    isAnonymous: false,
-    donorResponse: null,
-    donorStage: null,
-  },
-];
+/** Offline mode starts with no fabricated requests; user-created requests stay in memory. */
+const OFFLINE_REQUESTS: EmergencyRequest[] = [];
 
 function readRequestBody(body: unknown): EmergencyRequest | null {
   const candidate = (body as { request?: unknown } | null)?.request;
@@ -131,7 +98,7 @@ export async function createEmergencyRequest(
       donorStage: null,
     };
 
-    MOCK_REQUESTS.unshift(created);
+    OFFLINE_REQUESTS.unshift(created);
 
     return created;
   }
@@ -162,7 +129,7 @@ export async function createEmergencyRequest(
 
 export async function listEmergencyRequests(): Promise<EmergencyRequest[]> {
   if (!hasRemoteApi) {
-    return [...MOCK_REQUESTS];
+    return [...OFFLINE_REQUESTS];
   }
 
   const body = await request<{ requests?: unknown }>("/emergency-requests");
@@ -182,7 +149,7 @@ export type EmergencyRequestDetail = {
 
 export async function getEmergencyRequest(id: string): Promise<EmergencyRequestDetail> {
   if (!hasRemoteApi) {
-    const found = MOCK_REQUESTS.find((item) => item.id === id);
+    const found = OFFLINE_REQUESTS.find((item) => item.id === id);
 
     if (found === undefined) {
       throw new ApiError("not_found", "That request could not be found.");
@@ -214,7 +181,7 @@ export async function respondToEmergencyRequest(
   response: DonorResponse,
 ): Promise<DonorResponse> {
   if (!hasRemoteApi) {
-    const found = MOCK_REQUESTS.find((item) => item.id === id);
+    const found = OFFLINE_REQUESTS.find((item) => item.id === id);
 
     if (!found) {
       throw new ApiError("not_found", "That request could not be found.");
@@ -239,4 +206,36 @@ export async function respondToEmergencyRequest(
   }
 
   return body.response;
+}
+
+export async function updateEmergencyResponse(
+  id: string,
+  response: DonorResponse,
+): Promise<DonorResponse> {
+  if (!hasRemoteApi) {
+    return respondToEmergencyRequest(id, response);
+  }
+
+  const body = await request<{ response?: unknown }>(
+    `/emergency-requests/${encodeURIComponent(id)}/response`,
+    { method: "PUT", body: { response } },
+  );
+  if (body.response !== "accepted" && body.response !== "declined") {
+    throw new ApiError("unknown", "The server returned an unexpected response.");
+  }
+  return body.response;
+}
+
+export async function deleteEmergencyResponse(id: string): Promise<void> {
+  if (!hasRemoteApi) {
+    const found = OFFLINE_REQUESTS.find((item) => item.id === id);
+    if (!found) throw new ApiError("not_found", "That request could not be found.");
+    found.donorResponse = null;
+    found.donorStage = null;
+    return;
+  }
+
+  await request<{ deleted?: boolean }>(`/emergency-requests/${encodeURIComponent(id)}/response`, {
+    method: "DELETE",
+  });
 }

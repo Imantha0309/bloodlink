@@ -51,6 +51,9 @@ function AppNavigator() {
           reachable whether or not anyone is signed in. */}
       <Stack.Screen name="emergency-request" options={{ contentStyle: screenBackground }} />
 
+      {/* Public pass verification screen for QR code scans. */}
+      <Stack.Screen name="pass-details" options={{ contentStyle: screenBackground }} />
+
       <Stack.Protected guard={status === "authenticated"}>
         <Stack.Screen
           name="dashboard/recipient"

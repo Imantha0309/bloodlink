@@ -2,7 +2,7 @@ import { Feather } from "@expo/vector-icons";
 import { useState } from "react";
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Switch, Text, View } from "react-native";
 
-import { Blood, Surface } from "@/constants/colors";
+import { Blood, Elevation, Surface } from "@/constants/colors";
 import { Radius } from "@/constants/radius";
 import { Typography } from "@/constants/typography";
 import { apiErrorMessage } from "@/services/auth";
@@ -24,10 +24,7 @@ type AvailabilityCardProps = {
 /**
  * The donor's self-service availability switch.
  *
- * Fully controlled: the displayed value always comes from `availability`. This
- * is the one control on any dashboard that writes, so it owns the in-flight and
- * error states rather than pushing them up — a failed toggle should surface
- * next to the switch, not replace the whole screen.
+ * Fully controlled: the displayed value always comes from `availability`.
  */
 export function AvailabilityCard({ availability, onSaved }: AvailabilityCardProps) {
   const [isSaving, setIsSaving] = useState(false);
@@ -83,8 +80,8 @@ export function AvailabilityCard({ availability, onSaved }: AvailabilityCardProp
 
   return (
     <View style={[styles.card, isAvailable ? styles.cardActive : styles.cardPaused]}>
-      <View style={styles.row}>
-        <View style={[styles.badge, isAvailable ? styles.badgeActive : styles.badgePaused]}>
+      <View style={styles.topRow}>
+        <View style={[styles.statusBadge, isAvailable ? styles.badgeActive : styles.badgePaused]}>
           <Feather
             name={isAvailable ? "radio" : "pause"}
             size={18}
@@ -92,55 +89,70 @@ export function AvailabilityCard({ availability, onSaved }: AvailabilityCardProp
           />
         </View>
 
-        <View style={styles.text}>
-          <Text style={styles.title}>
-            {!availability.recordExists
-              ? "Availability record removed"
-              : isAvailable
-                ? "You are available"
-                : "You are paused"}
-          </Text>
+        <View style={styles.contentWrap}>
+          <View style={styles.titleRow}>
+            <Text style={styles.title}>
+              {!availability.recordExists
+                ? "Availability Record Removed"
+                : isAvailable
+                ? "Available & Receiving Alerts"
+                : "Standby / Paused"}
+            </Text>
+            {isAvailable ? (
+              <View style={styles.onlinePill}>
+                <View style={styles.pulsingDot} />
+                <Text style={styles.onlinePillText}>ONLINE</Text>
+              </View>
+            ) : null}
+          </View>
 
           <Text style={styles.subtitle}>
             {!availability.recordExists
-              ? "You are hidden from dispatch. Set availability again whenever you are ready."
+              ? "You are hidden from hospital dispatch. Turn switch on to participate."
               : isAvailable
-              ? "You are counted in the available-donor totals hospitals see."
-              : "You are left out of the available-donor totals until you switch back on."}
+              ? "Hospitals can see your active donor status for matching emergencies."
+              : "Emergency alerts are paused. Flip the switch whenever you're ready to donate."}
           </Text>
 
           {availability.lastDonationAt !== null ? (
-            <Text style={styles.meta}>Last donation: {availability.lastDonationAt}</Text>
+            <View style={styles.lastDonationPill}>
+              <Feather name="calendar" size={11} color={Surface.textSecondary} />
+              <Text style={styles.meta}>Last donation: {availability.lastDonationAt}</Text>
+            </View>
           ) : null}
         </View>
 
-        {isSaving ? (
-          <ActivityIndicator size="small" color={Blood.primary} />
-        ) : (
-          <Switch
-            value={isAvailable}
-            onValueChange={(next) => {
-              void handleToggle(next);
-            }}
-            accessibilityLabel="Available to donate"
-            trackColor={{ false: Surface.borderStrong, true: Surface.softGreenBorder }}
-            thumbColor={isAvailable ? Surface.online : Surface.card}
-            ios_backgroundColor={Surface.borderStrong}
-          />
-        )}
+        <View style={styles.switchWrap}>
+          {isSaving ? (
+            <ActivityIndicator size="small" color={Blood.primary} />
+          ) : (
+            <Switch
+              value={isAvailable}
+              onValueChange={(next) => {
+                void handleToggle(next);
+              }}
+              accessibilityLabel="Available to donate"
+              trackColor={{ false: Surface.borderStrong, true: Surface.softGreenBorder }}
+              thumbColor={isAvailable ? Surface.online : Surface.card}
+              ios_backgroundColor={Surface.borderStrong}
+            />
+          )}
+        </View>
       </View>
 
       {availability.recordExists ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Remove availability record"
-          disabled={isSaving}
-          onPress={confirmRemove}
-          style={({ pressed }) => [styles.removeButton, pressed && styles.removePressed]}
-        >
-          <Feather name="trash-2" size={13} color={Surface.danger} />
-          <Text style={styles.removeText}>Remove availability record</Text>
-        </Pressable>
+        <View style={styles.footerRow}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Remove availability record"
+            disabled={isSaving}
+            onPress={confirmRemove}
+            style={({ pressed }) => [styles.removeButton, pressed && styles.removePressed]}
+          >
+            <Feather name="trash-2" size={12} color={Surface.danger} />
+            <Text style={styles.removeText}>Remove availability record</Text>
+          </Pressable>
+        </View>
       ) : null}
 
       {error !== null ? (
@@ -155,11 +167,12 @@ export function AvailabilityCard({ availability, onSaved }: AvailabilityCardProp
 
 const styles = StyleSheet.create({
   card: {
-    padding: 14,
+    padding: 15,
     gap: 10,
     borderRadius: Radius.card,
     borderWidth: 1,
     backgroundColor: Surface.card,
+    ...Elevation.card,
   },
 
   cardActive: {
@@ -171,15 +184,15 @@ const styles = StyleSheet.create({
     borderColor: Surface.border,
   },
 
-  row: {
+  topRow: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     gap: 12,
   },
 
-  badge: {
-    width: 40,
-    height: 40,
+  statusBadge: {
+    width: 42,
+    height: 42,
     borderRadius: Radius.full,
     alignItems: "center",
     justifyContent: "center",
@@ -193,46 +206,85 @@ const styles = StyleSheet.create({
     backgroundColor: Surface.iconWash,
   },
 
-  text: {
+  contentWrap: {
     flex: 1,
-    gap: 2,
+    gap: 4,
+  },
+
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 6,
   },
 
   title: {
     ...Typography.cardTitle,
+    fontSize: 14.5,
     color: Surface.text,
+  },
+
+  onlinePill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: Radius.full,
+    backgroundColor: Surface.softGreen,
+  },
+
+  pulsingDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: Surface.online,
+  },
+
+  onlinePillText: {
+    ...Typography.micro,
+    fontSize: 9.5,
+    fontWeight: "800",
+    color: Surface.online,
+    letterSpacing: 0.5,
   },
 
   subtitle: {
     ...Typography.small,
+    fontSize: 12,
     color: Surface.textSecondary,
+    lineHeight: 16,
+  },
+
+  lastDonationPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 2,
   },
 
   meta: {
     ...Typography.micro,
-    fontSize: 10,
-    color: Surface.textMuted,
-    marginTop: 2,
+    fontSize: 11,
+    color: Surface.textSecondary,
   },
 
-  error: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
+  switchWrap: {
+    paddingTop: 4,
   },
 
-  errorText: {
-    ...Typography.small,
-    color: Surface.danger,
-    flex: 1,
+  footerRow: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Surface.border,
+    paddingTop: 8,
   },
 
   removeButton: {
     alignSelf: "flex-start",
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    paddingVertical: 5,
+    gap: 5,
+    paddingVertical: 4,
   },
 
   removePressed: {
@@ -241,7 +293,21 @@ const styles = StyleSheet.create({
 
   removeText: {
     ...Typography.micro,
+    fontSize: 11,
     color: Surface.danger,
-    fontWeight: "700",
+    fontWeight: "600",
+  },
+
+  error: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingTop: 4,
+  },
+
+  errorText: {
+    ...Typography.small,
+    color: Surface.danger,
+    flex: 1,
   },
 });

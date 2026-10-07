@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import QRCode from "react-native-qrcode-svg";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 
@@ -28,8 +28,10 @@ export default function DonorIntakeScreen() {
 
 function IntakeContent() {
   const { session } = useAuth();
+  const router = useRouter();
   const [commitment, setCommitment] = useState<DonorCommitment | null>(null);
   const [ticket, setTicket] = useState<DonorCheckInTicket | null>(null);
+  const [qrFormat, setQrFormat] = useState<"details" | "token">("details");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -76,6 +78,21 @@ function IntakeContent() {
   }
 
   const expiresText = ticket ? new Date(ticket.expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
+  const donorName = session?.user.fullName ?? "Donor";
+  const passText = commitment
+    ? [
+        "BLOODLINK DONOR INTAKE PASS",
+        `Donor: ${donorName}`,
+        `Blood Group: ${commitment.bloodGroup}`,
+        `Patient: ${commitment.patientName}`,
+        `Hospital: ${commitment.hospital}${commitment.district ? ` (${commitment.district})` : ""}`,
+        `Units: ${commitment.units} unit(s)`,
+        `Priority: ${commitment.urgency}`,
+        `Case Ref: #${commitment.id.slice(-6).toUpperCase()}`,
+        `Expires: ${expiresText}`,
+        `Ticket: ${ticket?.ticket ?? ""}`,
+      ].join("\n")
+    : "";
 
   return (
     <>
@@ -113,14 +130,87 @@ function IntakeContent() {
 
             <View style={styles.scanInfo}>
               <Feather name="lock" size={13} color={Surface.textSecondary} />
-              <Text style={styles.scanInfoText}>Secure single-use ticket · expires {expiresText}</Text>
+              <Text style={styles.scanInfoText}>Scan to see full pass details · expires {expiresText}</Text>
+            </View>
+
+            {/* QR Format Selector */}
+            <View style={styles.formatRow}>
+              <Pressable
+                onPress={() => setQrFormat("details")}
+                style={[styles.formatChip, qrFormat === "details" && styles.formatChipActive]}
+              >
+                <Feather
+                  name="file-text"
+                  size={12}
+                  color={qrFormat === "details" ? "#FFFFFF" : Surface.textSecondary}
+                />
+                <Text
+                  style={[
+                    styles.formatChipText,
+                    qrFormat === "details" && styles.formatChipTextActive,
+                  ]}
+                >
+                  Full Pass Details
+                </Text>
+              </Pressable>
+
+              <Pressable
+                onPress={() => setQrFormat("token")}
+                style={[styles.formatChip, qrFormat === "token" && styles.formatChipActive]}
+              >
+                <Feather
+                  name="code"
+                  size={12}
+                  color={qrFormat === "token" ? "#FFFFFF" : Surface.textSecondary}
+                />
+                <Text
+                  style={[
+                    styles.formatChipText,
+                    qrFormat === "token" && styles.formatChipTextActive,
+                  ]}
+                >
+                  Compact Token
+                </Text>
+              </Pressable>
             </View>
 
             <View style={styles.qrWrap}>
               {ticket ? (
-                <QRCode value={ticket.ticket} size={216} color="#151923" backgroundColor="#FFFFFF" ecl="H" />
+                <QRCode
+                  value={qrFormat === "details" ? passText : ticket.ticket}
+                  size={200}
+                  color="#151923"
+                  backgroundColor="#FFFFFF"
+                  ecl="M"
+                />
               ) : <ActivityIndicator size="large" color={Blood.primary} />}
             </View>
+
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Preview scanned pass details"
+              onPress={() => {
+                router.push({
+                  pathname: "/pass-details",
+                  params: {
+                    ticket: ticket?.ticket ?? "",
+                    donor: donorName,
+                    bloodGroup: commitment.bloodGroup,
+                    patient: commitment.patientName,
+                    hospital: commitment.hospital,
+                    district: commitment.district ?? "",
+                    units: String(commitment.units),
+                    urgency: commitment.urgency,
+                    caseId: commitment.id,
+                    expiresAt: expiresText,
+                  },
+                });
+              }}
+              style={({ pressed }) => [styles.previewButton, pressed && styles.pressed]}
+            >
+              <Feather name="external-link" size={15} color="#FFFFFF" />
+              <Text style={styles.previewButtonText}>Preview Scanned Pass Details</Text>
+            </Pressable>
 
             <View style={styles.passDetails}>
               <Text style={styles.detailsTitle}>Pass details</Text>
@@ -133,7 +223,7 @@ function IntakeContent() {
               <PassDetail label="Case reference" value={`#${commitment.id.slice(-6).toUpperCase()}`} />
             </View>
 
-            <Text style={styles.holdText}>The QR contains a secure, single-use check-in ticket. The details above help staff confirm the correct donation case.</Text>
+            <Text style={styles.holdText}>Scanning this QR reveals the complete verified donor pass details on any phone camera or scanner.</Text>
             <View style={styles.tokenRow}>
               <Feather name="clock" size={13} color={Blood.primary} />
               <Text style={styles.tokenText}>This QR expires at {expiresText}. Refresh if needed.</Text>
@@ -190,6 +280,47 @@ const styles = StyleSheet.create({
   bloodBadge: { overflow: "hidden", paddingHorizontal: 10, paddingVertical: 7, borderRadius: 12, backgroundColor: "white", color: Blood.primary, fontWeight: "900" },
   scanInfo: { flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 4 },
   scanInfoText: { ...Typography.small, color: Surface.textSecondary },
+  formatRow: { flexDirection: "row", gap: 8, paddingHorizontal: 4 },
+  formatChip: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    borderRadius: Radius.full,
+    backgroundColor: Surface.iconWash,
+    borderWidth: 1,
+    borderColor: Surface.border,
+  },
+  formatChipActive: {
+    backgroundColor: Surface.text,
+    borderColor: Surface.text,
+  },
+  formatChipText: {
+    ...Typography.micro,
+    color: Surface.textSecondary,
+    fontWeight: "700",
+  },
+  formatChipTextActive: {
+    color: "#FFFFFF",
+  },
+  previewButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    height: 44,
+    borderRadius: Radius.field,
+    backgroundColor: Blood.primary,
+  },
+  previewButtonText: {
+    ...Typography.button,
+    fontSize: 13,
+    color: "#FFFFFF",
+    fontWeight: "700",
+  },
   qrWrap: { alignSelf: "center", alignItems: "center", justifyContent: "center", width: 244, height: 244, borderRadius: 18, backgroundColor: "white", borderWidth: 1, borderColor: Surface.border },
   passDetails: { padding: 12, gap: 8, borderRadius: 14, backgroundColor: Surface.background, borderWidth: 1, borderColor: Surface.border },
   detailsTitle: { ...Typography.small, color: Surface.text, fontWeight: "800", marginBottom: 2 },

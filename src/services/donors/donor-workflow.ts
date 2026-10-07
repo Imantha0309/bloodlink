@@ -105,3 +105,51 @@ export async function createDonorCheckInTicket(requestId: string): Promise<Donor
   }
   return { ticket: body.ticket, expiresAt: body.expiresAt };
 }
+
+export async function verifyDonorCheckIn(
+  requestId: string,
+  token: string,
+): Promise<{ stage: DonationStage; checkedInAt: string }> {
+  if (!hasRemoteApi) {
+    mockStages.set(requestId, "arrived");
+    return { stage: "arrived", checkedInAt: new Date().toISOString() };
+  }
+
+  const body = await request<{ stage?: unknown; checkedInAt?: unknown }>(
+    `/donors/requests/${encodeURIComponent(requestId)}/check-in`,
+    {
+      method: "POST",
+      body: { token },
+    },
+  );
+
+  if (body.stage !== "arrived" || typeof body.checkedInAt !== "string") {
+    throw new ApiError("unknown", "Could not verify donor intake.");
+  }
+
+  return { stage: "arrived", checkedInAt: body.checkedInAt };
+}
+
+export async function completeDonationCase(
+  requestId: string,
+): Promise<{ stage: DonationStage; completedAt: string }> {
+  if (!hasRemoteApi) {
+    mockStages.set(requestId, "completed");
+    return { stage: "completed", completedAt: new Date().toISOString() };
+  }
+
+  const body = await request<{ stage?: unknown; completedAt?: unknown }>(
+    `/donors/requests/${encodeURIComponent(requestId)}/complete`,
+    {
+      method: "POST",
+      body: {},
+    },
+  );
+
+  if (body.stage !== "completed" || typeof body.completedAt !== "string") {
+    throw new ApiError("unknown", "Could not complete donation case.");
+  }
+
+  return { stage: "completed", completedAt: body.completedAt };
+}
+

@@ -163,6 +163,32 @@ export function DashboardShell({ title, children }: DashboardShellProps) {
     }
   }
 
+  /**
+   * Back to the start of the sign-up journey.
+   *
+   * `role-select` is part of the auth group, which `_layout.tsx` keeps behind
+   * the unauthenticated guard — so leaving a dashboard for it means ending the
+   * session first. Without that the guarded screen is not in the tree and the
+   * navigation is dropped, leaving the button apparently dead.
+   */
+  async function handleBack() {
+    if (isSigningOut) {
+      return;
+    }
+
+    setIsSigningOut(true);
+
+    try {
+      if (session !== null) {
+        await signOut();
+      }
+
+      router.replace(ROUTES.roleSelect);
+    } finally {
+      setIsSigningOut(false);
+    }
+  }
+
   const role = summary?.role ?? session?.user.role ?? "recipient";
 
   return (
@@ -170,6 +196,24 @@ export function DashboardShell({ title, children }: DashboardShellProps) {
       <StatusBar style="dark" />
 
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+        <Pressable
+          onPress={() => {
+            void handleBack();
+          }}
+          disabled={isSigningOut}
+          accessibilityRole="button"
+          accessibilityLabel="Back to choose your role"
+          accessibilityState={{ disabled: isSigningOut }}
+          hitSlop={6}
+          style={({ pressed }) => [
+            styles.iconButton,
+            pressed && styles.iconButtonPressed,
+            isSigningOut && styles.iconButtonDisabled,
+          ]}
+        >
+          <Feather name="arrow-left" size={20} color={Surface.text} />
+        </Pressable>
+
         <View style={styles.headerText}>
           <Text style={styles.eyebrow}>{ROLE_NAME[role].toUpperCase()}</Text>
 
@@ -188,9 +232,9 @@ export function DashboardShell({ title, children }: DashboardShellProps) {
           accessibilityState={{ disabled: isSigningOut }}
           hitSlop={6}
           style={({ pressed }) => [
-            styles.signOut,
-            pressed && styles.signOutPressed,
-            isSigningOut && styles.signOutDisabled,
+            styles.iconButton,
+            pressed && styles.iconButtonPressed,
+            isSigningOut && styles.iconButtonDisabled,
           ]}
         >
           <Feather name="log-out" size={18} color={Surface.text} />
@@ -252,7 +296,8 @@ const styles = StyleSheet.create({
     color: Surface.text,
   },
 
-  signOut: {
+  /** Circular header affordance, shared by back and sign out. */
+  iconButton: {
     width: 44,
     height: 44,
     borderRadius: Radius.full,
@@ -263,11 +308,11 @@ const styles = StyleSheet.create({
     borderColor: Surface.border,
   },
 
-  signOutPressed: {
+  iconButtonPressed: {
     backgroundColor: Surface.border,
   },
 
-  signOutDisabled: {
+  iconButtonDisabled: {
     opacity: 0.5,
   },
 

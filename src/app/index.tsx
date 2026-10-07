@@ -15,10 +15,12 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { Blood } from "@/constants/colors";
-import { ROUTES } from "@/constants/routes";
+import { ROLE_HOME, ROUTES } from "@/constants/routes";
+import { useAuth } from "@/providers/auth-provider";
 
 export default function LoadingScreen() {
   const router = useRouter();
+  const { status, session } = useAuth();
   // Lazy `useState` initialisers rather than `useRef(...).current`: same stable
   // per-instance Animated.Value, but nothing reads a ref during render.
   const [fadeAnim] = useState(() => new Animated.Value(0));
@@ -51,6 +53,18 @@ export default function LoadingScreen() {
       intro.stop();
     };
   }, [fadeAnim, scaleAnim]);
+
+  /**
+   * A restored session has to lead somewhere. `/login` and `/role-select` are
+   * guarded to signed-out users, so a signed-in user who lands here after a
+   * reload — the app always starts at `/` — would have no reachable action and
+   * the Get Started button would do nothing. Send them to their dashboard.
+   */
+  useEffect(() => {
+    if (status === "authenticated" && session !== null) {
+      router.replace(ROLE_HOME[session.user.role]);
+    }
+  }, [status, session, router]);
 
   return (
     <View style={styles.container}>

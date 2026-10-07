@@ -89,7 +89,6 @@ function AppNavigator() {
         <Stack.Screen name="dashboard/hospital-location" options={{ contentStyle: screenBackground }} />
         <Stack.Screen name="dashboard/review-request" options={{ contentStyle: screenBackground }} />
         <Stack.Screen name="dashboard/matching-donors" options={{ contentStyle: screenBackground }} />
-        <Stack.Screen name="dashboard/donor-profile" options={{ contentStyle: screenBackground }} />
         <Stack.Screen name="dashboard/request-status" options={{ contentStyle: screenBackground }} />
       </Stack.Protected>
 

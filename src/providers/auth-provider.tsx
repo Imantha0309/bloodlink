@@ -1,6 +1,14 @@
 import { createContext, use, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
-import { authService, type AuthSession, type SignInInput, type SignUpInput } from "@/services/auth";
+import {
+  authService,
+  saveSession,
+  type AuthSession,
+  type AuthUser,
+  type DonorProfileInput,
+  type SignInInput,
+  type SignUpInput,
+} from "@/services/auth";
 
 /**
  * Whether the stored session has been checked yet.
@@ -21,6 +29,7 @@ type AuthContextValue = {
   signIn: (input: SignInInput) => Promise<AuthSession>;
   /** Registers a new account and signs it in, with the same guarantee. */
   signUp: (input: SignUpInput) => Promise<AuthSession>;
+  updateDonorProfile: (input: DonorProfileInput) => Promise<AuthUser>;
   signOut: () => Promise<void>;
 };
 
@@ -72,15 +81,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSession(null);
   }, []);
 
+  const updateDonorProfile = useCallback(async (input: DonorProfileInput) => {
+    const updatedUser = await authService.updateDonorProfile(input);
+    if (session === null) throw new Error("No active donor session.");
+    const next = { ...session, user: updatedUser };
+    await saveSession(next);
+    setSession(next);
+    return updatedUser;
+  }, [session]);
+
   const value = useMemo<AuthContextValue>(
     () => ({
       status: !isResolved ? "loading" : session !== null ? "authenticated" : "unauthenticated",
       session,
       signIn,
       signUp,
+      updateDonorProfile,
       signOut,
     }),
-    [isResolved, session, signIn, signUp, signOut],
+    [isResolved, session, signIn, signUp, updateDonorProfile, signOut],
   );
 
   return <AuthContext value={value}>{children}</AuthContext>;

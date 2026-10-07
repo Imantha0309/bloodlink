@@ -33,7 +33,9 @@ export default function LoadingScreen() {
       return;
     }
 
-    router.push(ROUTES.login);
+    if (status === "unauthenticated") {
+      router.push(ROUTES.login);
+    }
   }
 
   // Lazy `useState` initialisers rather than `useRef(...).current`: same stable
@@ -186,6 +188,7 @@ export default function LoadingScreen() {
               style={styles.getStartedButton}
               accessibilityRole="button"
               accessibilityLabel="Get Started"
+              disabled={status === "loading"}
               onPress={handleGetStarted}
             >
               <Text style={styles.getStartedText}>Get Started →</Text>

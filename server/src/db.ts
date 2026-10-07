@@ -87,6 +87,22 @@ CREATE TABLE IF NOT EXISTS emergency_requests (
 CREATE INDEX IF NOT EXISTS idx_requests_status ON emergency_requests(status);
 CREATE INDEX IF NOT EXISTS idx_requests_group ON emergency_requests(blood_group);
 
+CREATE TABLE IF NOT EXISTS donor_request_responses (
+  id          TEXT PRIMARY KEY,
+  request_id  TEXT NOT NULL REFERENCES emergency_requests(id) ON DELETE CASCADE,
+  donor_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  response    TEXT NOT NULL CHECK (response IN ('accepted', 'declined')),
+  stage       TEXT NOT NULL DEFAULT 'accepted'
+                CHECK (stage IN ('accepted', 'en_route', 'arrived', 'completed')),
+  checkin_token_hash    TEXT,
+  checkin_token_expires_at TEXT,
+  created_at  TEXT NOT NULL,
+  updated_at  TEXT NOT NULL,
+  UNIQUE (request_id, donor_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_donor_responses_donor ON donor_request_responses(donor_id, updated_at);
+
 CREATE TABLE IF NOT EXISTS donor_availability (
   user_id          TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   is_available     INTEGER NOT NULL DEFAULT 1,
@@ -103,6 +119,29 @@ const userColumns = db.pragma("table_info(users)") as Array<{ name: string }>;
 
 if (!userColumns.some((column) => column.name === "registration_number")) {
   db.exec("ALTER TABLE users ADD COLUMN registration_number TEXT");
+}
+
+// Add workflow columns when opening databases created before donor transit and
+// QR check-in were introduced. SQLite's CREATE TABLE IF NOT EXISTS does not
+// add columns to an existing file.
+const donorResponseColumns = db
+  .prepare("PRAGMA table_info(donor_request_responses)")
+  .all() as { name: string }[];
+
+if (!donorResponseColumns.some((column) => column.name === "stage")) {
+  db.exec(
+    "ALTER TABLE donor_request_responses ADD COLUMN stage TEXT NOT NULL DEFAULT 'accepted'",
+  );
+}
+
+if (!donorResponseColumns.some((column) => column.name === "checkin_token_hash")) {
+  db.exec("ALTER TABLE donor_request_responses ADD COLUMN checkin_token_hash TEXT");
+}
+
+if (!donorResponseColumns.some((column) => column.name === "checkin_token_expires_at")) {
+  db.exec(
+    "ALTER TABLE donor_request_responses ADD COLUMN checkin_token_expires_at TEXT",
+  );
 }
 
 /** `new Date().toISOString()`, named for brevity at call sites. */

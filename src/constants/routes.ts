@@ -22,6 +22,12 @@ export const ROUTES = {
   compatibility: "/compatibility",
   location: "/location",
   bloodBankDetail: "/blood-bank-detail",
+  donorHome: "/dashboard/donor",
+  donorRequests: "/dashboard/donor-requests",
+  donorTransit: "/dashboard/donor-transit",
+  donorIntake: "/dashboard/donor-intake",
+  donorProfile: "/dashboard/donor-profile",
+  passDetails: "/pass-details",
 } as const satisfies Record<string, Href>;
 
 /**

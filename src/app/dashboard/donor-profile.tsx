@@ -1,6 +1,7 @@
 import { PlaceholderScreen } from "@/components/ui/placeholder-screen";
 import { ROLE_HOME } from "@/constants/routes";
 import { useAuthBack } from "@/hooks/use-auth-back";
+import { useAuth } from "@/providers/auth-provider";
 
 /**
  * Placeholder for donor profile screen.
@@ -9,7 +10,9 @@ import { useAuthBack } from "@/hooks/use-auth-back";
  * information about a specific donor who responded to the request.
  */
 export default function DonorProfileScreen() {
-  const onBack = useAuthBack(ROLE_HOME.recipient);
+  const { session } = useAuth();
+  // Fall back to the signed-in user's own home, not always the recipient one.
+  const onBack = useAuthBack(ROLE_HOME[session?.user.role ?? "recipient"]);
 
   return (
     <PlaceholderScreen

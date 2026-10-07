@@ -2,8 +2,10 @@ import { Feather } from "@expo/vector-icons";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Surface } from "@/constants/colors";
+import { REQUEST_STATUS_META } from "@/constants/emergency";
 import { Radius } from "@/constants/radius";
 import { Typography } from "@/constants/typography";
+import type { RequestStatus } from "@/services/requests/emergency-requests";
 
 export type ActiveRequest = {
   /** Reference code without the leading hash, e.g. "BL-8924". */
@@ -16,10 +18,10 @@ export type ActiveRequest = {
   facilityName: string;
   /** Requesting area. */
   district: string;
-  /** How many donors have already responded. */
-  respondedCount: number;
-  /** Humanised arrival estimate, e.g. "12 min". */
-  etaLabel: string;
+  /** Server status — the card colours and labels itself from it. */
+  status: RequestStatus;
+  /** Relative time the request was raised, e.g. "45m ago". */
+  postedLabel: string;
 };
 
 type ActiveRequestCardProps = {
@@ -28,18 +30,20 @@ type ActiveRequestCardProps = {
 };
 
 /**
- * The recipient's in-flight request: reference, live donor-response count and
- * arrival estimate.
+ * The recipient's in-flight request: reference, real server status and when
+ * it was raised.
  *
- * Only the newest request is surfaced on the home screen — the full history
- * lives behind the Requests tab.
+ * Only the newest live (pending/verified) request is surfaced on the home
+ * screen — the full history lives behind the Requests tab.
  */
 export function ActiveRequestCard({ request, onPress }: ActiveRequestCardProps) {
+  const status = REQUEST_STATUS_META[request.status];
+
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`Active request ${request.reference}, ${request.bloodGroup}, ${request.respondedCount} donors responded`}
+      accessibilityLabel={`Active request ${request.reference}, ${request.bloodGroup}, ${status.label}`}
       style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
     >
       <View style={styles.topRow}>
@@ -57,11 +61,11 @@ export function ActiveRequestCard({ request, onPress }: ActiveRequestCardProps) 
           </Text>
         </View>
 
-        <View style={styles.responded}>
-          <Feather name="users" size={9} color={Surface.successText} />
+        <View style={[styles.responded, { backgroundColor: status.background }]}>
+          <Feather name={status.icon} size={9} color={status.color} />
 
-          <Text style={styles.respondedText} numberOfLines={1}>
-            {request.respondedCount} Responded
+          <Text style={[styles.respondedText, { color: status.color }]} numberOfLines={1}>
+            {status.label}
           </Text>
         </View>
       </View>
@@ -89,10 +93,10 @@ export function ActiveRequestCard({ request, onPress }: ActiveRequestCardProps) 
       </View>
 
       <View style={styles.footer}>
-        <Text style={styles.footerLabel}>Estimated arrival</Text>
+        <Text style={styles.footerLabel}>Raised</Text>
 
         <Text style={styles.eta} numberOfLines={1}>
-          {request.etaLabel}
+          {request.postedLabel}
         </Text>
       </View>
     </Pressable>
@@ -156,6 +160,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: Radius.pill,
     backgroundColor: Surface.softGreen,
+    maxWidth: 150,
   },
 
   respondedText: {

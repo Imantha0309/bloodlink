@@ -1,6 +1,7 @@
 import { PlaceholderScreen } from "@/components/ui/placeholder-screen";
 import { ROLE_HOME } from "@/constants/routes";
 import { useAuthBack } from "@/hooks/use-auth-back";
+import { useAuth } from "@/providers/auth-provider";
 
 /**
  * Placeholder for review and confirm step.
@@ -9,7 +10,9 @@ import { useAuthBack } from "@/hooks/use-auth-back";
  * of the emergency request for recipient to review before sending.
  */
 export default function ReviewRequestScreen() {
-  const onBack = useAuthBack(ROLE_HOME.recipient);
+  const { session } = useAuth();
+  // Fall back to the signed-in user's own home, not always the recipient one.
+  const onBack = useAuthBack(ROLE_HOME[session?.user.role ?? "recipient"]);
 
   return (
     <PlaceholderScreen

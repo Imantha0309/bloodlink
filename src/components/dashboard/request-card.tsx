@@ -1,89 +1,23 @@
 import { Feather } from "@expo/vector-icons";
-import type { ComponentProps } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
 import { Blood, Surface } from "@/constants/colors";
 import {
+  REQUEST_STATUS_META,
   URGENCY_OPTIONS,
   type UrgencyLevel,
   type UrgencyMeta,
 } from "@/constants/emergency";
 import { Radius } from "@/constants/radius";
 import { Typography } from "@/constants/typography";
-import type { EmergencyRequest, RequestStatus } from "@/services/requests/emergency-requests";
+import type { EmergencyRequest } from "@/services/requests/emergency-requests";
+import { timeAgo } from "@/utils/time";
 
 // Keyed lookup so the card can colour itself from the same catalogue the form
 // renders, rather than keeping a second copy of the palette.
 const URGENCY_BY_LEVEL = Object.fromEntries(
   URGENCY_OPTIONS.map((option) => [option.level, option]),
 ) as Record<UrgencyLevel, UrgencyMeta>;
-
-const STATUS_META: Record<
-  RequestStatus,
-  {
-    label: string;
-    icon: ComponentProps<typeof Feather>["name"];
-    background: string;
-    border: string;
-    color: string;
-  }
-> = {
-  pending: {
-    label: "Awaiting verification",
-    icon: "clock",
-    background: Surface.iconWash,
-    border: Surface.border,
-    color: Surface.textSecondary,
-  },
-  verified: {
-    label: "Verified — donors notified",
-    icon: "check-circle",
-    background: Surface.softBlue,
-    border: Surface.softBlueBorder,
-    color: Surface.textSecondary,
-  },
-  fulfilled: {
-    label: "Fulfilled",
-    icon: "check",
-    background: Surface.softGreen,
-    border: Surface.softGreenBorder,
-    color: Surface.online,
-  },
-  cancelled: {
-    label: "Cancelled",
-    icon: "x",
-    background: Surface.iconWash,
-    border: Surface.border,
-    color: Surface.textMuted,
-  },
-};
-
-/** Coarse relative time — enough for a triage list, no date library needed. */
-function timeAgo(iso: string): string {
-  const then = new Date(iso).getTime();
-
-  if (Number.isNaN(then)) {
-    return "";
-  }
-
-  const minutes = Math.max(0, Math.round((Date.now() - then) / 60_000));
-
-  if (minutes < 1) {
-    return "just now";
-  }
-
-  if (minutes < 60) {
-    return `${minutes}m ago`;
-  }
-
-  const hours = Math.round(minutes / 60);
-
-  if (hours < 24) {
-    return `${hours}h ago`;
-  }
-
-  return `${Math.round(hours / 24)}d ago`;
-}
 
 type RequestCardProps = {
   request: EmergencyRequest;
@@ -94,7 +28,7 @@ type RequestCardProps = {
 /** One emergency request, as it appears in every dashboard's triage list. */
 export function RequestCard({ request, matchesDonor = false }: RequestCardProps) {
   const urgency = URGENCY_BY_LEVEL[request.urgency];
-  const status = STATUS_META[request.status];
+  const status = REQUEST_STATUS_META[request.status];
   const posted = timeAgo(request.createdAt);
 
   return (

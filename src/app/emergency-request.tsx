@@ -28,6 +28,7 @@ import { ROLE_HOME, ROUTES } from "@/constants/routes";
 import { Typography } from "@/constants/typography";
 import { useAuth } from "@/providers/auth-provider";
 import { apiErrorMessage } from "@/services/auth";
+import { referenceFor } from "@/utils/reference";
 import {
   createEmergencyRequest,
   type EmergencyRequest,
@@ -582,16 +583,36 @@ export default function EmergencyRequestScreen() {
               <Text style={styles.referenceLabel}>Reference</Text>
 
               <Text style={styles.referenceValue} selectable>
+                #BL-{referenceFor(created.id)}
+              </Text>
+
+              <Text style={styles.referenceId} selectable>
                 {created.id}
               </Text>
             </View>
 
             <PrimaryAuthButton
-              label={session ? "Back to Dashboard" : "Back to Sign In"}
+              label="Track Request"
+              icon="navigation"
+              onPress={() => {
+                router.replace({
+                  pathname: ROUTES.requestStatus,
+                  params: { id: created.id },
+                });
+              }}
+            />
+
+            <Pressable
+              accessibilityRole="button"
               onPress={() => {
                 router.replace(backFallback);
               }}
-            />
+              style={({ pressed }) => [styles.successSecondary, pressed && styles.successSecondaryPressed]}
+            >
+              <Text style={styles.successSecondaryText}>
+                {session ? "Back to Dashboard" : "Back to Sign In"}
+              </Text>
+            </Pressable>
           </View>
         </ScrollView>
       </View>
@@ -909,6 +930,33 @@ const styles = StyleSheet.create({
   referenceValue: {
     ...Typography.input,
     fontSize: 12,
+    color: Surface.text,
+  },
+
+  referenceId: {
+    ...Typography.micro,
+    fontSize: 8,
+    color: Surface.textMuted,
+  },
+
+  successSecondary: {
+    width: "100%",
+    minHeight: 44,
+    borderRadius: Radius.field,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Surface.softBlue,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Surface.softBlueBorder,
+  },
+
+  successSecondaryPressed: {
+    opacity: 0.7,
+  },
+
+  successSecondaryText: {
+    ...Typography.button,
+    fontSize: 13,
     color: Surface.text,
   },
 });

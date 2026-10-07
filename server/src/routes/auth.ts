@@ -64,9 +64,10 @@ authRouter.post(
       });
     }
 
-    // Blood group is what makes a donor reachable for a matching request, so it
-    // is required for that role even though the column is nullable.
-    if (input.role === "donor" && !input.bloodGroup) {
+    // Blood group is what makes a donor reachable for a matching request, and
+    // the recipient needs one to find donors — required for both even though
+    // the column is nullable (hospitals/admins have none).
+    if ((input.role === "donor" || input.role === "recipient") && !input.bloodGroup) {
       throw new ApiError("validation", "Please correct the highlighted fields.", {
         fields: { bloodGroup: "Select your blood group." },
       });
@@ -78,8 +79,9 @@ authRouter.post(
     db.prepare(
       `INSERT INTO users
          (id, role, full_name, email, mobile, district, blood_group,
-          password_hash, is_verified, is_locked, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+          password_hash, is_verified, is_locked, registration_number,
+          created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
     ).run(
       userId,
       input.role,
@@ -92,6 +94,7 @@ authRouter.post(
       // Hospitals must be verified by an admin before they can act; everyone
       // else is usable immediately.
       input.role === "hospital" ? 0 : 1,
+      input.registrationNumber ?? null,
       timestamp,
       timestamp,
     );

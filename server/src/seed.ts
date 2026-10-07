@@ -27,6 +27,8 @@ type SeedUser = {
   bloodGroup: BloodGroup | null;
   password: string;
   isVerified: boolean;
+  /** Hospitals only — mirrors the register endpoint's captured value. */
+  registrationNumber?: string;
 };
 
 /** The four accounts quoted throughout the app's docs and README. */
@@ -50,6 +52,7 @@ const DEMO_USERS: SeedUser[] = [
     bloodGroup: null,
     password: "Hospital@123",
     isVerified: true,
+    registrationNumber: "RGL-2019-0447",
   },
   {
     role: "recipient",
@@ -227,8 +230,9 @@ async function seed(): Promise<void> {
   const insertUser = db.prepare(
     `INSERT INTO users
        (id, role, full_name, email, mobile, district, blood_group,
-        password_hash, is_verified, is_locked, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+        password_hash, is_verified, is_locked, registration_number,
+        created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
   );
 
   const clearAll = db.transaction(() => {
@@ -257,6 +261,7 @@ async function seed(): Promise<void> {
         user.bloodGroup,
         demoHashes.get(user.password) ?? bulkHash,
         user.isVerified ? 1 : 0,
+        user.registrationNumber ?? null,
         timestamp,
         timestamp,
       );
@@ -279,6 +284,7 @@ async function seed(): Promise<void> {
         bloodGroup,
         bulkHash,
         1,
+        null,
         timestamp,
         timestamp,
       );

@@ -73,6 +73,7 @@ CREATE TABLE IF NOT EXISTS emergency_requests (
   units             INTEGER NOT NULL,
   hospital          TEXT NOT NULL,
   district          TEXT,
+  registration_number TEXT,
   contact_name      TEXT NOT NULL,
   contact_mobile    TEXT NOT NULL,
   urgency           TEXT NOT NULL CHECK (urgency IN ('critical', 'urgent', 'standard')),
@@ -95,6 +96,14 @@ CREATE TABLE IF NOT EXISTS donor_availability (
 `;
 
 db.exec(SCHEMA);
+
+// `CREATE TABLE IF NOT EXISTS` never alters an existing table, so databases
+// created before `registration_number` existed would silently miss the column.
+const userColumns = db.pragma("table_info(users)") as Array<{ name: string }>;
+
+if (!userColumns.some((column) => column.name === "registration_number")) {
+  db.exec("ALTER TABLE users ADD COLUMN registration_number TEXT");
+}
 
 /** `new Date().toISOString()`, named for brevity at call sites. */
 export function now(): string {

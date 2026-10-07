@@ -26,6 +26,7 @@ export type UserRow = {
   email: string | null;
   mobile: string | null;
   district: string | null;
+  registration_number: string | null;
   blood_group: BloodGroup | null;
   password_hash: string;
   is_verified: number;
@@ -94,6 +95,7 @@ export type EmergencyRequestPayload = {
   notes: string | null;
   status: RequestStatus;
   createdAt: string;
+  updatedAt: string;
   /** True when the request came through the account-free urgent path. */
   isAnonymous: boolean;
 };
@@ -124,6 +126,7 @@ export function toEmergencyRequest(row: EmergencyRequestRow): EmergencyRequestPa
     notes: row.notes,
     status: row.status,
     createdAt: row.created_at,
+    updatedAt: row.updated_at,
     isAnonymous: row.requester_user_id === null,
   };
 }

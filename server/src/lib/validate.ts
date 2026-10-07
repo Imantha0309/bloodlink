@@ -8,7 +8,7 @@
 
 import { z } from "zod";
 
-import { BLOOD_GROUPS, URGENCY_LEVELS } from "../types";
+import { BLOOD_GROUPS, REQUEST_STATUSES, URGENCY_LEVELS } from "../types";
 import { normalizeContact } from "./contact";
 import { ApiError } from "./errors";
 import { PASSWORD_MIN_LENGTH, isPasswordAcceptable } from "./passwords";
@@ -49,7 +49,7 @@ export const registerSchema = z.object({
   fullName: z.string().trim().min(2, "Please enter your full name."),
   identifier: identifierSchema,
   password: passwordSchema,
-  district: z.string().trim().min(1).optional(),
+  district: z.string().trim().min(1, "Please choose your district."),
   bloodGroup: bloodGroupSchema.optional(),
   /** Donors only — used to seed their availability record. */
   lastDonationAt: z.string().trim().min(1).optional(),
@@ -94,6 +94,13 @@ export const emergencyRequestSchema = z.object({
     }),
   urgency: z.enum(URGENCY_LEVELS),
   notes: z.string().trim().max(500, "Please keep notes under 500 characters.").optional(),
+});
+
+/** Status transition body for `PATCH /emergency-requests/:id`. */
+export const emergencyStatusPatchSchema = z.object({
+  status: z.enum(REQUEST_STATUSES, {
+    errorMap: () => ({ message: "Choose a valid status." }),
+  }),
 });
 
 /**

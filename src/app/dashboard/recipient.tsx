@@ -23,6 +23,9 @@ import { SupportCard } from "@/components/dashboard/support-card";
 import { DASHBOARD_TABS, ROUTES } from "@/constants/routes";
 import { useAuth } from "@/providers/auth-provider";
 import type { EmergencyRequest } from "@/services/requests/emergency-requests";
+import { isRequestLive } from "@/utils/request-timeline";
+import { referenceFor } from "@/utils/reference";
+import { timeAgo } from "@/utils/time";
 
 /**
  * Calculate alert count from open requests.
@@ -67,25 +70,6 @@ function getTabs(alertCount: string): DashboardTab[] {
 }
 
 const TAB_HREFS = DASHBOARD_TABS;
-
-/**
- * Short human-facing code for a request.
- *
- * The API has no reference field, so the trailing digits of the id stand in
- * until it does. Never returns an empty string.
- */
-function referenceFor(id: string): string {
-  const digits = id.match(/\d+/g);
-  const last = digits?.[digits.length - 1];
-
-  if (last !== undefined && last !== "") {
-    return last;
-  }
-
-  const tail = id.slice(-4).toUpperCase();
-
-  return tail === "" ? "--" : tail;
-}
 
 /** Headline for the active request, built from fields the API does return. */
 function needLabel(request: EmergencyRequest): string {
@@ -152,14 +136,10 @@ export default function RecipientDashboardScreen() {
         const request = summary.requests[0] ?? null;
         const notificationCount = getAlertCount(summary.requests);
 
-        // For now, responded count and ETA are placeholders since the API
-        // doesn't track donor responses yet. In a full implementation, these
-        // would come from the backend.
-        const respondedCount = 0;
-        const etaLabel = "Calculating...";
-
+        // Only a live (pending/verified) request belongs on the home card;
+        // fulfilled and cancelled history lives in the Requests tab.
         const activeRequest: ActiveRequest | null =
-          request === null
+          request === null || !isRequestLive(request.status)
             ? null
             : {
                 reference: referenceFor(request.id),
@@ -167,8 +147,8 @@ export default function RecipientDashboardScreen() {
                 title: needLabel(request),
                 facilityName: request.hospital,
                 district: request.district ?? "Location pending",
-                respondedCount,
-                etaLabel,
+                status: request.status,
+                postedLabel: timeAgo(request.createdAt),
               };
 
         return (
@@ -188,11 +168,14 @@ export default function RecipientDashboardScreen() {
               }}
             />
 
-            {activeRequest === null ? null : (
+            {activeRequest === null || request === null ? null : (
               <ActiveRequestCard
                 request={activeRequest}
                 onPress={() => {
-                  router.push(ROUTES.requestDetail);
+                  router.push({
+                    pathname: ROUTES.requestStatus,
+                    params: { id: request.id },
+                  });
                 }}
               />
             )}

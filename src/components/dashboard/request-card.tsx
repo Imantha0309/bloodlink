@@ -246,15 +246,22 @@ export function RequestCard({
 
       {matchesDonor && !request.acceptedByOtherDonor && donorResponse !== null && canEditResponse && onDonorResponse ? (
         <View style={styles.actions}>
-          <Pressable
-            accessibilityRole="button"
-            disabled={isResponding || (!canAccept && donorResponse !== "accepted")}
-            onPress={() => void handleDonorResponse("accepted")}
-            style={({ pressed }) => [styles.acceptButton, pressed && styles.pressed, isResponding && styles.disabled]}
-          >
-            <Feather name="check" size={14} color={Surface.card} />
-            <Text style={styles.acceptText}>Accept</Text>
-          </Pressable>
+          {canAccept ? (
+            <Pressable
+              accessibilityRole="button"
+              disabled={isResponding}
+              onPress={() => void handleDonorResponse("accepted")}
+              style={({ pressed }) => [styles.acceptButton, pressed && styles.pressed, isResponding && styles.disabled]}
+            >
+              <Feather name="check" size={14} color={Surface.card} />
+              <Text style={styles.acceptText}>Accept</Text>
+            </Pressable>
+          ) : (
+            <View style={styles.acceptLockedButton}>
+              <Feather name="lock" size={13} color={Surface.textMuted} />
+              <Text style={styles.acceptLockedText}>Unavailable</Text>
+            </View>
+          )}
           <Pressable
             accessibilityRole="button"
             disabled={isResponding}
@@ -282,36 +289,57 @@ export function RequestCard({
       ) : null}
 
       {matchesDonor && !request.acceptedByOtherDonor && donorResponse === null && onDonorResponse ? (
-        <View style={styles.actions}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`Accept request for ${request.patientName}`}
-            disabled={isResponding || !canAccept}
-            onPress={() => void handleDonorResponse("accepted")}
-            style={({ pressed }) => [styles.acceptButton, pressed && styles.pressed, (isResponding || !canAccept) && styles.disabled]}
-          >
-            {isResponding ? (
-              <ActivityIndicator size="small" color={Surface.card} />
-            ) : (
-              <Feather name="check" size={15} color={Surface.card} />
-            )}
-            <Text style={styles.acceptText}>Accept & respond</Text>
-          </Pressable>
+        <>
+          {canAccept ? (
+            <View style={styles.actions}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Accept request for ${request.patientName}`}
+                disabled={isResponding}
+                onPress={() => void handleDonorResponse("accepted")}
+                style={({ pressed }) => [styles.acceptButton, pressed && styles.pressed, isResponding && styles.disabled]}
+              >
+                {isResponding ? (
+                  <ActivityIndicator size="small" color={Surface.card} />
+                ) : (
+                  <Feather name="check" size={15} color={Surface.card} />
+                )}
+                <Text style={styles.acceptText}>Accept & respond</Text>
+              </Pressable>
 
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`Decline request for ${request.patientName}`}
-            disabled={isResponding}
-            onPress={() => void handleDonorResponse("declined")}
-            style={({ pressed }) => [styles.declineButton, pressed && styles.pressed, isResponding && styles.disabled]}
-          >
-            <Text style={styles.declineText}>Decline</Text>
-          </Pressable>
-        </View>
-      ) : null}
-
-      {matchesDonor && !request.acceptedByOtherDonor && donorResponse === null && !canAccept && onDonorResponse ? (
-        <Text style={styles.responseHint}>Turn on your availability to accept a request. You can still decline it.</Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Decline request for ${request.patientName}`}
+                disabled={isResponding}
+                onPress={() => void handleDonorResponse("declined")}
+                style={({ pressed }) => [styles.declineButton, pressed && styles.pressed, isResponding && styles.disabled]}
+              >
+                <Text style={styles.declineText}>Decline</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <View style={styles.availabilityGate}>
+              <View style={styles.availabilityGateIcon}>
+                <Feather name="lock" size={14} color="#B54708" />
+              </View>
+              <View style={styles.availabilityGateText}>
+                <Text style={styles.availabilityGateTitle}>Availability required to accept</Text>
+                <Text style={styles.availabilityGateSubtitle}>
+                  Turn on your availability switch before accepting a request.
+                </Text>
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Decline request for ${request.patientName}`}
+                disabled={isResponding}
+                onPress={() => void handleDonorResponse("declined")}
+                style={({ pressed }) => [styles.declineButton, pressed && styles.pressed, isResponding && styles.disabled]}
+              >
+                <Text style={styles.declineText}>Decline</Text>
+              </Pressable>
+            </View>
+          )}
+        </>
       ) : null}
 
       {responseError !== null ? <Text style={styles.responseError}>{responseError}</Text> : null}
@@ -517,6 +545,65 @@ const styles = StyleSheet.create({
 
   disabled: {
     opacity: 0.55,
+  },
+
+  acceptLockedButton: {
+    flex: 1,
+    minHeight: 42,
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    borderRadius: Radius.sm,
+    backgroundColor: Surface.iconWash,
+    borderWidth: 1,
+    borderColor: Surface.border,
+  },
+
+  acceptLockedText: {
+    ...Typography.small,
+    fontWeight: "600",
+    color: Surface.textMuted,
+  },
+
+  availabilityGate: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    padding: 10,
+    borderRadius: Radius.sm,
+    backgroundColor: "#FEF0C7",
+    borderWidth: 1,
+    borderColor: "#FEDF89",
+    marginTop: 2,
+  },
+
+  availabilityGateIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "#FEF3C7",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  availabilityGateText: {
+    flex: 1,
+    gap: 1,
+  },
+
+  availabilityGateTitle: {
+    ...Typography.small,
+    fontWeight: "700",
+    color: "#B54708",
+    fontSize: 12,
+  },
+
+  availabilityGateSubtitle: {
+    ...Typography.micro,
+    color: "#92400E",
+    fontSize: 10.5,
   },
 
   responseStatus: {

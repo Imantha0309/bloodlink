@@ -16,6 +16,12 @@ export const ROUTES = {
   register: "/register",
   forgotPassword: "/forgot-password",
   emergencyRequest: "/emergency-request",
+  donorHome: "/dashboard/donor",
+  donorRequests: "/dashboard/donor-requests",
+  donorTransit: "/dashboard/donor-transit",
+  donorIntake: "/dashboard/donor-intake",
+  donorProfile: "/dashboard/donor-profile",
+  passDetails: "/pass-details",
 } as const satisfies Record<string, Href>;
 
 /** Dashboard for each role, per the post-authentication flow. */

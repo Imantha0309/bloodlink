@@ -1,8 +1,8 @@
 import { Feather } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { AppState, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AsyncState } from "@/components/ui/async-state";
@@ -18,6 +18,8 @@ import {
   type DashboardSummary,
   type DonorAvailability,
 } from "@/services/dashboard/dashboard";
+
+const DONOR_REFRESH_INTERVAL_MS = 10_000;
 
 /** Handed to the role content so a mutation can update what is on screen. */
 export type DashboardHelpers = {
@@ -39,6 +41,7 @@ export type DashboardHelpers = {
 type DashboardShellProps = {
   /** Shown under the role name in the header. */
   title: string;
+  bottomNavigation?: ReactNode;
   children: (summary: DashboardSummary, helpers: DashboardHelpers) => ReactNode;
 };
 
@@ -50,7 +53,7 @@ type DashboardShellProps = {
  * pull-to-refresh and the sign-out affordance all live here once. The role
  * screens supply only their content via a render prop.
  */
-export function DashboardShell({ title, children }: DashboardShellProps) {
+export function DashboardShell({ title, bottomNavigation, children }: DashboardShellProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { session, signOut } = useAuth();
@@ -142,6 +145,24 @@ export function DashboardShell({ title, children }: DashboardShellProps) {
     void runLoad(true);
   }, [runLoad]);
 
+  useFocusEffect(
+    useCallback(() => {
+      if (session?.user.role !== "donor") return;
+
+      const refreshSubscription = AppState.addEventListener("change", (nextState) => {
+        if (nextState === "active") void runLoad(true);
+      });
+      const interval = setInterval(() => {
+        if (AppState.currentState === "active") void runLoad(true);
+      }, DONOR_REFRESH_INTERVAL_MS);
+
+      return () => {
+        refreshSubscription.remove();
+        clearInterval(interval);
+      };
+    }, [runLoad, session?.user.role]),
+  );
+
   const applyAvailability = useCallback((next: DonorAvailability) => {
     setSummary((current) => (current === null ? current : { ...current, availability: next }));
   }, []);
@@ -214,6 +235,7 @@ export function DashboardShell({ title, children }: DashboardShellProps) {
           {summary !== null ? children(summary, { reload, applyAvailability }) : null}
         </AsyncState>
       </ScrollView>
+      {bottomNavigation}
     </View>
   );
 }

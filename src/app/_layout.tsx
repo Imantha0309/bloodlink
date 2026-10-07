@@ -51,12 +51,19 @@ function AppNavigator() {
           reachable whether or not anyone is signed in. */}
       <Stack.Screen name="emergency-request" options={{ contentStyle: screenBackground }} />
 
+      {/* Public pass verification screen for QR code scans. */}
+      <Stack.Screen name="pass-details" options={{ contentStyle: screenBackground }} />
+
       <Stack.Protected guard={status === "authenticated"}>
         <Stack.Screen
           name="dashboard/recipient"
           options={{ contentStyle: screenBackground }}
         />
         <Stack.Screen name="dashboard/donor" options={{ contentStyle: screenBackground }} />
+        <Stack.Screen name="dashboard/donor-requests" options={{ contentStyle: screenBackground }} />
+        <Stack.Screen name="dashboard/donor-transit" options={{ contentStyle: screenBackground }} />
+        <Stack.Screen name="dashboard/donor-intake" options={{ contentStyle: screenBackground }} />
+        <Stack.Screen name="dashboard/donor-profile" options={{ contentStyle: screenBackground }} />
         <Stack.Screen
           name="dashboard/hospital"
           options={{ contentStyle: screenBackground }}

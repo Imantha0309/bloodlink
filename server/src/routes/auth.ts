@@ -15,8 +15,9 @@ import { ApiError } from "../lib/errors";
 import { hashPassword, verifyPassword } from "../lib/passwords";
 import { issueSession, revokeSession } from "../lib/sessions";
 import { generateId } from "../lib/tokens";
+import { normalizeEmail, normalizeMobile } from "../lib/contact";
 import { findUserByIdentifier, identifierToColumns } from "../lib/users";
-import { parseBody, registerSchema, signInSchema } from "../lib/validate";
+import { parseBody, donorProfileSchema, registerSchema, signInSchema } from "../lib/validate";
 import { requireAuth } from "../middleware/auth";
 import { toAuthUser } from "../types";
 
@@ -117,6 +118,38 @@ authRouter.post(
 authRouter.get("/me", requireAuth, (request, response) => {
   // `requireAuth` guarantees this.
   response.json({ user: toAuthUser(request.user!) });
+});
+
+authRouter.patch("/me", requireAuth, (request, response) => {
+  const currentUser = request.user!;
+  if (currentUser.role !== "donor") {
+    throw new ApiError("unauthorized", "Only donors can edit a donor profile.", { status: 403 });
+  }
+
+  const input = parseBody(donorProfileSchema, request.body);
+  const email = input.email ? normalizeEmail(input.email) : null;
+  const mobile = input.mobile ? normalizeMobile(input.mobile) : null;
+
+  const duplicate = db
+    .prepare("SELECT id FROM users WHERE id <> ? AND ((email IS NOT NULL AND email = ?) OR (mobile IS NOT NULL AND mobile = ?)) LIMIT 1")
+    .get(currentUser.id, email, mobile);
+  if (duplicate) {
+    throw new ApiError("conflict", "That email or mobile number is already in use.", {
+      fields: { email: "That email or mobile number is already in use.", mobile: "That email or mobile number is already in use." },
+    });
+  }
+
+  const timestamp = now();
+  db.prepare(
+    `UPDATE users
+        SET full_name = ?, email = ?, mobile = ?, district = ?, blood_group = ?, updated_at = ?
+      WHERE id = ? AND role = 'donor'`,
+  ).run(input.fullName, email, mobile, input.district, input.bloodGroup, timestamp, currentUser.id);
+
+  const updated = db.prepare("SELECT * FROM users WHERE id = ?").get(currentUser.id);
+  if (!updated) throw new ApiError("not_found", "Donor profile could not be found.");
+
+  response.json({ user: toAuthUser(updated as typeof currentUser) });
 });
 
 authRouter.post("/sign-out", requireAuth, (request, response) => {

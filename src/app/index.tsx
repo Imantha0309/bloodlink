@@ -15,10 +15,12 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { Blood } from "@/constants/colors";
-import { ROUTES } from "@/constants/routes";
+import { ROLE_HOME, ROUTES } from "@/constants/routes";
+import { useAuth } from "@/providers/auth-provider";
 
 export default function LoadingScreen() {
   const router = useRouter();
+  const { status, session } = useAuth();
   // Lazy `useState` initialisers rather than `useRef(...).current`: same stable
   // per-instance Animated.Value, but nothing reads a ref during render.
   const [fadeAnim] = useState(() => new Animated.Value(0));
@@ -169,8 +171,13 @@ export default function LoadingScreen() {
               style={styles.getStartedButton}
               accessibilityRole="button"
               accessibilityLabel="Get Started"
+              disabled={status === "loading"}
               onPress={() => {
-                router.push(ROUTES.login);
+                if (status === "authenticated" && session !== null) {
+                  router.replace(ROLE_HOME[session.user.role]);
+                } else if (status === "unauthenticated") {
+                  router.push(ROUTES.login);
+                }
               }}
             >
               <Text style={styles.getStartedText}>Get Started →</Text>

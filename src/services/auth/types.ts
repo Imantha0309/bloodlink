@@ -55,6 +55,14 @@ export type SignUpInput = {
   registrationNumber?: string | null;
 };
 
+export type DonorProfileInput = {
+  fullName: string;
+  email: string | null;
+  mobile: string | null;
+  district: string;
+  bloodGroup: string;
+};
+
 /** What `requestPasswordReset` hands back for the next step. */
 export type PasswordResetChallenge = {
   resetId: string;
@@ -83,6 +91,9 @@ export interface AuthService {
 
   /** Creates an account and signs the new user straight in. */
   signUp(input: SignUpInput): Promise<AuthSession>;
+
+  /** Updates the profile details for the currently signed-in donor. */
+  updateDonorProfile(input: DonorProfileInput): Promise<AuthUser>;
 
   /** Session for the currently signed-in user, or `null` when signed out. */
   restoreSession(): Promise<AuthSession | null>;

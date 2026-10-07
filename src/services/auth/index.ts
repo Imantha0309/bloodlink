@@ -29,6 +29,7 @@ export {
   type AuthService,
   type AuthSession,
   type AuthUser,
+  type DonorProfileInput,
   type PasswordResetChallenge,
   type SelfRegisterRole,
   type SignInInput,

@@ -37,7 +37,9 @@ export const ValidationMessages = {
   hospitalRequired: "Please enter the hospital.",
   patientNameRequired: "Please enter the patient's name.",
   contactNameRequired: "Please enter a contact person.",
+  wardRequired: "Please enter the ward and room.",
   notesTooLong: "Please keep notes under 500 characters.",
+  broadcastDisabled: "Turn on broadcast radius to send this request.",
 } as const;
 
 /** Mirrors `PASSWORD_MIN_LENGTH` in the server's password module. */
@@ -107,6 +109,15 @@ export function validateUnits(value: string): string | null {
 
   return null;
 }
+
+/**
+ * One unit of whole blood, in millilitres.
+ *
+ * Shown as a live total next to the quantity stepper so the donor understands
+ * what they are being asked for. The 1–20 bounds above are the server's, not
+ * this value's.
+ */
+export const ML_PER_UNIT = 450;
 
 // ---------------------------------------------------------------------------
 // Sign in
@@ -219,6 +230,8 @@ export type EmergencyFormValues = {
   bloodGroup: string;
   units: string;
   hospital: string;
+  /** Ward and room. Folded into `notes` at submit until the schema has a column. */
+  ward: string;
   district: string;
   contactName: string;
   contactMobile: string;
@@ -231,6 +244,7 @@ export type EmergencyFormErrors = {
   bloodGroup: string | null;
   units: string | null;
   hospital: string | null;
+  ward: string | null;
   district: string | null;
   contactName: string | null;
   contactMobile: string | null;
@@ -247,6 +261,9 @@ export function validateEmergencyForm(values: EmergencyFormValues): EmergencyFor
     units: validateUnits(values.units),
     hospital:
       values.hospital.trim().length < 2 ? ValidationMessages.hospitalRequired : null,
+    // Donors need this to know which ward to report to, so it is required rather
+    // than optional the way `notes` is.
+    ward: values.ward.trim().length === 0 ? ValidationMessages.wardRequired : null,
     // Optional on the server, but asking for it is what makes a request
     // locatable, and the form has the field anyway.
     district: values.district.trim().length === 0 ? ValidationMessages.districtRequired : null,

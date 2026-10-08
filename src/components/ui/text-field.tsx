@@ -18,11 +18,18 @@ import { Typography } from "@/constants/typography";
 import { FieldError } from "../auth/field-error";
 
 type TextFieldProps = {
+  /**
+   * The field's name. Still the accessible name when `hideLabel` is set, so a
+   * screen reader always announces the field even when the visible heading is
+   * rendered elsewhere.
+   */
   label: string;
   value: string;
   onChangeText: (value: string) => void;
   placeholder?: string;
   error?: string | null;
+  /** Suppresses the visible label row; the field keeps `label` as its a11y name. */
+  hideLabel?: boolean;
   /** Rendered at the right of the label row. */
   labelRight?: ReactNode;
   icon?: ComponentProps<typeof Feather>["name"];
@@ -36,6 +43,13 @@ type TextFieldProps = {
   returnKeyType?: "done" | "go" | "next" | "search";
   onSubmitEditing?: () => void;
   hint?: string;
+  /**
+   * `dense` trims the label, field height, type and radius for information-dense
+   * screens — the emergency wizard, whose values sit at 9-11px — where the
+   * 52px/13.5px default reads oversized. It also stops reserving a gap for the
+   * error row, at the cost of the form reflowing as errors clear.
+   */
+  size?: "default" | "dense";
 };
 
 /**
@@ -52,6 +66,7 @@ export const TextField = forwardRef<RNTextInput, TextFieldProps>(function TextFi
     onChangeText,
     placeholder,
     error = null,
+    hideLabel = false,
     labelRight,
     icon,
     keyboardType,
@@ -64,21 +79,34 @@ export const TextField = forwardRef<RNTextInput, TextFieldProps>(function TextFi
     returnKeyType = "next",
     onSubmitEditing,
     hint,
+    size = "default",
   },
   ref,
 ) {
   const hasError = error !== null;
+  const isDense = size === "dense";
 
   return (
     <View>
-      <View style={styles.labelRow}>
-        <Text style={styles.label}>{label}</Text>
+      {hideLabel && labelRight === undefined ? null : (
+        <View style={[styles.labelRow, hideLabel && styles.labelRowHidden]}>
+          <Text style={[styles.label, isDense && styles.labelDense]}>{label}</Text>
 
-        {labelRight}
-      </View>
+          {labelRight}
+        </View>
+      )}
 
-      <View style={[styles.field, multiline && styles.fieldMultiline, hasError && styles.fieldError]}>
-        {icon ? <Feather name={icon} size={16} color={Surface.textMuted} /> : null}
+      <View
+        style={[
+          styles.field,
+          isDense && styles.fieldDense,
+          multiline && styles.fieldMultiline,
+          hasError && styles.fieldError,
+        ]}
+      >
+        {icon ? (
+          <Feather name={icon} size={isDense ? 12 : 16} color={Surface.textMuted} />
+        ) : null}
 
         <TextInput
           ref={ref}
@@ -88,7 +116,7 @@ export const TextField = forwardRef<RNTextInput, TextFieldProps>(function TextFi
           editable={editable}
           placeholder={placeholder}
           placeholderTextColor={Surface.textMuted}
-          style={[styles.input, multiline && styles.inputMultiline]}
+          style={[styles.input, isDense && styles.inputDense, multiline && styles.inputMultiline]}
           keyboardType={keyboardType}
           autoCapitalize={autoCapitalize}
           autoCorrect={false}
@@ -102,9 +130,11 @@ export const TextField = forwardRef<RNTextInput, TextFieldProps>(function TextFi
         />
       </View>
 
-      {hint !== undefined && !hasError ? <Text style={styles.hint}>{hint}</Text> : null}
+      {hint !== undefined && !hasError ? (
+        <Text style={[styles.hint, isDense && styles.hintDense]}>{hint}</Text>
+      ) : null}
 
-      <FieldError message={error} />
+      <FieldError message={error} reserveSpace={!isDense} />
     </View>
   );
 });
@@ -118,10 +148,21 @@ const styles = StyleSheet.create({
     gap: 8,
   },
 
+  /** Heading lives elsewhere, so the row contributes no space. */
+  labelRowHidden: {
+    marginBottom: 0,
+  },
+
   label: {
     ...Typography.label,
     color: Surface.text,
     flexShrink: 1,
+  },
+
+  labelDense: {
+    fontSize: 10,
+    lineHeight: 13,
+    letterSpacing: -0.05,
   },
 
   field: {
@@ -134,6 +175,13 @@ const styles = StyleSheet.create({
     borderRadius: Radius.field,
     borderWidth: 1,
     borderColor: Surface.border,
+  },
+
+  fieldDense: {
+    height: 40,
+    paddingHorizontal: 11,
+    gap: 7,
+    borderRadius: Radius.sm,
   },
 
   fieldMultiline: {
@@ -155,6 +203,13 @@ const styles = StyleSheet.create({
     paddingVertical: 0,
   },
 
+  inputDense: {
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: "600",
+    letterSpacing: -0.05,
+  },
+
   inputMultiline: {
     height: undefined,
     textAlignVertical: "top",
@@ -164,5 +219,11 @@ const styles = StyleSheet.create({
     ...Typography.small,
     color: Surface.textMuted,
     marginTop: 6,
+  },
+
+  hintDense: {
+    fontSize: 7.5,
+    lineHeight: 11,
+    marginTop: 5,
   },
 });

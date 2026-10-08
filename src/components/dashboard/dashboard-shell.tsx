@@ -1,8 +1,8 @@
 import { Feather } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { AppState, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AsyncState } from "@/components/ui/async-state";
@@ -18,6 +18,8 @@ import {
   type DashboardSummary,
   type DonorAvailability,
 } from "@/services/dashboard/dashboard";
+
+const DONOR_REFRESH_INTERVAL_MS = 10_000;
 
 /** Handed to the role content so a mutation can update what is on screen. */
 export type DashboardHelpers = {
@@ -39,7 +41,23 @@ export type DashboardHelpers = {
 type DashboardShellProps = {
   /** Shown under the role name in the header. */
   title: string;
+  bottomNavigation?: ReactNode;
   children: (summary: DashboardSummary, helpers: DashboardHelpers) => ReactNode;
+  /**
+   * Replaces the default role/title/sign-out header.
+   *
+   * The recipient home supplies its own compact header, which has no sign-out —
+   * that moves to the Profile tab. Omit this and the default header renders, so
+   * the other three role dashboards are unaffected.
+   */
+  header?: ReactNode;
+  /**
+   * Rendered below the scroll area, outside it.
+   *
+   * Used for the tab bar, which must stay pinned to the bottom rather than
+   * scrolling away with the content.
+   */
+  footer?: ReactNode;
 };
 
 /**
@@ -50,7 +68,13 @@ type DashboardShellProps = {
  * pull-to-refresh and the sign-out affordance all live here once. The role
  * screens supply only their content via a render prop.
  */
-export function DashboardShell({ title, children }: DashboardShellProps) {
+export function DashboardShell({
+  title,
+  bottomNavigation,
+  children,
+  header,
+  footer,
+}: DashboardShellProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { session, signOut } = useAuth();
@@ -142,6 +166,24 @@ export function DashboardShell({ title, children }: DashboardShellProps) {
     void runLoad(true);
   }, [runLoad]);
 
+  useFocusEffect(
+    useCallback(() => {
+      if (session?.user.role !== "donor") return;
+
+      const refreshSubscription = AppState.addEventListener("change", (nextState) => {
+        if (nextState === "active") void runLoad(true);
+      });
+      const interval = setInterval(() => {
+        if (AppState.currentState === "active") void runLoad(true);
+      }, DONOR_REFRESH_INTERVAL_MS);
+
+      return () => {
+        refreshSubscription.remove();
+        clearInterval(interval);
+      };
+    }, [runLoad, session?.user.role]),
+  );
+
   const applyAvailability = useCallback((next: DonorAvailability) => {
     setSummary((current) => (current === null ? current : { ...current, availability: next }));
   }, []);
@@ -163,39 +205,85 @@ export function DashboardShell({ title, children }: DashboardShellProps) {
     }
   }
 
+  /**
+   * Back to the start of the sign-up journey.
+   *
+   * `role-select` is part of the auth group, which `_layout.tsx` keeps behind
+   * the unauthenticated guard — so leaving a dashboard for it means ending the
+   * session first. Without that the guarded screen is not in the tree and the
+   * navigation is dropped, leaving the button apparently dead.
+   */
+  async function handleBack() {
+    if (isSigningOut) {
+      return;
+    }
+
+    setIsSigningOut(true);
+
+    try {
+      if (session !== null) {
+        await signOut();
+      }
+
+      router.replace(ROUTES.roleSelect);
+    } finally {
+      setIsSigningOut(false);
+    }
+  }
+
   const role = summary?.role ?? session?.user.role ?? "recipient";
 
   return (
     <View style={styles.root}>
       <StatusBar style="dark" />
 
-      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        <View style={styles.headerText}>
-          <Text style={styles.eyebrow}>{ROLE_NAME[role].toUpperCase()}</Text>
+      {header ?? (
+        <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+          <Pressable
+            onPress={() => {
+              void handleBack();
+            }}
+            disabled={isSigningOut}
+            accessibilityRole="button"
+            accessibilityLabel="Back to choose your role"
+            accessibilityState={{ disabled: isSigningOut }}
+            hitSlop={6}
+            style={({ pressed }) => [
+              styles.iconButton,
+              pressed && styles.iconButtonPressed,
+              isSigningOut && styles.iconButtonDisabled,
+            ]}
+          >
+            <Feather name="arrow-left" size={20} color={Surface.text} />
+          </Pressable>
 
-          <Text style={styles.title} numberOfLines={1} accessibilityRole="header">
-            {title}
-          </Text>
+          <View style={styles.headerText}>
+            <Text style={styles.eyebrow}>{ROLE_NAME[role].toUpperCase()}</Text>
+
+            <Text style={styles.title} numberOfLines={1} accessibilityRole="header">
+              {title}
+            </Text>
+          </View>
+
+          <Pressable
+            onPress={() => {
+              void handleSignOut();
+            }}
+            disabled={isSigningOut}
+            accessibilityRole="button"
+            accessibilityLabel="Sign out"
+            accessibilityState={{ disabled: isSigningOut }}
+            hitSlop={6}
+            style={({ pressed }) => [
+              styles.iconButton,
+              pressed && styles.iconButtonPressed,
+              isSigningOut && styles.iconButtonDisabled,
+            ]}
+          >
+            <Feather name="log-out" size={18} color={Surface.text} />
+          </Pressable>
         </View>
-
-        <Pressable
-          onPress={() => {
-            void handleSignOut();
-          }}
-          disabled={isSigningOut}
-          accessibilityRole="button"
-          accessibilityLabel="Sign out"
-          accessibilityState={{ disabled: isSigningOut }}
-          hitSlop={6}
-          style={({ pressed }) => [
-            styles.signOut,
-            pressed && styles.signOutPressed,
-            isSigningOut && styles.signOutDisabled,
-          ]}
-        >
-          <Feather name="log-out" size={18} color={Surface.text} />
-        </Pressable>
-      </View>
+      )}
 
       <ScrollView
         style={styles.flex}
@@ -214,6 +302,10 @@ export function DashboardShell({ title, children }: DashboardShellProps) {
           {summary !== null ? children(summary, { reload, applyAvailability }) : null}
         </AsyncState>
       </ScrollView>
+
+      {/* Outside the ScrollView so a tab bar stays pinned to the bottom. */}
+      {footer}
+      {bottomNavigation}
     </View>
   );
 }
@@ -252,7 +344,8 @@ const styles = StyleSheet.create({
     color: Surface.text,
   },
 
-  signOut: {
+  /** Circular header affordance, shared by back and sign out. */
+  iconButton: {
     width: 44,
     height: 44,
     borderRadius: Radius.full,
@@ -263,11 +356,11 @@ const styles = StyleSheet.create({
     borderColor: Surface.border,
   },
 
-  signOutPressed: {
+  iconButtonPressed: {
     backgroundColor: Surface.border,
   },
 
-  signOutDisabled: {
+  iconButtonDisabled: {
     opacity: 0.5,
   },
 

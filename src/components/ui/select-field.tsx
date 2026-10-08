@@ -1,4 +1,5 @@
 import { Feather } from "@expo/vector-icons";
+import type { ComponentProps } from "react";
 import { useState } from "react";
 import {
   FlatList,
@@ -17,19 +18,53 @@ import { Typography } from "@/constants/typography";
 import { FieldError } from "../auth/field-error";
 
 type SelectFieldProps = {
+  /**
+   * The field's name. Still the accessible name when `hideLabel` is set, so a
+   * screen reader always announces the field even when the visible heading is
+   * rendered elsewhere.
+   */
   label: string;
   value: string | null;
   options: readonly string[];
   onChange: (value: string) => void;
   placeholder?: string;
   error?: string | null;
+  /** Suppresses the visible label row; the field keeps `label` as its a11y name. */
+  hideLabel?: boolean;
+  /** Leading glyph, e.g. a pin for a facility field. */
+  icon?: ComponentProps<typeof Feather>["name"];
+  /**
+   * Replaces the chevron — a check mark once a verified value is chosen.
+   *
+   * Falls back to the chevron when omitted, so every existing caller keeps its
+   * current affordance.
+   */
+  trailingIcon?: ComponentProps<typeof Feather>["name"];
+  /**
+   * Colour for `trailingIcon`.
+   *
+   * A check mark is an approval, not a brand accent, so it reads green rather
+   * than taking the button red. Defaults to the brand colour.
+   */
+  trailingTone?: "brand" | "success";
+  /** Supporting line under the field. Hidden while an error is showing. */
+  caption?: string;
+  /**
+   * `dense` trims the label, field height, type and radius for information-dense
+   * screens — the emergency wizard, whose values sit at 9-11px — where the
+   * 52px/13.5px default reads oversized. It also stops reserving a gap for the
+   * error row, at the cost of the form reflowing as errors clear. The option
+   * list modal is unaffected.
+   */
+  size?: "default" | "dense";
 };
 
 /**
  * Single-select field that opens a full-screen list.
  *
  * Used where the option set is too long for chips — the 25 Sri Lankan
- * districts — so the choices stay legible and scrollable on a phone.
+ * districts, and the curated facility list — so the choices stay legible and
+ * scrollable on a phone.
  */
 export function SelectField({
   label,
@@ -38,9 +73,18 @@ export function SelectField({
   onChange,
   placeholder = "Select an option",
   error = null,
+  hideLabel = false,
+  icon,
+  trailingIcon,
+  trailingTone = "brand",
+  caption,
+  size = "default",
 }: SelectFieldProps) {
   const [isOpen, setIsOpen] = useState(false);
   const hasError = error !== null;
+  const hasCaption = caption !== undefined && caption !== "" && !hasError;
+  const isDense = size === "dense";
+  const trailingColor = trailingTone === "success" ? Surface.successText : Blood.primary;
 
   function handleSelect(option: string) {
     onChange(option);
@@ -49,7 +93,9 @@ export function SelectField({
 
   return (
     <View>
-      <Text style={styles.label}>{label}</Text>
+      {hideLabel ? null : (
+        <Text style={[styles.label, isDense && styles.labelDense]}>{label}</Text>
+      )}
 
       <Pressable
         onPress={() => setIsOpen(true)}
@@ -59,18 +105,41 @@ export function SelectField({
         accessibilityHint="Opens a list of options"
         style={({ pressed }) => [
           styles.field,
+          isDense && styles.fieldDense,
           hasError && styles.fieldError,
           pressed && styles.fieldPressed,
         ]}
       >
-        <Text style={value === null ? styles.placeholder : styles.value} numberOfLines={1}>
+        {icon !== undefined ? (
+          <Feather
+            name={icon}
+            size={isDense ? 12 : 15}
+            color={Surface.textMuted}
+          />
+        ) : null}
+
+        <Text
+          style={[
+            value === null ? styles.placeholder : styles.value,
+            isDense && styles.valueDense,
+          ]}
+          numberOfLines={1}
+        >
           {value ?? placeholder}
         </Text>
 
-        <Feather name="chevron-down" size={16} color={Surface.textMuted} />
+        <Feather
+          name={trailingIcon ?? "chevron-down"}
+          size={isDense ? 13 : 16}
+          color={trailingIcon === undefined ? Surface.textMuted : trailingColor}
+        />
       </Pressable>
 
-      <FieldError message={error} />
+      {hasCaption ? (
+        <Text style={[styles.caption, isDense && styles.captionDense]}>{caption}</Text>
+      ) : null}
+
+      <FieldError message={error} reserveSpace={!isDense} />
 
       <Modal
         visible={isOpen}
@@ -137,6 +206,13 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
 
+  labelDense: {
+    fontSize: 10,
+    lineHeight: 13,
+    letterSpacing: -0.05,
+    marginBottom: 5,
+  },
+
   field: {
     flexDirection: "row",
     alignItems: "center",
@@ -148,6 +224,13 @@ const styles = StyleSheet.create({
     borderRadius: Radius.field,
     borderWidth: 1,
     borderColor: Surface.border,
+  },
+
+  fieldDense: {
+    height: 40,
+    paddingHorizontal: 11,
+    gap: 7,
+    borderRadius: Radius.sm,
   },
 
   fieldPressed: {
@@ -164,10 +247,30 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 
+  valueDense: {
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: "600",
+    letterSpacing: -0.05,
+  },
+
   placeholder: {
     ...Typography.input,
     color: Surface.textMuted,
     flex: 1,
+  },
+
+  caption: {
+    ...Typography.small,
+    fontSize: 10,
+    color: Surface.textMuted,
+    marginTop: 6,
+  },
+
+  captionDense: {
+    fontSize: 7.5,
+    lineHeight: 11,
+    marginTop: 5,
   },
 
   modal: {

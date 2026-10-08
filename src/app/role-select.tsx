@@ -24,7 +24,10 @@ import { useAuthBack } from "@/hooks/use-auth-back";
  */
 export default function RoleSelectScreen() {
   const router = useRouter();
-  const handleBack = useAuthBack(ROUTES.register);
+  // Fallback is `login`, not `register`: register without a role param
+  // immediately replaces itself with this screen, so falling back to it would
+  // bounce straight back here and the user could never leave.
+  const handleBack = useAuthBack(ROUTES.login);
 
   // Deliberately no default: the user must choose, so the continue button's
   // disabled state is reachable.

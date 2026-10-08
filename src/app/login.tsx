@@ -189,7 +189,9 @@ export default function LoginScreen() {
               <Text style={styles.footerPrompt}>Don&apos;t have an account?</Text>
 
               <Pressable
-                onPress={() => router.push(ROUTES.register)}
+                // Role selection is step 1 of sign-up; pushing `register`
+                // directly would only bounce through its no-role redirect.
+                onPress={() => router.push(ROUTES.roleSelect)}
                 accessibilityRole="link"
                 accessibilityLabel="Register"
                 hitSlop={10}

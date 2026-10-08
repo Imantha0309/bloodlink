@@ -1,5 +1,5 @@
 import { Feather } from "@expo/vector-icons";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -51,19 +51,13 @@ export function DonorCheckInModal({ visible, onClose }: DonorCheckInModalProps) 
   const [isCompleting, setIsCompleting] = useState(false);
   const [completeSuccess, setCompleteSuccess] = useState(false);
 
-  // Reopening always starts from a clean scan form.
-  useEffect(() => {
-    if (!visible) {
-      setShowCamera(false);
-      setScanInput("");
-      setVerifyError(null);
-      setVerifiedPass(null);
-      setCompleteSuccess(false);
-    }
-  }, [visible]);
-
+  /** Closing always hands the next open a clean scan form. */
   function handleClose() {
     setShowCamera(false);
+    setScanInput("");
+    setVerifyError(null);
+    setVerifiedPass(null);
+    setCompleteSuccess(false);
     onClose();
   }
 

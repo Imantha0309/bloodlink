@@ -17,7 +17,7 @@ import { issueSession, revokeSession } from "../lib/sessions";
 import { generateId } from "../lib/tokens";
 import { normalizeEmail, normalizeMobile } from "../lib/contact";
 import { findUserByIdentifier, identifierToColumns } from "../lib/users";
-import { parseBody, donorProfileSchema, registerSchema, signInSchema } from "../lib/validate";
+import { parseBody, donorProfileSchema, recipientProfileSchema, registerSchema, signInSchema } from "../lib/validate";
 import { requireAuth } from "../middleware/auth";
 import { toAuthUser } from "../types";
 
@@ -125,6 +125,26 @@ authRouter.get("/me", requireAuth, (request, response) => {
 
 authRouter.patch("/me", requireAuth, (request, response) => {
   const currentUser = request.user!;
+
+  // Recipients get a narrow self-service surface: the location page only
+  // re-points their district, which feeds local bank suggestions.
+  if (currentUser.role === "recipient") {
+    const { district } = parseBody(recipientProfileSchema, request.body);
+    const timestamp = now();
+
+    db.prepare("UPDATE users SET district = ?, updated_at = ? WHERE id = ? AND role = 'recipient'").run(
+      district,
+      timestamp,
+      currentUser.id,
+    );
+
+    const updated = db.prepare("SELECT * FROM users WHERE id = ?").get(currentUser.id);
+    if (!updated) throw new ApiError("not_found", "Account could not be found.");
+
+    response.json({ user: toAuthUser(updated as typeof currentUser) });
+    return;
+  }
+
   if (currentUser.role !== "donor") {
     throw new ApiError("unauthorized", "Only donors can edit a donor profile.", { status: 403 });
   }

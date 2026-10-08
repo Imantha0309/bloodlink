@@ -109,6 +109,76 @@ CREATE TABLE IF NOT EXISTS donor_availability (
   last_donation_at TEXT,
   updated_at       TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS blood_banks (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL,
+  district    TEXT NOT NULL,
+  address     TEXT,
+  phone       TEXT,
+  hours       TEXT,
+  is_verified INTEGER NOT NULL DEFAULT 0,
+  note        TEXT,
+  created_at  TEXT NOT NULL,
+  updated_at  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS blood_inventory (
+  id            TEXT PRIMARY KEY,
+  blood_bank_id TEXT NOT NULL REFERENCES blood_banks(id) ON DELETE CASCADE,
+  blood_group   TEXT NOT NULL CHECK (blood_group IN
+                  ('A+','A-','B+','B-','AB+','AB-','O+','O-')),
+  component     TEXT NOT NULL CHECK (component IN
+                  ('whole_blood','prbc','platelets','plasma')),
+  units         INTEGER NOT NULL DEFAULT 0,
+  updated_at    TEXT NOT NULL,
+  UNIQUE (blood_bank_id, blood_group, component)
+);
+
+CREATE INDEX IF NOT EXISTS idx_inventory_bank ON blood_inventory(blood_bank_id);
+
+CREATE TABLE IF NOT EXISTS alerts (
+  id         TEXT PRIMARY KEY,
+  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  type       TEXT NOT NULL CHECK (type IN
+               ('new_match','status_change','donor_accepted','request_fulfilled')),
+  request_id TEXT REFERENCES emergency_requests(id) ON DELETE CASCADE,
+  title      TEXT NOT NULL,
+  body       TEXT NOT NULL,
+  read_at    TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_alerts_user ON alerts(user_id, created_at);
+
+CREATE TABLE IF NOT EXISTS donor_screening (
+  id                    TEXT PRIMARY KEY,
+  response_id           TEXT NOT NULL REFERENCES donor_request_responses(id) ON DELETE CASCADE,
+  temperature           TEXT,
+  blood_pressure        TEXT,
+  pulse                 TEXT,
+  hemoglobin            TEXT,
+  eligible              INTEGER NOT NULL DEFAULT 1,
+  bed_label             TEXT,
+  screened_by_user_id   TEXT REFERENCES users(id) ON DELETE SET NULL,
+  created_at            TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_screening_response ON donor_screening(response_id);
+
+CREATE TABLE IF NOT EXISTS extraction_sessions (
+  id                TEXT PRIMARY KEY,
+  response_id       TEXT NOT NULL REFERENCES donor_request_responses(id) ON DELETE CASCADE,
+  volume_ml         INTEGER,
+  status            TEXT NOT NULL DEFAULT 'in_progress'
+                      CHECK (status IN ('in_progress', 'completed')),
+  phlebotomist_name TEXT,
+  started_at        TEXT NOT NULL,
+  completed_at      TEXT,
+  created_at        TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_extraction_response ON extraction_sessions(response_id);
 `;
 
 db.exec(SCHEMA);
@@ -142,6 +212,16 @@ if (!donorResponseColumns.some((column) => column.name === "checkin_token_expire
   db.exec(
     "ALTER TABLE donor_request_responses ADD COLUMN checkin_token_expires_at TEXT",
   );
+}
+
+// The hospital module declares `registration_number` on the request table, but
+// databases created before it landed need the same one-off repair.
+const requestColumns = db
+  .prepare("PRAGMA table_info(emergency_requests)")
+  .all() as { name: string }[];
+
+if (!requestColumns.some((column) => column.name === "registration_number")) {
+  db.exec("ALTER TABLE emergency_requests ADD COLUMN registration_number TEXT");
 }
 
 /** `new Date().toISOString()`, named for brevity at call sites. */

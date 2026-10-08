@@ -143,6 +143,42 @@ export const checkInSchema = z.object({
   token: z.string().trim().min(20),
 });
 
+/** `PUT /hospital/inventory/:bankId/:group/:component` body. */
+export const inventoryUnitsSchema = z.object({
+  units: z.coerce
+    .number()
+    .int("Units must be a whole number.")
+    .min(0, "Units cannot be negative.")
+    .max(999, "That is more stock than the field can hold."),
+});
+
+const vitalsString = z.string().trim().max(40);
+
+/** Vitals recorded at intake before the donation is approved. */
+export const screeningSchema = z.object({
+  temperature: vitalsString.optional(),
+  bloodPressure: vitalsString.optional(),
+  pulse: vitalsString.optional(),
+  hemoglobin: vitalsString.optional(),
+  eligible: z.boolean(),
+  bedLabel: vitalsString.optional(),
+});
+
+/** Completing the extraction session. */
+export const extractionSchema = z.object({
+  volumeMl: z.coerce
+    .number()
+    .int("Volume must be a whole number.")
+    .min(1, "Record the collected volume.")
+    .max(1000, "That volume is implausible."),
+  phlebotomistName: vitalsString.optional(),
+});
+
+/** Recipients may only re-point their district; the rest is donor-only. */
+export const recipientProfileSchema = z.object({
+  district: z.enum(DISTRICTS),
+});
+
 /**
  * Parses `body` against `schema`, converting a zod failure into an `ApiError`
  * carrying one message per invalid field.

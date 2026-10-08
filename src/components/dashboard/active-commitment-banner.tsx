@@ -80,7 +80,6 @@ export function ActiveCommitmentBanner({ onCommitmentChange }: ActiveCommitmentB
       await startDonorTransit(activeItem.id);
       setActiveItem({ ...activeItem, donorStage: "en_route" });
       onCommitmentChange?.();
-      router.push(ROUTES.donorTransit);
     } catch (caught) {
       setError(apiErrorMessage(caught));
     } finally {

@@ -71,6 +71,18 @@ export default function LoadingScreen() {
     };
   }, [fadeAnim, scaleAnim]);
 
+  /**
+   * A restored session has to lead somewhere. `/login` and `/role-select` are
+   * guarded to signed-out users, so a signed-in user who lands here after a
+   * reload — the app always starts at `/` — would have no reachable action and
+   * the Get Started button would do nothing. Send them to their dashboard.
+   */
+  useEffect(() => {
+    if (status === "authenticated" && session !== null) {
+      router.replace(ROLE_HOME[session.user.role]);
+    }
+  }, [status, session, router]);
+
   return (
     <View style={styles.container}>
       <StatusBar style="dark" />

@@ -11,7 +11,7 @@ type GreetingSectionProps = {
   /** District from the session, shown in the location pill. */
   district: string | null;
   /** Unread count badge on the location pill. */
-  notificationCount?: string;
+  notificationCount?: string | number;
   onLocationPress: () => void;
 };
 
@@ -61,7 +61,7 @@ export function GreetingSection({
           </Text>
         </View>
 
-        {notificationCount !== undefined ? (
+        {notificationCount !== undefined && Number(notificationCount) > 0 ? (
           <View style={styles.count}>
             <Text style={styles.countText}>{notificationCount}</Text>
           </View>

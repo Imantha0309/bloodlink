@@ -471,8 +471,8 @@ const styles = StyleSheet.create({
   },
 
   statValue: {
-    fontSize: 26,
-    lineHeight: 30,
+    fontSize: 27,
+    lineHeight: 32,
     fontWeight: "800",
     letterSpacing: -0.6,
     color: Surface.text,

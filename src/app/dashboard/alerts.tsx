@@ -5,6 +5,7 @@ import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "r
 
 import { DashboardTabBar, type DashboardTabKey } from "@/components/dashboard/dashboard-tab-bar";
 import { StepHeader } from "@/components/emergency/step-header";
+import { Reveal } from "@/components/motion/reveal";
 import { AsyncState } from "@/components/ui/async-state";
 import { SkeletonCard } from "@/components/ui/skeleton";
 import { ALERT_META } from "@/constants/alerts";
@@ -16,6 +17,7 @@ import { useAuthBack } from "@/hooks/use-auth-back";
 import { useAuth } from "@/providers/auth-provider";
 import { apiErrorMessage } from "@/services/api/errors";
 import { listAlerts, markAlertsRead, type Alert } from "@/services/alerts";
+import { haptics } from "@/utils/haptics";
 import { timeAgo } from "@/utils/time";
 
 /**
@@ -91,6 +93,7 @@ export default function AlertsScreen() {
   async function markAllRead() {
     try {
       await markAlertsRead();
+      haptics.light();
       setAlerts((await listAlerts()).alerts);
     } catch {
       // Keep the feed as-is; the button stays for another try.
@@ -101,6 +104,7 @@ export default function AlertsScreen() {
   async function openAlert(alert: Alert) {
     if (alert.readAt === null) {
       try {
+        haptics.light();
         await markAlertsRead([alert.id]);
         const feed = await listAlerts();
         setAlerts((current) =>
@@ -181,12 +185,12 @@ export default function AlertsScreen() {
           onRetry={() => void refreshFeed({ useLoader: true })}
         >
           <View style={styles.feed}>
-            {alerts.map((alert) => {
+            {alerts.map((alert, index) => {
               const meta = ALERT_META[alert.type];
 
               return (
-                <Pressable
-                  key={alert.id}
+                <Reveal index={index} key={alert.id}>
+                  <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={`${alert.title}. ${alert.body}`}
                   onPress={() => void openAlert(alert)}
@@ -211,7 +215,8 @@ export default function AlertsScreen() {
                   </View>
 
                   {alert.readAt === null ? <View style={styles.unreadDot} /> : null}
-                </Pressable>
+                  </Pressable>
+                </Reveal>
               );
             })}
           </View>

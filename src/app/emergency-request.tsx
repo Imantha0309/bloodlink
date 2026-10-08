@@ -29,6 +29,7 @@ import { useAuth } from "@/providers/auth-provider";
 import { apiErrorMessage } from "@/services/auth";
 import { type BloodBank, listBloodBanks } from "@/services/blood-banks";
 import { searchDonors } from "@/services/donors/directory";
+import { haptics } from "@/utils/haptics";
 import { referenceFor } from "@/utils/reference";
 import {
   createEmergencyRequest,
@@ -373,6 +374,7 @@ export default function EmergencyRequestScreen() {
           notes: composeNotes(ward, notes),
         }),
       );
+      haptics.success();
     } catch (error) {
       setFormError(apiErrorMessage(error));
     } finally {

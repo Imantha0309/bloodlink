@@ -5,6 +5,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { DashboardTabBar, type DashboardTabKey } from "@/components/dashboard/dashboard-tab-bar";
 import { StepHeader } from "@/components/emergency/step-header";
+import { Reveal } from "@/components/motion/reveal";
 import { AsyncState } from "@/components/ui/async-state";
 import { SelectField } from "@/components/ui/select-field";
 import { SkeletonCard } from "@/components/ui/skeleton";
@@ -161,23 +162,25 @@ export default function DonorsScreen() {
 
           <View style={styles.list}>
             {donors.map((donor, index) => (
-              <View key={`${donor.initials}-${index}`} style={styles.donor}>
-                <View style={styles.avatar}>
-                  <Text style={styles.avatarText}>{donor.initials}</Text>
-                </View>
+              <Reveal index={index} key={`${donor.initials}-${index}`}>
+                <View style={styles.donor}>
+                  <View style={styles.avatar}>
+                    <Text style={styles.avatarText}>{donor.initials}</Text>
+                  </View>
 
-                <View style={styles.donorCopy}>
-                  <Text style={styles.donorGroup}>{donor.bloodGroup}</Text>
-                  <Text style={styles.donorMeta} numberOfLines={1}>
-                    {donor.district ?? "District not shared"}
-                  </Text>
-                </View>
+                  <View style={styles.donorCopy}>
+                    <Text style={styles.donorGroup}>{donor.bloodGroup}</Text>
+                    <Text style={styles.donorMeta} numberOfLines={1}>
+                      {donor.district ?? "District not shared"}
+                    </Text>
+                  </View>
 
-                <View style={styles.availableBadge}>
-                  <Feather name="check-circle" size={10} color={Surface.online} />
-                  <Text style={styles.availableText}>Available</Text>
+                  <View style={styles.availableBadge}>
+                    <Feather name="check-circle" size={10} color={Surface.online} />
+                    <Text style={styles.availableText}>Available</Text>
+                  </View>
                 </View>
-              </View>
+              </Reveal>
             ))}
           </View>
         </AsyncState>

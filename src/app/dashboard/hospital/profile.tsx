@@ -1080,10 +1080,10 @@ const styles = StyleSheet.create({
   },
 
   statValue: {
-    fontSize: 24,
-    lineHeight: 28,
+    fontSize: 27,
+    lineHeight: 32,
     fontWeight: "800",
-    letterSpacing: -0.5,
+    letterSpacing: -0.6,
     color: Surface.text,
   },
 

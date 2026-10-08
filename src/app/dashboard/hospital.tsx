@@ -3,6 +3,7 @@ import { useState } from "react";
 import {
   ActivityIndicator,
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -14,6 +15,7 @@ import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { RequestList } from "@/components/dashboard/request-list";
 import { SectionHeading } from "@/components/dashboard/section-heading";
 import { StatGrid } from "@/components/dashboard/stat-grid";
+import { QrCodeScanner } from "@/components/qr-code-scanner";
 import { Blood, Elevation, Surface } from "@/constants/colors";
 import { Radius } from "@/constants/radius";
 import { Typography } from "@/constants/typography";
@@ -25,6 +27,7 @@ import {
 
 export default function HospitalDashboardScreen() {
   const [showScannerModal, setShowScannerModal] = useState(false);
+  const [showCamera, setShowCamera] = useState(false);
   const [scanInput, setScanInput] = useState("");
   const [isVerifying, setIsVerifying] = useState(false);
   const [verifyError, setVerifyError] = useState<string | null>(null);
@@ -47,8 +50,8 @@ export default function HospitalDashboardScreen() {
         const awaiting = summary.requests.filter((request) => request.status === "pending");
         const handled = summary.requests.filter((request) => request.status !== "pending");
 
-        async function handleProcessScan() {
-          const raw = scanInput.trim();
+        async function handleProcessScan(scanned?: string) {
+          const raw = (scanned ?? scanInput).trim();
           if (!raw) {
             setVerifyError("Please scan or paste the donor intake QR code.");
             return;
@@ -144,6 +147,7 @@ export default function HospitalDashboardScreen() {
                   setVerifyError(null);
                   setVerifiedPass(null);
                   setCompleteSuccess(false);
+                  setShowCamera(false);
                   setShowScannerModal(true);
                 }}
                 style={({ pressed }) => [styles.scanButton, pressed && styles.pressed]}
@@ -184,7 +188,10 @@ export default function HospitalDashboardScreen() {
               visible={showScannerModal}
               transparent
               animationType="slide"
-              onRequestClose={() => setShowScannerModal(false)}
+              onRequestClose={() => {
+                setShowCamera(false);
+                setShowScannerModal(false);
+              }}
             >
               <View style={styles.modalOverlay}>
                 <View style={styles.modalContent}>
@@ -197,7 +204,10 @@ export default function HospitalDashboardScreen() {
                     <Pressable
                       accessibilityRole="button"
                       accessibilityLabel="Close verification modal"
-                      onPress={() => setShowScannerModal(false)}
+                      onPress={() => {
+                        setShowCamera(false);
+                        setShowScannerModal(false);
+                      }}
                       style={styles.closeBtn}
                     >
                       <Feather name="x" size={18} color={Surface.text} />
@@ -206,45 +216,78 @@ export default function HospitalDashboardScreen() {
 
                   {!verifiedPass ? (
                     <View style={styles.scanForm}>
-                      <Text style={styles.scanInstructions}>
-                        Scan or paste the donor intake QR code string to see verified pass details:
-                      </Text>
+                      {showCamera ? (
+                        <QrCodeScanner
+                          onCancel={() => setShowCamera(false)}
+                          onScanned={(value) => {
+                            setShowCamera(false);
+                            setScanInput(value);
+                            void handleProcessScan(value);
+                          }}
+                        />
+                      ) : (
+                        <>
+                          <Text style={styles.scanInstructions}>
+                            Scan or paste the donor intake QR code string to see verified pass
+                            details:
+                          </Text>
 
-                      <TextInput
-                        value={scanInput}
-                        onChangeText={setScanInput}
-                        placeholder="Paste QR scan or e.g. bloodlink-intake:req_123:token..."
-                        placeholderTextColor={Surface.textMuted}
-                        style={styles.scanInput}
-                        multiline
-                        numberOfLines={3}
-                        autoCapitalize="none"
-                        autoCorrect={false}
-                      />
+                          {Platform.OS !== "web" ? (
+                            <Pressable
+                              accessibilityRole="button"
+                              accessibilityLabel="Open camera to scan QR code"
+                              disabled={isVerifying}
+                              onPress={() => {
+                                setVerifyError(null);
+                                setShowCamera(true);
+                              }}
+                              style={({ pressed }) => [
+                                styles.cameraScanBtn,
+                                pressed && styles.pressed,
+                              ]}
+                            >
+                              <Feather name="camera" size={16} color="#FFFFFF" />
+                              <Text style={styles.cameraScanBtnText}>Scan with Camera</Text>
+                            </Pressable>
+                          ) : null}
 
-                      {verifyError ? (
-                        <View style={styles.errorBox}>
-                          <Feather name="alert-circle" size={14} color={Surface.danger} />
-                          <Text style={styles.errorText}>{verifyError}</Text>
-                        </View>
-                      ) : null}
+                          <TextInput
+                            value={scanInput}
+                            onChangeText={setScanInput}
+                            placeholder="Paste QR scan or e.g. bloodlink-intake:req_123:token..."
+                            placeholderTextColor={Surface.textMuted}
+                            style={styles.scanInput}
+                            multiline
+                            numberOfLines={3}
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                          />
 
-                      <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel="Verify pass now"
-                        disabled={isVerifying}
-                        onPress={() => void handleProcessScan()}
-                        style={({ pressed }) => [styles.primaryModalBtn, pressed && styles.pressed]}
-                      >
-                        {isVerifying ? (
-                          <ActivityIndicator color="#FFFFFF" />
-                        ) : (
-                          <>
-                            <Feather name="check-circle" size={16} color="#FFFFFF" />
-                            <Text style={styles.primaryModalBtnText}>Verify & Check In Donor</Text>
-                          </>
-                        )}
-                      </Pressable>
+                          {verifyError ? (
+                            <View style={styles.errorBox}>
+                              <Feather name="alert-circle" size={14} color={Surface.danger} />
+                              <Text style={styles.errorText}>{verifyError}</Text>
+                            </View>
+                          ) : null}
+
+                          <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel="Verify pass now"
+                            disabled={isVerifying}
+                            onPress={() => void handleProcessScan()}
+                            style={({ pressed }) => [styles.primaryModalBtn, pressed && styles.pressed]}
+                          >
+                            {isVerifying ? (
+                              <ActivityIndicator color="#FFFFFF" />
+                            ) : (
+                              <>
+                                <Feather name="check-circle" size={16} color="#FFFFFF" />
+                                <Text style={styles.primaryModalBtnText}>Verify & Check In Donor</Text>
+                              </>
+                            )}
+                          </Pressable>
+                        </>
+                      )}
                     </View>
                   ) : (
                     /* Verified Pass Details Card */
@@ -471,6 +514,22 @@ const styles = StyleSheet.create({
     color: Surface.text,
     textAlignVertical: "top",
     minHeight: 80,
+  },
+
+  cameraScanBtn: {
+    height: 46,
+    borderRadius: Radius.field,
+    backgroundColor: Blood.primary,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+
+  cameraScanBtnText: {
+    ...Typography.button,
+    fontWeight: "700",
+    color: "#FFFFFF",
   },
 
   errorBox: {

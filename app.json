@@ -28,6 +28,12 @@
     "plugins": [
       "expo-router",
       [
+        "expo-camera",
+        {
+          "cameraPermission": "BloodLink uses the camera to scan donor intake QR codes for hospital check-in."
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "backgroundColor": "#B71C1C",

@@ -114,3 +114,52 @@ export const REQUEST_STATUS_META: Record<
     color: Surface.textMuted,
   },
 };
+
+export type DonationStage = "accepted" | "en_route" | "arrived" | "completed";
+
+/**
+ * Presentation for each step of a donor's commitment, in workflow order.
+ *
+ * Mirrors `REQUEST_STATUS_META` but describes the donor's journey rather than
+ * the request's lifecycle, so the transit screen, intake pass and hospital
+ * verify screen all show the same chip for the same stage.
+ */
+export const DONATION_STAGE_META: Record<
+  DonationStage,
+  {
+    label: string;
+    icon: ComponentProps<typeof Feather>["name"];
+    background: string;
+    border: string;
+    color: string;
+  }
+> = {
+  accepted: {
+    label: "Accepted",
+    icon: "check-circle",
+    background: Surface.softBlue,
+    border: Surface.softBlueBorder,
+    color: Surface.textSecondary,
+  },
+  en_route: {
+    label: "En route",
+    icon: "navigation",
+    background: "#FEF0C7",
+    border: "#FEDF89",
+    color: "#B54708",
+  },
+  arrived: {
+    label: "At hospital",
+    icon: "map-pin",
+    background: Surface.softBlue,
+    border: Surface.softBlueBorder,
+    color: Surface.accentBlue,
+  },
+  completed: {
+    label: "Completed",
+    icon: "check",
+    background: Surface.softGreen,
+    border: Surface.softGreenBorder,
+    color: Surface.online,
+  },
+};

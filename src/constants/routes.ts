@@ -14,7 +14,6 @@ export const ROUTES = {
   roleSelect: "/role-select",
   login: "/login",
   register: "/register",
-  requestDetail: "/dashboard/request-detail",
   requestStatus: "/dashboard/request-status",
   forgotPassword: "/forgot-password",
   emergencyRequest: "/emergency-request",

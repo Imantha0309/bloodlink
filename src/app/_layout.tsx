@@ -75,20 +75,11 @@ function AppNavigator() {
         <Stack.Screen name="dashboard/requests" options={{ contentStyle: screenBackground }} />
         <Stack.Screen name="dashboard/alerts" options={{ contentStyle: screenBackground }} />
         <Stack.Screen name="dashboard/profile" options={{ contentStyle: screenBackground }} />
-        <Stack.Screen
-          name="dashboard/request-detail"
-          options={{ contentStyle: screenBackground }}
-        />
         <Stack.Screen name="donors" options={{ contentStyle: screenBackground }} />
         <Stack.Screen name="compatibility" options={{ contentStyle: screenBackground }} />
         <Stack.Screen name="blood-bank-detail" options={{ contentStyle: screenBackground }} />
         <Stack.Screen name="location" options={{ contentStyle: screenBackground }} />
 
-        {/* Recipient flow step placeholders */}
-        <Stack.Screen name="dashboard/blood-group" options={{ contentStyle: screenBackground }} />
-        <Stack.Screen name="dashboard/hospital-location" options={{ contentStyle: screenBackground }} />
-        <Stack.Screen name="dashboard/review-request" options={{ contentStyle: screenBackground }} />
-        <Stack.Screen name="dashboard/matching-donors" options={{ contentStyle: screenBackground }} />
         <Stack.Screen name="dashboard/request-status" options={{ contentStyle: screenBackground }} />
       </Stack.Protected>
 

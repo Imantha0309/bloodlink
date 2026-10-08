@@ -4,7 +4,14 @@ import { useState } from "react";
 import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { DashboardTabBar, type DashboardTabKey } from "@/components/dashboard/dashboard-tab-bar";
+import { EmptyNote } from "@/components/dashboard/empty-note";
 import { StepHeader } from "@/components/emergency/step-header";
+import {
+  BLOOD_GROUPS,
+  CAN_DONATE_TO,
+  type BloodGroup,
+  isBloodGroup,
+} from "@/constants/blood-groups";
 import { DASHBOARD_TABS, ROUTES } from "@/constants/routes";
 import { useAuthBack } from "@/hooks/use-auth-back";
 import { useAuth } from "@/providers/auth-provider";
@@ -16,8 +23,9 @@ import { useAuth } from "@/providers/auth-provider";
  * Follows the same recipe as Request Status / Profile: `StepHeader` on top
  * (back + brand + trailing controls), one ScrollView holding every section,
  * `DashboardTabBar` pinned below. The top cards always describe the signed-in
- * user's own group; the selector further down drives the "Compatibility for X"
- * result so one tap answers "what about another group?".
+ * user's own group (or honestly say it is missing); the selector further down
+ * drives the "Compatibility for X" result so one tap answers "what about
+ * another group?".
  */
 
 const C = {
@@ -38,33 +46,9 @@ const C = {
   shadow: "#0F172A",
 } as const;
 
-type BloodGroup = "A+" | "A-" | "B+" | "B-" | "AB+" | "AB-" | "O+" | "O-";
-
-/** Selector / reference display order. */
-const BLOOD_GROUPS: BloodGroup[] = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
-
-/**
- * Standard ABO/Rh red blood cell directions: `DONATE_TO[donor]` lists every
- * group whose red cells can safely receive that donation.
- */
-const DONATE_TO: Record<BloodGroup, BloodGroup[]> = {
-  "O-": ["O-", "O+", "A-", "A+", "B-", "B+", "AB-", "AB+"],
-  "O+": ["O+", "A+", "B+", "AB+"],
-  "A-": ["A-", "A+", "AB-", "AB+"],
-  "A+": ["A+", "AB+"],
-  "B-": ["B-", "B+", "AB-", "AB+"],
-  "B+": ["B+", "AB+"],
-  "AB-": ["AB-", "AB+"],
-  "AB+": ["AB+"],
-};
-
 /** Every donor whose red cells the given group can receive. */
 function receiveFrom(group: BloodGroup): BloodGroup[] {
-  return BLOOD_GROUPS.filter((donor) => DONATE_TO[donor].includes(group));
-}
-
-function isBloodGroup(value: unknown): value is BloodGroup {
-  return typeof value === "string" && (BLOOD_GROUPS as string[]).includes(value);
+  return BLOOD_GROUPS.filter((donor) => CAN_DONATE_TO[donor].includes(group));
 }
 
 function bloodTypeLabel(group: BloodGroup): string {
@@ -82,18 +66,20 @@ export default function CompatibilityScreen() {
   const onBack = useAuthBack(DASHBOARD_TABS.home);
 
   const rawProfileGroup = session?.user.bloodGroup;
-  const profileGroup: BloodGroup = isBloodGroup(rawProfileGroup) ? rawProfileGroup : "B+";
+  const profileGroup: BloodGroup | null = isBloodGroup(rawProfileGroup) ? rawProfileGroup : null;
 
-  // Defaults follow the signed-in group (B+ for the prototype data), which
-  // also keeps the top cards and the selector in agreement from the first frame.
-  const [selected, setSelected] = useState<BloodGroup>(profileGroup);
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({ [profileGroup]: true });
+  // The selector starts on the signed-in group when one is on file, otherwise
+  // on the first group in the reference order — it is a lookup tool either way.
+  const [selected, setSelected] = useState<BloodGroup>(profileGroup ?? BLOOD_GROUPS[0]);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({
+    [profileGroup ?? BLOOD_GROUPS[0]]: true,
+  });
   const [info, setInfo] = useState<InfoSheet | null>(null);
 
-  const profileReceive = receiveFrom(profileGroup);
-  const profileDonate = DONATE_TO[profileGroup];
+  const profileReceive = profileGroup === null ? [] : receiveFrom(profileGroup);
+  const profileDonate = profileGroup === null ? [] : CAN_DONATE_TO[profileGroup];
   const selectedReceive = receiveFrom(selected);
-  const selectedDonate = DONATE_TO[selected];
+  const selectedDonate = CAN_DONATE_TO[selected];
 
   function goTab(key: DashboardTabKey) {
     if (key === "home") {
@@ -152,7 +138,7 @@ export default function CompatibilityScreen() {
         {/* ------------------------------------------ page introduction */}
         <Text style={styles.introTitle}>Compatibility Chart</Text>
         <Text style={styles.introDescription}>
-          Who can donate to whom, and who can receive from you, will appear here.
+          Who can donate to you, and who you can donate to, laid out group by group.
         </Text>
 
         {/* ----------------------------------------- your blood group */}
@@ -161,94 +147,121 @@ export default function CompatibilityScreen() {
 
           <View style={styles.groupHero}>
             <View style={styles.groupHeroBadge}>
-              <Text style={styles.groupHeroBadgeText}>{profileGroup}</Text>
+              <Text style={styles.groupHeroBadgeText}>{profileGroup ?? "?"}</Text>
             </View>
-            <Text style={styles.groupHeroType}>{bloodTypeLabel(profileGroup)}</Text>
-            <Text style={styles.groupHeroHelper}>Compatible donation information</Text>
+            <Text style={styles.groupHeroType}>
+              {profileGroup !== null ? bloodTypeLabel(profileGroup) : "No blood group on file"}
+            </Text>
+            <Text style={styles.groupHeroHelper}>
+              {profileGroup !== null
+                ? "Compatible donation information"
+                : "Add it from your profile to see your matches"}
+            </Text>
           </View>
 
-          <View style={styles.quickAnswers}>
-            <View style={styles.quickAnswerRow}>
-              <Feather name="arrow-left" size={10} color={C.green} />
-              <Text style={styles.quickAnswerLabel}>Receive from:</Text>
-              <Text style={styles.quickAnswerGroups} numberOfLines={1}>
-                {profileReceive.join(", ")}
-              </Text>
-            </View>
+          {profileGroup === null ? null : (
+            <View style={styles.quickAnswers}>
+              <View style={styles.quickAnswerRow}>
+                <Feather name="arrow-left" size={10} color={C.green} />
+                <Text style={styles.quickAnswerLabel}>Receive from:</Text>
+                <Text style={styles.quickAnswerGroups} numberOfLines={1}>
+                  {profileReceive.join(", ")}
+                </Text>
+              </View>
 
-            <View style={styles.quickAnswerRow}>
-              <Feather name="arrow-right" size={10} color={C.primary} />
-              <Text style={styles.quickAnswerLabel}>Donate to:</Text>
-              <Text style={styles.quickAnswerGroups} numberOfLines={1}>
-                {profileDonate.join(", ")}
-              </Text>
+              <View style={styles.quickAnswerRow}>
+                <Feather name="arrow-right" size={10} color={C.primary} />
+                <Text style={styles.quickAnswerLabel}>Donate to:</Text>
+                <Text style={styles.quickAnswerGroups} numberOfLines={1}>
+                  {profileDonate.join(", ")}
+                </Text>
+              </View>
             </View>
-          </View>
+          )}
         </View>
 
         {/* ------------------------------------------------ receive from */}
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>Who Can Donate To You?</Text>
-          <Text style={styles.sectionSub}>
-            As a {profileGroup} recipient, you can receive from:
-          </Text>
+          {profileGroup === null ? (
+            <EmptyNote
+              title="Blood group not set"
+              message="Add your blood group from your profile and compatible donors will appear here."
+            />
+          ) : (
+            <>
+              <Text style={styles.sectionSub}>
+                As a {profileGroup} recipient, you can receive from:
+              </Text>
 
-          <View style={styles.chipGrid}>
-            {profileReceive.map((group) => (
-              <CompatibilityChip key={group} group={group} />
-            ))}
-          </View>
+              <View style={styles.chipGrid}>
+                {profileReceive.map((group) => (
+                  <CompatibilityChip key={group} group={group} />
+                ))}
+              </View>
+            </>
+          )}
         </View>
 
         {/* -------------------------------------------------- donate to */}
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>Who Can Receive From You?</Text>
-          <Text style={styles.sectionSub}>
-            As a {profileGroup} donor, you can donate to:
-          </Text>
+          {profileGroup === null ? (
+            <EmptyNote
+              title="Blood group not set"
+              message="Add your blood group from your profile to see who you can donate to."
+            />
+          ) : (
+            <>
+              <Text style={styles.sectionSub}>
+                As a {profileGroup} donor, you can donate to:
+              </Text>
 
-          <View style={styles.chipGrid}>
-            {profileDonate.map((group) => (
-              <CompatibilityChip key={group} group={group} />
-            ))}
-          </View>
+              <View style={styles.chipGrid}>
+                {profileDonate.map((group) => (
+                  <CompatibilityChip key={group} group={group} />
+                ))}
+              </View>
+            </>
+          )}
         </View>
 
         {/* --------------------------------------- compatibility summary */}
-        <View style={[styles.card, styles.summaryCard]}>
-          <Text style={styles.sectionTitle}>{profileGroup} Compatibility</Text>
+        {profileGroup === null ? null : (
+          <View style={[styles.card, styles.summaryCard]}>
+            <Text style={styles.sectionTitle}>{profileGroup} Compatibility</Text>
 
-          <View style={styles.summaryBlock}>
-            <View style={styles.summaryLabelRow}>
-              <Feather name="arrow-left" size={11} color={C.blue} />
-              <Text style={styles.summaryLabelText}>RECEIVE FROM</Text>
+            <View style={styles.summaryBlock}>
+              <View style={styles.summaryLabelRow}>
+                <Feather name="arrow-left" size={11} color={C.blue} />
+                <Text style={styles.summaryLabelText}>RECEIVE FROM</Text>
+              </View>
+
+              <View style={styles.pillRow}>
+                {profileReceive.map((group) => (
+                  <View key={group} style={styles.summaryPill}>
+                    <Text style={styles.summaryPillText}>{group}</Text>
+                  </View>
+                ))}
+              </View>
             </View>
 
-            <View style={styles.pillRow}>
-              {profileReceive.map((group) => (
-                <View key={group} style={styles.summaryPill}>
-                  <Text style={styles.summaryPillText}>{group}</Text>
-                </View>
-              ))}
+            <View style={[styles.summaryBlock, styles.summaryBlockSpaced]}>
+              <View style={styles.summaryLabelRow}>
+                <Feather name="arrow-right" size={11} color={C.blue} />
+                <Text style={styles.summaryLabelText}>DONATE TO</Text>
+              </View>
+
+              <View style={styles.pillRow}>
+                {profileDonate.map((group) => (
+                  <View key={group} style={styles.summaryPill}>
+                    <Text style={styles.summaryPillText}>{group}</Text>
+                  </View>
+                ))}
+              </View>
             </View>
           </View>
-
-          <View style={[styles.summaryBlock, styles.summaryBlockSpaced]}>
-            <View style={styles.summaryLabelRow}>
-              <Feather name="arrow-right" size={11} color={C.blue} />
-              <Text style={styles.summaryLabelText}>DONATE TO</Text>
-            </View>
-
-            <View style={styles.pillRow}>
-              {profileDonate.map((group) => (
-                <View key={group} style={styles.summaryPill}>
-                  <Text style={styles.summaryPillText}>{group}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-        </View>
-
+        )}
         {/* ------------------------------------------ group selector */}
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>Check Another Blood Group</Text>
@@ -288,7 +301,11 @@ export default function CompatibilityScreen() {
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>Compatibility for {selected}</Text>
           {selected !== profileGroup ? (
-            <Text style={styles.resultHint}>Your profile group is {profileGroup}.</Text>
+            <Text style={styles.resultHint}>
+              {profileGroup !== null
+                ? `Your profile group is ${profileGroup}.`
+                : "No blood group on file yet — add one from your profile."}
+            </Text>
           ) : null}
 
           <View style={styles.resultBlock}>
@@ -384,7 +401,7 @@ export default function CompatibilityScreen() {
                       <Feather name="arrow-right" size={10} color={C.sub} />
                       <Text style={styles.refRowLabel}>Donate:</Text>
                       <View style={styles.pillRow}>
-                        {DONATE_TO[group].map((target) => (
+                        {CAN_DONATE_TO[group].map((target) => (
                           <View key={target} style={styles.refPill}>
                             <Text style={styles.refPillText}>{target}</Text>
                           </View>

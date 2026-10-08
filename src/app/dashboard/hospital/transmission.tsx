@@ -12,7 +12,6 @@ import {
   DEFAULT_REQUEST,
   REQUEST_COMPONENTS,
   TRANSMISSION,
-  TRANSMISSION_METRICS,
   TRANSMISSION_STEPS,
   type RequestComponent,
   type TransmissionMetric,
@@ -21,7 +20,9 @@ import { Radius } from "@/constants/radius";
 import { ROLE_HOME, ROUTES } from "@/constants/routes";
 import { Typography } from "@/constants/typography";
 import { useAuth } from "@/providers/auth-provider";
+import { getRequestCandidates, type RequestCandidates } from "@/services/hospital";
 import { initialsOf } from "@/utils/initials";
+import { referenceFor } from "@/utils/reference";
 
 /** Cadence of the pipeline advancing one stage. */
 const STEP_INTERVAL_MS = 1300;
@@ -35,8 +36,9 @@ const METRIC_TONE = {
  * Broadcast progress for a requisition just submitted from the form.
  *
  * The relay is staged: each pipeline step lights up in turn so the station can
- * see the signal leave the vault and reach the donor network. Numbers come from
- * the hospital fixtures until the API reports broadcast telemetry.
+ * see the signal leave the vault and reach the donor network. Telemetry comes
+ * from the candidates endpoint; a failed read degrades to dashes rather than
+ * interrupting the animation.
  */
 export default function HospitalTransmissionScreen() {
   const router = useRouter();
@@ -44,6 +46,7 @@ export default function HospitalTransmissionScreen() {
   const { session } = useAuth();
 
   const params = useLocalSearchParams<{
+    requestId?: string;
     bloodGroup?: string;
     component?: string;
     units?: string;
@@ -51,8 +54,11 @@ export default function HospitalTransmissionScreen() {
   }>();
 
   const [stepIndex, setStepIndex] = useState(0);
+  const [candidates, setCandidates] = useState<RequestCandidates | null>(null);
   const stepCount = TRANSMISSION_STEPS.length;
   const isComplete = stepIndex >= stepCount - 1;
+
+  const requestId = params.requestId ?? null;
 
   // The pipeline advances on its own until the last stage is lit.
   useEffect(() => {
@@ -66,6 +72,52 @@ export default function HospitalTransmissionScreen() {
 
     return () => clearTimeout(timer);
   }, [isComplete, stepCount]);
+
+  // Live relay telemetry for the requisition that was just created.
+  useEffect(() => {
+    if (requestId === null) {
+      return;
+    }
+
+    let cancelled = false;
+
+    getRequestCandidates(requestId)
+      .then((next) => {
+        if (!cancelled) {
+          setCandidates(next);
+        }
+      })
+      // Telemetry is best-effort — the broadcast animation must not fail.
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [requestId]);
+
+  const metrics: TransmissionMetric[] = [
+    {
+      key: "alerted",
+      label: "Donors Alerted",
+      value: candidates !== null ? String(candidates.compatibleAvailable) : "—",
+      icon: "bell",
+      tone: "positive",
+    },
+    {
+      key: "ack",
+      label: "Acknowledged",
+      value: candidates !== null ? String(candidates.accepted) : "—",
+      icon: "check-circle",
+      tone: "positive",
+    },
+    {
+      key: "transit",
+      label: "In Transit",
+      value: candidates !== null ? String(candidates.enRoute) : "—",
+      icon: "navigation",
+      tone: "neutral",
+    },
+  ];
 
   // Deep links can land here without a payload — fall back to the form's seed.
   const bloodGroup = (
@@ -247,7 +299,7 @@ export default function HospitalTransmissionScreen() {
           <Text style={styles.cardTitle}>{TRANSMISSION.metricsTitle}</Text>
 
           <View style={styles.metricRow}>
-            {TRANSMISSION_METRICS.map((metric) => (
+            {metrics.map((metric) => (
               <MetricCard key={metric.key} metric={metric} />
             ))}
           </View>
@@ -290,7 +342,7 @@ export default function HospitalTransmissionScreen() {
             <View style={styles.referenceText}>
               <Text style={styles.referenceLabel}>{TRANSMISSION.referenceLabel}</Text>
               <Text style={styles.referenceValue} selectable>
-                {CREATE_REQUEST.complianceReference}
+                {requestId !== null ? `#REQ-${referenceFor(requestId)}` : CREATE_REQUEST.complianceReference}
               </Text>
             </View>
           </View>

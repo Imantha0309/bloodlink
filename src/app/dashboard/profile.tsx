@@ -60,20 +60,6 @@ type InfoSheet = {
   lines: string[];
 };
 
-type FamilyMember = {
-  key: string;
-  name: string;
-  relation: string;
-  bloodGroup: string;
-  pillTone: "red" | "green" | "blue";
-};
-
-const FAMILY: FamilyMember[] = [
-  { key: "ananda", name: "Ananda Perera", relation: "Father • In ICU Care", bloodGroup: "B+", pillTone: "red" },
-  { key: "soma", name: "Soma Perera", relation: "Mother • Registered Donor", bloodGroup: "O+", pillTone: "green" },
-  { key: "self", name: "Kaveesha Perera", relation: "Self • Standby Donor", bloodGroup: "A+", pillTone: "blue" },
-];
-
 export default function ProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -106,10 +92,14 @@ export default function ProfileScreen() {
     };
   }, []);
 
-  const userName = session?.user.fullName ?? "Kaveesha Perera";
+  const userName = session?.user.fullName ?? "Recipient";
+  const mobile = session?.user.mobile ?? null;
+  const district = session?.user.district ?? null;
 
   // Newest live request (the list is newest-first); history lives in Requests.
   const liveRequest = (requests ?? []).find((request) => isRequestLive(request.status)) ?? null;
+  const history = (requests ?? []).filter((request) => !isRequestLive(request.status));
+  const fulfilledCount = history.filter((request) => request.status === "fulfilled").length;
   const liveUrgency =
     liveRequest === null
       ? undefined
@@ -227,17 +217,23 @@ export default function ProfileScreen() {
               </View>
 
               <View style={styles.inlineRow}>
-                <Feather name="check-circle" size={11} color={C.green} />
-                <Text style={styles.phoneText}>+94 77 889 9123</Text>
-                <View style={styles.verifiedBadge}>
-                  <Text style={styles.verifiedBadgeText}>Verified</Text>
-                </View>
+                <Feather
+                  name={mobile !== null ? "check-circle" : "smartphone"}
+                  size={11}
+                  color={mobile !== null ? C.green : C.muted}
+                />
+                <Text style={styles.phoneText}>{mobile ?? "No mobile on file"}</Text>
+                {mobile !== null ? (
+                  <View style={styles.verifiedBadge}>
+                    <Text style={styles.verifiedBadgeText}>On file</Text>
+                  </View>
+                ) : null}
               </View>
 
               <View style={styles.inlineRow}>
                 <Feather name="map-pin" size={10} color={C.muted} />
                 <Text style={styles.locationText} numberOfLines={1}>
-                  Colombo 07, Western Province
+                  {district !== null ? `${district} District` : "District not set"}
                 </Text>
               </View>
             </View>
@@ -390,98 +386,85 @@ export default function ProfileScreen() {
           </View>
 
           <View style={styles.familyList}>
-            {FAMILY.map((member, index) => (
-              <Pressable
-                key={member.key}
-                accessibilityRole="button"
-                onPress={() => {
-                  openInfo(member.name, [
-                    member.relation.replace(" • ", " — "),
-                    `Blood group: ${member.bloodGroup}`,
-                    "Availability and donation history will appear here.",
-                  ]);
-                }}
-                style={({ pressed }) => [
-                  styles.familyRow,
-                  index > 0 && styles.familyRowBorder,
-                  pressed && styles.pressed,
-                ]}
-              >
-                <View style={styles.familyAvatar}>
-                  <Feather name="user" size={12} color={C.sub} />
-                </View>
+            <View style={styles.familyRow}>
+              <View style={styles.familyAvatar}>
+                <Feather name="user-plus" size={12} color={C.sub} />
+              </View>
 
-                <View style={styles.familyCopy}>
-                  <Text style={styles.familyName} numberOfLines={1}>
-                    {member.name}
-                  </Text>
-                  <Text style={styles.familyRelation} numberOfLines={1}>
-                    {member.relation}
-                  </Text>
-                </View>
-
-                <View style={[styles.bloodPill, styles[`bloodPill_${member.pillTone}`]]}>
-                  <Text style={[styles.bloodPillText, styles[`bloodPillText_${member.pillTone}`]]}>
-                    {member.bloodGroup}
-                  </Text>
-                </View>
-              </Pressable>
-            ))}
-          </View>
-
-          {/* Fast-pass token — nested inside the registry card. */}
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => {
-              openInfo("Fast-Pass Requisition Token", [
-                "Token #FP-9941",
-                "Coordinator: Dr. K. Wickramasinghe",
-                "Present this token at the NHSL ICU blood desk to skip re-verification.",
-              ]);
-            }}
-            style={({ pressed }) => [styles.fastPass, pressed && styles.pressed]}
-          >
-            <View style={styles.fastPassRow}>
-              <Text style={styles.fastPassLabel}>Fast-Pass Requisition Token</Text>
-              <Text style={styles.fastPassToken}>#FP-9941</Text>
-            </View>
-
-            <View style={styles.fastPassRow}>
-              <Text style={styles.fastPassCoordinator} numberOfLines={1}>
-                Dr. K. Wickramasinghe
-              </Text>
-              <View style={styles.fastPassContact}>
-                <Feather name="phone" size={9} color={C.blue} />
-                <Text style={styles.fastPassContactText}>Contact ICU</Text>
+              <View style={styles.familyCopy}>
+                <Text style={styles.familyName}>No relatives registered yet</Text>
+                <Text style={styles.familyRelation} numberOfLines={2}>
+                  Add family members so the pool is ready when a match opens.
+                </Text>
               </View>
             </View>
-          </Pressable>
+          </View>
+
+          {/* Live requisition token — nested inside the registry card. */}
+          {liveRequest === null ? null : (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Open active request"
+              onPress={() =>
+                router.push({
+                  pathname: REQUEST_STATUS_ROUTE,
+                  params: { id: liveRequest.id },
+                })
+              }
+              style={({ pressed }) => [styles.fastPass, pressed && styles.pressed]}
+            >
+              <View style={styles.fastPassRow}>
+                <Text style={styles.fastPassLabel}>Active Requisition Token</Text>
+                <Text style={styles.fastPassToken}>#REQ-{referenceFor(liveRequest.id)}</Text>
+              </View>
+
+              <View style={styles.fastPassRow}>
+                <Text style={styles.fastPassCoordinator} numberOfLines={1}>
+                  {liveRequest.hospital}
+                </Text>
+                <View style={styles.fastPassContact}>
+                  <Feather name="navigation" size={9} color={C.blue} />
+                  <Text style={styles.fastPassContactText} numberOfLines={1}>
+                    {liveStatus?.label ?? "Open"}
+                  </Text>
+                </View>
+              </View>
+            </Pressable>
+          )}
         </View>
 
         {/* ---------------------------------------- ④ records & hotlines */}
         <View style={styles.card}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Records & Hotlines</Text>
-            <Text style={styles.sectionMeta}>3 Lifetime</Text>
+            <Text style={styles.sectionMeta}>{`${history.length} Lifetime`}</Text>
           </View>
 
           <RecordRow
             tone="green"
             icon="check-circle"
-            title="3 Past Emergency Broadcasts"
-            subtitle="100% Fulfilled safely"
+            title={
+              history.length === 0
+                ? "No Past Emergency Broadcasts"
+                : `${history.length} Past Emergency Broadcast${history.length === 1 ? "" : "s"}`
+            }
+            subtitle={
+              history.length === 0
+                ? "Raise a request to start your record"
+                : `${fulfilledCount} of ${history.length} fulfilled`
+            }
             onPress={() => router.push(DASHBOARD_TABS.alerts)}
           />
           <RecordRow
             tone="blue"
             icon="file-text"
             title="Clearance & Cross-match Slips"
-            subtitle="2 Verified laboratory reports"
+            subtitle="No laboratory records on file"
             separator
             onPress={() => {
               openInfo("Clearance & Cross-match Slips", [
-                "2 verified laboratory reports on file.",
-                "Laborium integration ships in a later release — no live records yet.",
+                "No laboratory records on file.",
+                "Laboratory integration ships in a later release.",
               ]);
             }}
           />
@@ -489,7 +472,7 @@ export default function ProfileScreen() {
             tone="red"
             icon="droplet"
             title="Saved Blood Banks & Hotlines"
-            subtitle="National Hospital • NHSL, Emergency"
+            subtitle="Facility directory & district numbers"
             separator
             onPress={() => router.push(ROUTES.bloodBankDetail)}
           />
@@ -528,8 +511,8 @@ export default function ProfileScreen() {
             accessibilityRole="button"
             onPress={() => {
               openInfo("Verified Medical Identity", [
-                "National Identity Card (NIC) Confirmed.",
-                "Identity matched against the national registry on 14 Feb 2026.",
+                "National Identity Card (NIC) verification is not enabled yet.",
+                "The profile shown here is what dispatchers will see.",
               ]);
             }}
             style={({ pressed }) => [styles.safetyRow, styles.safetyRowBorder, pressed && styles.pressed]}
@@ -541,11 +524,11 @@ export default function ProfileScreen() {
             <View style={styles.safetyCopy}>
               <Text style={styles.safetyTitle}>Verified Medical Identity</Text>
               <Text style={styles.safetySubtitle} numberOfLines={2}>
-                National Identity Card (NIC) Confirmed
+                NIC verification ships in a later release
               </Text>
             </View>
 
-            <Feather name="check-circle" size={16} color={C.green} />
+            <Feather name="chevron-right" size={14} color={C.muted} />
           </Pressable>
 
           <View style={[styles.safetyRow, styles.safetyRowBorder]}>
@@ -556,22 +539,20 @@ export default function ProfileScreen() {
             <View style={styles.safetyCopy}>
               <Text style={styles.safetyTitle}>Blood Bank Liaison</Text>
               <Text style={styles.safetySubtitle} numberOfLines={2}>
-                Sister Priyanthi • NHSL On-duty
+                {district !== null ? `${district} District Blood Bank Desk` : "District blood bank desk"}
               </Text>
             </View>
 
             <Pressable
               accessibilityRole="button"
+              accessibilityLabel="Open facility directory"
               onPress={() => {
-                openInfo("Blood Bank Liaison", [
-                  "Sister Priyanthi • NHSL On-duty.",
-                  "Direct line: 011 269 1234 (NHSL Blood Bank, ext. 114).",
-                ]);
+                router.push(ROUTES.bloodBankDetail);
               }}
               style={({ pressed }) => [styles.directLine, pressed && styles.pressed]}
             >
               <Feather name="phone" size={9} color={C.blue} />
-              <Text style={styles.directLineText}>Direct Line</Text>
+              <Text style={styles.directLineText}>Directory</Text>
             </Pressable>
           </View>
         </View>

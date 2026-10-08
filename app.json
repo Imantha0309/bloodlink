@@ -6,6 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "bloodlink",
+    "port": 8083,
     "userInterfaceStyle": "light",
     "backgroundColor": "#F7F8FC",
     "ios": {

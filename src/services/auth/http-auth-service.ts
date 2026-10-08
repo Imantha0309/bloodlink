@@ -106,6 +106,19 @@ export class HttpAuthService implements AuthService {
     return body.user;
   }
 
+  async updateRecipientDistrict(district: string): Promise<AuthUser> {
+    // The server's `/me` PATCH routes recipients onto a district-only branch.
+    const body = await request<{ user?: AuthUser }>(ME_PATH, {
+      method: "PATCH",
+      body: { district },
+    });
+
+    if (!body.user || typeof body.user.id !== "string") {
+      throw new ApiError("unknown", "The server returned an unexpected response.");
+    }
+    return body.user;
+  }
+
   /**
    * Re-reads the stored session and confirms the token is still good.
    *

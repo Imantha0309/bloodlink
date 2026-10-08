@@ -95,6 +95,9 @@ export interface AuthService {
   /** Updates the profile details for the currently signed-in donor. */
   updateDonorProfile(input: DonorProfileInput): Promise<AuthUser>;
 
+  /** Re-points the signed-in recipient's district (their "location" page). */
+  updateRecipientDistrict(district: string): Promise<AuthUser>;
+
   /** Session for the currently signed-in user, or `null` when signed out. */
   restoreSession(): Promise<AuthSession | null>;
 

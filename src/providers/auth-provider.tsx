@@ -30,6 +30,8 @@ type AuthContextValue = {
   /** Registers a new account and signs it in, with the same guarantee. */
   signUp: (input: SignUpInput) => Promise<AuthSession>;
   updateDonorProfile: (input: DonorProfileInput) => Promise<AuthUser>;
+  /** Re-points the signed-in recipient's district (the "location" page). */
+  updateRecipientDistrict: (district: string) => Promise<AuthUser>;
   signOut: () => Promise<void>;
 };
 
@@ -90,6 +92,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return updatedUser;
   }, [session]);
 
+  const updateRecipientDistrict = useCallback(async (district: string) => {
+    const updatedUser = await authService.updateRecipientDistrict(district);
+    if (session === null) throw new Error("No active recipient session.");
+    const next = { ...session, user: updatedUser };
+    await saveSession(next);
+    setSession(next);
+    return updatedUser;
+  }, [session]);
+
   const value = useMemo<AuthContextValue>(
     () => ({
       status: !isResolved ? "loading" : session !== null ? "authenticated" : "unauthenticated",
@@ -97,9 +108,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signIn,
       signUp,
       updateDonorProfile,
+      updateRecipientDistrict,
       signOut,
     }),
-    [isResolved, session, signIn, signUp, updateDonorProfile, signOut],
+    [isResolved, session, signIn, signUp, updateDonorProfile, updateRecipientDistrict, signOut],
   );
 
   return <AuthContext value={value}>{children}</AuthContext>;

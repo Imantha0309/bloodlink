@@ -14,10 +14,16 @@ import { timingSafeEqual } from "node:crypto";
 import { db, now } from "../db";
 import { ApiError } from "../lib/errors";
 import { initialsOf, provinceOf } from "../lib/geo";
-import { checkInSchema, donorStageSchema, parseBody } from "../lib/validate";
-import { generateToken, hashToken } from "../lib/tokens";
+import { checkInSchema, donorStageSchema, extractionSchema, parseBody, screeningSchema } from "../lib/validate";
+import { generateId, generateToken, hashToken } from "../lib/tokens";
 import { requireAuth } from "../middleware/auth";
-import { toEmergencyRequest, type EmergencyRequestRow } from "../types";
+import { requireHospitalStaff } from "./hospital";
+import {
+  BLOOD_GROUPS,
+  toEmergencyRequest,
+  type BloodGroup,
+  type EmergencyRequestRow,
+} from "../types";
 
 type AvailableDonor = { full_name: string; district: string | null };
 
@@ -306,6 +312,211 @@ donorsRouter.post("/requests/:requestId/check-in", requireAuth, (request, respon
   ).run(timestamp, matchedTicket.id);
 
   response.json({ requestId: request.params.requestId, stage: "arrived", checkedInAt: timestamp });
+});
+
+/**
+ * Directory for the Find Donors page. Privacy-safe by construction: only
+ * available donors, and only initials + blood group + district — no names,
+ * contacts or identifiers that could be used to reach someone off-platform.
+ */
+donorsRouter.get("/directory", requireAuth, (request, response) => {
+  const requestedGroup =
+    typeof request.query.bloodGroup === "string" ? request.query.bloodGroup : null;
+  const district = typeof request.query.district === "string" ? request.query.district : null;
+
+  const filters = ["u.role = 'donor'", "u.is_locked = 0", "d.is_available = 1"];
+  const params: string[] = [];
+
+  if (requestedGroup && (BLOOD_GROUPS as readonly string[]).includes(requestedGroup)) {
+    filters.push("u.blood_group = ?");
+    params.push(requestedGroup);
+  }
+
+  if (district) {
+    filters.push("u.district = ?");
+    params.push(district);
+  }
+
+  const rows = db
+    .prepare(
+      `SELECT u.full_name, u.blood_group, u.district
+         FROM users u
+         JOIN donor_availability d ON d.user_id = u.id
+        WHERE ${filters.join(" AND ")}
+        ORDER BY u.full_name
+        LIMIT 50`,
+    )
+    .all(...params) as { full_name: string; blood_group: BloodGroup | null; district: string | null }[];
+
+  response.json({
+    donors: rows
+      .filter((row) => row.blood_group !== null)
+      .map((row) => ({
+        initials: initialsOf(row.full_name),
+        bloodGroup: row.blood_group,
+        district: row.district,
+      })),
+    count: rows.length,
+  });
+});
+
+/** Read the accepted donor's commitment for one request, including workflow state. */
+donorsRouter.get("/requests/:requestId/commitment", requireAuth, (request, response) => {
+  const user = request.user!;
+
+  const row = db
+    .prepare(
+      `SELECT r.*, dr.response AS donor_response, dr.stage AS donor_stage, dr.id AS response_id
+         FROM donor_request_responses dr
+         JOIN emergency_requests r ON r.id = dr.request_id
+        WHERE dr.request_id = ? AND dr.response = 'accepted'`,
+    )
+    .get(request.params.requestId) as (EmergencyRequestRow & { response_id: string }) | undefined;
+
+  if (!row) {
+    throw new ApiError("not_found", "No donor has accepted this request.");
+  }
+
+  // Donors may read only their own commitment; staff may read any case they
+  // are triaging.
+  const isStaff = user.role === "hospital" || user.role === "admin";
+  if (!isStaff) {
+    const donorId = db
+      .prepare("SELECT donor_id FROM donor_request_responses WHERE id = ?")
+      .get(row.response_id) as { donor_id: string } | undefined;
+
+    if (donorId?.donor_id !== user.id) {
+      throw new ApiError("unauthorized", "You cannot read this commitment.", { status: 403 });
+    }
+  }
+
+  response.json({
+    request: toEmergencyRequest(row),
+    response: { id: row.response_id, stage: row.donor_stage },
+  });
+});
+
+/** Record intake vitals for the accepted donor; replaces nothing — history. */
+donorsRouter.post("/requests/:requestId/screening", requireAuth, (request, response) => {
+  const staff = request.user!;
+  requireHospitalStaff(staff);
+
+  const commitment = db
+    .prepare(
+      `SELECT id, stage FROM donor_request_responses
+        WHERE request_id = ? AND response = 'accepted'`,
+    )
+    .get(request.params.requestId) as { id: string; stage: string } | undefined;
+
+  if (!commitment) {
+    throw new ApiError("not_found", "No donor has accepted this request.");
+  }
+  if (commitment.stage !== "arrived") {
+    throw new ApiError("conflict", "Check the donor in before recording vitals.");
+  }
+
+  const input = parseBody(screeningSchema, request.body);
+  const timestamp = now();
+
+  db.prepare(
+    `INSERT INTO donor_screening
+       (id, response_id, temperature, blood_pressure, pulse, hemoglobin,
+        eligible, bed_label, screened_by_user_id, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    generateId("scr"),
+    commitment.id,
+    input.temperature ?? null,
+    input.bloodPressure ?? null,
+    input.pulse ?? null,
+    input.hemoglobin ?? null,
+    input.eligible ? 1 : 0,
+    input.bedLabel ?? null,
+    staff.id,
+    timestamp,
+  );
+
+  response.status(201).json({
+    screening: { eligible: input.eligible, createdAt: timestamp },
+    stage: commitment.stage,
+  });
+});
+
+/** Start the extraction session after an eligible screening. */
+donorsRouter.post("/requests/:requestId/extraction", requireAuth, (request, response) => {
+  const staff = request.user!;
+  requireHospitalStaff(staff);
+
+  const commitment = db
+    .prepare(
+      `SELECT id, stage FROM donor_request_responses
+        WHERE request_id = ? AND response = 'accepted'`,
+    )
+    .get(request.params.requestId) as { id: string; stage: string } | undefined;
+
+  if (!commitment) throw new ApiError("not_found", "No donor has accepted this request.");
+  if (commitment.stage !== "arrived") {
+    throw new ApiError("conflict", "The donor must be checked in first.");
+  }
+
+  const screening = db
+    .prepare(
+      `SELECT eligible FROM donor_screening WHERE response_id = ?
+        ORDER BY created_at DESC LIMIT 1`,
+    )
+    .get(commitment.id) as { eligible: number } | undefined;
+
+  if (!screening) throw new ApiError("conflict", "Record the screening before starting collection.");
+  if (screening.eligible !== 1) {
+    throw new ApiError("conflict", "This donor was not cleared for collection.");
+  }
+
+  const running = db
+    .prepare(
+      `SELECT 1 FROM extraction_sessions WHERE response_id = ? AND status = 'in_progress'`,
+    )
+    .get(commitment.id);
+  if (running) throw new ApiError("conflict", "A collection session is already running.");
+
+  const timestamp = now();
+  const id = generateId("ext");
+
+  db.prepare(
+    `INSERT INTO extraction_sessions (id, response_id, status, started_at, created_at)
+     VALUES (?, ?, 'in_progress', ?, ?)`,
+  ).run(id, commitment.id, timestamp, timestamp);
+
+  response.status(201).json({ extraction: { id, status: "in_progress", startedAt: timestamp } });
+});
+
+/** Close the running session with the volume actually collected. */
+donorsRouter.patch("/requests/:requestId/extraction", requireAuth, (request, response) => {
+  const staff = request.user!;
+  requireHospitalStaff(staff);
+
+  const input = parseBody(extractionSchema, request.body);
+  const timestamp = now();
+
+  const running = db
+    .prepare(
+      `SELECT es.id FROM extraction_sessions es
+         JOIN donor_request_responses dr ON dr.id = es.response_id
+        WHERE dr.request_id = ? AND es.status = 'in_progress'
+        ORDER BY es.started_at DESC LIMIT 1`,
+    )
+    .get(request.params.requestId) as { id: string } | undefined;
+
+  if (!running) throw new ApiError("conflict", "There is no collection session to complete.");
+
+  db.prepare(
+    `UPDATE extraction_sessions
+        SET status = 'completed', volume_ml = ?, phlebotomist_name = ?, completed_at = ?
+      WHERE id = ?`,
+  ).run(input.volumeMl, input.phlebotomistName ?? null, timestamp, running.id);
+
+  response.json({
+    extraction: { id: running.id, status: "completed", volumeMl: input.volumeMl, completedAt: timestamp },
+  });
 });
 
 /** Hospital staff finish the case after confirming intake. */

@@ -6,6 +6,8 @@ import { Blood, Surface } from "@/constants/colors";
 import { ControlHeight, Radius } from "@/constants/radius";
 import { Typography } from "@/constants/typography";
 
+import { EmptyState, type EmptyStateAction } from "./empty-state";
+
 type AsyncStateProps = {
   isLoading: boolean;
   error: string | null;
@@ -13,6 +15,10 @@ type AsyncStateProps = {
   isEmpty?: boolean;
   emptyTitle?: string;
   emptyMessage?: string;
+  /** Optional call to action inside the empty state. */
+  emptyAction?: EmptyStateAction;
+  /** Shape-matched placeholder rendered instead of the plain spinner. */
+  skeleton?: ReactNode;
   onRetry?: () => void;
   children: ReactNode;
 };
@@ -29,10 +35,16 @@ export function AsyncState({
   isEmpty = false,
   emptyTitle = "Nothing here yet",
   emptyMessage = "There is nothing to show right now.",
+  emptyAction,
+  skeleton,
   onRetry,
   children,
 }: AsyncStateProps) {
   if (isLoading) {
+    if (skeleton !== undefined) {
+      return <>{skeleton}</>;
+    }
+
     return (
       <View style={styles.centered} accessibilityRole="progressbar" accessibilityLabel="Loading">
         <ActivityIndicator size="large" color={Blood.primary} />
@@ -70,17 +82,7 @@ export function AsyncState({
   }
 
   if (isEmpty) {
-    return (
-      <View style={styles.centered}>
-        <View style={styles.iconBadge}>
-          <Feather name="inbox" size={20} color={Surface.textMuted} />
-        </View>
-
-        <Text style={styles.title}>{emptyTitle}</Text>
-
-        <Text style={styles.message}>{emptyMessage}</Text>
-      </View>
-    );
+    return <EmptyState title={emptyTitle} message={emptyMessage} action={emptyAction} />;
   }
 
   return <>{children}</>;

@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -22,12 +22,14 @@ import { TextField } from "@/components/ui/text-field";
 import { BLOOD_GROUP_NOTES, BLOOD_GROUPS, type BloodGroup } from "@/constants/blood-groups";
 import { Blood, Surface } from "@/constants/colors";
 import type { UrgencyLevel } from "@/constants/emergency";
-import { HOSPITAL_NAMES, findHospitalByName } from "@/constants/hospitals";
 import { HIT_SLOP_MIN, Radius } from "@/constants/radius";
 import { ROLE_HOME, ROUTES } from "@/constants/routes";
 import { Typography } from "@/constants/typography";
 import { useAuth } from "@/providers/auth-provider";
 import { apiErrorMessage } from "@/services/auth";
+import { type BloodBank, listBloodBanks } from "@/services/blood-banks";
+import { searchDonors } from "@/services/donors/directory";
+import { haptics } from "@/utils/haptics";
 import { referenceFor } from "@/utils/reference";
 import {
   createEmergencyRequest,
@@ -100,17 +102,8 @@ function pickFields(
 
 const DEFAULT_UNITS = 2;
 
-/** The design opens on the most urgent level, so it starts selected. */
+/** Design opens on the most urgent level, so it starts selected. */
 const DEFAULT_URGENCY: UrgencyLevel = "critical";
-
-/**
- * Coverage figures shown before a coverage endpoint exists.
- *
- * Both are placeholders. Replace with the real radius and donor count once the
- * API can answer for the selected district.
- */
-const SAMPLE_RADIUS_KM = 8.5;
-const SAMPLE_ONLINE_DONORS = 42;
 
 /**
  * Folds the ward and room into the request's free-text notes.
@@ -173,11 +166,69 @@ export default function EmergencyRequestScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [created, setCreated] = useState<EmergencyRequest | null>(null);
 
+  // Facility directory powering the hospital select.
+  const [banks, setBanks] = useState<BloodBank[]>([]);
+  const [areBanksLoading, setAreBanksLoading] = useState(true);
+  // Available donors in the selected district; `null` until one is chosen.
+  const [donorCount, setDonorCount] = useState<number | null>(null);
+
   // A signed-in user would be bounced off /login, so back has to respect the guard.
   const backFallback = session ? ROLE_HOME[session.user.role] : ROUTES.login;
 
   /** Resolves the chosen facility, or `null` while nothing valid is selected. */
-  const selectedHospital = findHospitalByName(hospital);
+  const selectedBank = banks.find((bank) => bank.name === hospital) ?? null;
+  const selectedDistrict = selectedBank?.district ?? null;
+
+  // Facility directory: state only changes inside the promise callbacks, so
+  // the effect body itself never triggers a cascading render.
+  useEffect(() => {
+    let cancelled = false;
+
+    listBloodBanks()
+      .then((list) => {
+        if (!cancelled) {
+          setBanks(list);
+        }
+      })
+      .catch(() => {
+        // An empty select still renders; the user picks once the retry lands.
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setAreBanksLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Live donor count for the chosen district — recounted whenever the
+  // hospital (and therefore the district) changes.
+  useEffect(() => {
+    if (selectedDistrict === null) {
+      return;
+    }
+
+    let cancelled = false;
+
+    searchDonors({ district: selectedDistrict })
+      .then((result) => {
+        if (!cancelled) {
+          setDonorCount(result.count);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setDonorCount(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDistrict]);
 
   /** Clears one field's error as soon as the user edits it. */
   const clearError = useCallback((field: keyof EmergencyFormErrors) => {
@@ -200,7 +251,7 @@ export default function EmergencyRequestScreen() {
       units: String(units),
       hospital: hospital ?? "",
       ward,
-      district: selectedHospital?.district ?? "",
+      district: selectedBank?.district ?? "",
       contactName,
       contactMobile,
       urgency: urgency ?? "standard",
@@ -216,7 +267,7 @@ export default function EmergencyRequestScreen() {
       contactMobile,
       urgency,
       notes,
-      selectedHospital,
+      selectedBank,
     ],
   );
 
@@ -316,13 +367,14 @@ export default function EmergencyRequestScreen() {
           bloodGroup: asBloodGroup(bloodGroup ?? "") ?? "O+",
           units,
           hospital: (hospital ?? "").trim(),
-          district: selectedHospital?.district ?? null,
+          district: selectedBank?.district ?? null,
           contactName: contactName.trim(),
           contactMobile: contactMobile.trim(),
           urgency: urgency ?? "standard",
           notes: composeNotes(ward, notes),
         }),
       );
+      haptics.success();
     } catch (error) {
       setFormError(apiErrorMessage(error));
     } finally {
@@ -397,7 +449,7 @@ export default function EmergencyRequestScreen() {
   // ---------------------------------------------------------------- step 2
 
   function renderStepTwo() {
-    const area = selectedHospital?.district ?? "Colombo";
+    const area = selectedDistrict ?? session?.user.district ?? null;
 
     return (
       <>
@@ -405,16 +457,15 @@ export default function EmergencyRequestScreen() {
           <Text style={styles.pageTitle}>Where is the patient admitted?</Text>
 
           <Text style={styles.sectionBody}>
-            Enter hospital information to notify nearby{"\n"}donors within emergency
-            radius.
+            Pick the admitting hospital so verified donors{"\n"}in its district can respond.
           </Text>
 
           {/* Map and coverage card share a wrapper so the card can overlap the
               map's lower edge; a gap between them here would cancel the pull-up. */}
           <View style={styles.mapGroup}>
-            <MapPreview area={area} />
+            <MapPreview area={area ?? "Area pending"} />
 
-            <CoverageCard radiusKm={SAMPLE_RADIUS_KM} onlineDonors={SAMPLE_ONLINE_DONORS} />
+            <CoverageCard district={selectedDistrict} donorCount={donorCount} />
           </View>
         </View>
 
@@ -425,17 +476,19 @@ export default function EmergencyRequestScreen() {
             label="Hospital Name"
             hideLabel
             value={hospital}
-            options={HOSPITAL_NAMES}
+            options={banks.map((bank) => bank.name)}
             onChange={(value) => {
               setHospital(value);
               clearError("hospital");
               clearError("district");
             }}
-            placeholder="Select the admitting hospital"
+            placeholder={
+              areBanksLoading ? "Loading hospitals…" : "Select the admitting hospital"
+            }
             icon="map-pin"
-            trailingIcon={selectedHospital?.verified === true ? "check-circle" : undefined}
+            trailingIcon={selectedBank?.isVerified === true ? "check-circle" : undefined}
             trailingTone="success"
-            caption={selectedHospital?.note}
+            caption={selectedBank?.note ?? undefined}
             error={errors.hospital}
             size="dense"
           />
@@ -508,8 +561,9 @@ export default function EmergencyRequestScreen() {
         </View>
 
         <PrivacyNotice>
-          Donor coordinates and health records are auto-filtered against NHSL blood bank
-          requirements to reduce screening delays.
+          This broadcast shares the patient details, ward and contact number you entered with
+          verified donors and the selected hospital. Donors see the contact number only after
+          they accept.
         </PrivacyNotice>
       </>
     );
@@ -523,7 +577,7 @@ export default function EmergencyRequestScreen() {
       bloodGroup,
       units,
       hospital,
-      district: selectedHospital?.district ?? null,
+      district: selectedDistrict,
       ward,
       urgency,
       contactName,

@@ -12,6 +12,7 @@ import { db, now } from "../db";
 import { asyncHandler } from "../lib/async-handler";
 import { ApiError } from "../lib/errors";
 import { CAN_RECEIVE_FROM } from "../lib/blood-compatibility";
+import { notifyRequesterAccepted, notifyStatusChange } from "../lib/alerts";
 import { generateId } from "../lib/tokens";
 import {
   donorResponseSchema,
@@ -190,6 +191,12 @@ emergencyRouter.post("/:id/response", requireAuth, (request, response) => {
       `INSERT INTO donor_request_responses (id, request_id, donor_id, response, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
     ).run(generateId("resp"), row.id, user.id, input.response, timestamp, timestamp);
+
+    // Same transaction as the acceptance: the requester is told exactly when
+    // someone committed, never for a rolled-back insert.
+    if (input.response === "accepted") {
+      notifyRequesterAccepted(row, user.full_name, timestamp);
+    }
   }).immediate();
 
   response.json({ response: input.response, requestId: row.id, updatedAt: timestamp });
@@ -356,11 +363,17 @@ emergencyRouter.patch(
       );
     }
 
-    db.prepare("UPDATE emergency_requests SET status = ?, updated_at = ? WHERE id = ?").run(
-      target,
-      now(),
-      row.id,
-    );
+    const timestamp = now();
+
+    db.transaction(() => {
+      db.prepare("UPDATE emergency_requests SET status = ?, updated_at = ? WHERE id = ?").run(
+        target,
+        timestamp,
+        row.id,
+      );
+
+      notifyStatusChange({ ...row, status: target, updated_at: timestamp }, timestamp);
+    }).immediate();
 
     const updated = db
       .prepare("SELECT * FROM emergency_requests WHERE id = ?")

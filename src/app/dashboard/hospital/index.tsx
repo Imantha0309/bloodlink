@@ -1,42 +1,171 @@
 import { Feather } from "@expo/vector-icons";
+import type { ComponentProps } from "react";
 import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { EmptyNote } from "@/components/dashboard/empty-note";
 import { DonorCheckInModal } from "@/components/hospital/donor-check-in-modal";
 import { HospitalHeader } from "@/components/hospital/hospital-header";
 import { RequisitionCard } from "@/components/hospital/requisition-card";
+import { AsyncState } from "@/components/ui/async-state";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Blood, Elevation, Surface } from "@/constants/colors";
-import {
-  HOSPITAL_CENTER,
-  REQUISITIONS,
-  REQUISITION_TOTAL,
-  STORAGE_CARD,
-  TRIAGE_STATS,
-  type TriageStat,
-} from "@/constants/hospital-demo";
 import { Radius } from "@/constants/radius";
 import { ROUTES } from "@/constants/routes";
 import { Typography } from "@/constants/typography";
 import { useAuth } from "@/providers/auth-provider";
+import { apiErrorMessage } from "@/services/api/errors";
+import {
+  getDashboardSummary,
+  type DashboardStat,
+  type DashboardSummary,
+} from "@/services/dashboard/dashboard";
+import { getHospitalInventory } from "@/services/hospital";
+import { haptics } from "@/utils/haptics";
 import { initialsOf } from "@/utils/initials";
+import { toRequisition } from "@/utils/requisition";
 
-/** Requisitions surfaced on Home; the rest live in the Requests tab. */
-const HOME_REQUISITIONS = REQUISITIONS.slice(0, 2);
+type TriageStat = {
+  key: string;
+  label: string;
+  value: string;
+  unit: string | null;
+  caption: string;
+  icon: ComponentProps<typeof Feather>["name"];
+};
+
+/** One icon per server stat key; unknown keys fall back to a neutral glyph. */
+const STAT_ICONS: Record<string, ComponentProps<typeof Feather>["name"]> = {
+  pending: "clock",
+  critical: "alert-triangle",
+  donors: "users",
+  open: "inbox",
+  total: "bar-chart-2",
+  availability: "user-check",
+  matching: "users",
+  fulfilled: "check-circle",
+};
+
+function toTriageStat(stat: DashboardStat): TriageStat {
+  return {
+    key: stat.key,
+    label: stat.label,
+    value: stat.value,
+    unit: null,
+    caption: stat.hint ?? "",
+    icon: STAT_ICONS[stat.key] ?? "activity",
+  };
+}
 
 /**
  * Hospital staff landing tab.
  *
- * Content is the approved station-monitor design, fed from the fixtures in
- * `@/constants/hospital-demo` until the dashboard API carries these fields.
+ * Content is the approved station-monitor design, fed from `/dashboard/me`
+ * and the hospital inventory endpoint — stats, requisitions and the storage
+ * tile all come from the API, with an offline fallback per service.
  */
 export default function HospitalHomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { session } = useAuth();
   const [checkInOpen, setCheckInOpen] = useState(false);
+
+  const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [storageBank, setStorageBank] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  /** Summary plus the storage bank name; the bank is optional by design. */
+  async function fetchSummary(): Promise<{
+    summary: DashboardSummary;
+    bankName: string | null;
+  }> {
+    const [nextSummary, bankName] = await Promise.all([
+      getDashboardSummary(),
+      getHospitalInventory()
+        .then((result) => result.banks[0]?.name ?? null)
+        // The storage tile degrades to generic copy rather than failing Home.
+        .catch(() => null),
+    ]);
+
+    return { summary: nextSummary, bankName };
+  }
+
+  /** Pull-to-refresh / retry — invoked from event handlers only. */
+  async function load(mode: "initial" | "refresh") {
+    if (mode === "initial") {
+      setIsLoading(true);
+    }
+
+    setError(null);
+
+    try {
+      const next = await fetchSummary();
+      setStorageBank(next.bankName);
+      setSummary(next.summary);
+    } catch (caught) {
+      setError(apiErrorMessage(caught));
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  // Initial load: state only changes inside the promise callbacks, so the
+  // effect body itself never triggers a cascading render.
+  useEffect(() => {
+    let cancelled = false;
+
+    fetchSummary()
+      .then((next) => {
+        if (!cancelled) {
+          setStorageBank(next.bankName);
+          setSummary(next.summary);
+          setError(null);
+        }
+      })
+      .catch((caught) => {
+        if (!cancelled) {
+          setError(apiErrorMessage(caught));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const openRequests = (summary?.requests ?? []).filter(
+    (request) => request.status === "pending" || request.status === "verified",
+  );
+  const stats = (summary?.stats ?? []).map(toTriageStat);
+  const center = session?.user.district
+    ? `${session.user.district} District`
+    : "Your station";
+  const storageLabel =
+    storageBank !== null ? `Storage • ${storageBank}` : "Whole Blood Storage";
+
+  const homeSkeleton = (
+    <View style={styles.skeletonBlock}>
+      <View style={styles.statRow}>
+        <Skeleton height={96} radius={Radius.field} style={styles.flex} />
+        <Skeleton height={96} radius={Radius.field} style={styles.flex} />
+        <Skeleton height={96} radius={Radius.field} style={styles.flex} />
+      </View>
+
+      <Skeleton height={54} radius={Radius.field} />
+      <Skeleton height={54} radius={Radius.field} />
+      <Skeleton height={140} radius={Radius.card} />
+      <Skeleton height={56} radius={Radius.field} />
+    </View>
+  );
 
   return (
     <View style={styles.root}>
@@ -57,7 +186,7 @@ export default function HospitalHomeScreen() {
 
         <View style={styles.centerPill}>
           <Feather name="map-pin" size={12} color={Surface.textSecondary} />
-          <Text style={styles.centerText}>{HOSPITAL_CENTER}</Text>
+          <Text style={styles.centerText}>{center}</Text>
         </View>
 
         <View style={styles.banner}>
@@ -73,67 +202,99 @@ export default function HospitalHomeScreen() {
           </View>
         </View>
 
-        <View style={styles.statRow}>
-          {TRIAGE_STATS.map((stat) => (
-            <TriageStatCard key={stat.key} stat={stat} />
-          ))}
-        </View>
-
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Issue new emergency requisition"
-          onPress={() => {
-            router.push(ROUTES.hospitalCreateRequest);
+        <AsyncState
+          isLoading={isLoading}
+          error={error}
+          skeleton={homeSkeleton}
+          onRetry={() => {
+            void load("initial");
           }}
-          style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
         >
-          <Feather name="plus-circle" size={18} color={Surface.onPrimary} />
-          <Text style={styles.primaryButtonText}>Issue New Emergency Requisition</Text>
-        </Pressable>
+          <View style={styles.dynamic}>
+            <View style={styles.statRow}>
+              {stats.map((stat) => (
+                <TriageStatCard key={stat.key} stat={stat} />
+              ))}
+            </View>
 
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Scan donor QR at reception"
-          onPress={() => setCheckInOpen(true)}
-          style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
-        >
-          <Feather name="maximize" size={17} color={Blood.primary} />
-          <Text style={styles.secondaryButtonText}>Scan Donor QR at Reception</Text>
-        </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Issue new emergency requisition"
+              onPress={() => {
+                haptics.medium();
+                router.push(ROUTES.hospitalCreateRequest);
+              }}
+              style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
+            >
+              <Feather name="plus-circle" size={18} color={Surface.onPrimary} />
+              <Text style={styles.primaryButtonText}>Issue New Emergency Requisition</Text>
+            </Pressable>
 
-        <View style={styles.sectionRow}>
-          <View style={styles.sectionLeft}>
-            <Feather name="bell" size={15} color={Blood.primary} />
-            <Text style={styles.sectionTitle}>Active Emergency Requisitions</Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Scan donor QR at reception"
+              onPress={() => {
+                haptics.light();
+                setCheckInOpen(true);
+              }}
+              style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
+            >
+              <Feather name="maximize" size={17} color={Blood.primary} />
+              <Text style={styles.secondaryButtonText}>Scan Donor QR at Reception</Text>
+            </Pressable>
+
+            <View style={styles.sectionRow}>
+              <View style={styles.sectionLeft}>
+                <Feather name="bell" size={15} color={Blood.primary} />
+                <Text style={styles.sectionTitle}>Active Emergency Requisitions</Text>
+              </View>
+
+              <Text style={styles.sectionCount}>
+                Showing {Math.min(openRequests.length, 2)} of {openRequests.length}
+              </Text>
+            </View>
+
+            {openRequests.length === 0 ? (
+              <EmptyNote
+                title="No active requisitions"
+                message="New emergency requisitions appear here the moment they are raised."
+                icon="inbox"
+              />
+            ) : (
+              <View style={styles.list}>
+                {openRequests.slice(0, 2).map((request) => (
+                  <RequisitionCard
+                    key={request.id}
+                    item={toRequisition(request)}
+                    onManage={() => {
+                      router.push({
+                        pathname: ROUTES.hospitalVerifyDonor,
+                        params: { requestId: request.id },
+                      });
+                    }}
+                  />
+                ))}
+              </View>
+            )}
+
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={storageLabel}
+              onPress={() => {
+                router.push(ROUTES.hospitalStorage);
+              }}
+              style={({ pressed }) => [styles.storage, pressed && styles.pressed]}
+            >
+              <View style={styles.storageIcon}>
+                <Feather name="droplet" size={15} color={Blood.primary} />
+              </View>
+
+              <Text style={styles.storageTitle}>{storageLabel}</Text>
+
+              <Feather name="chevron-right" size={18} color={Blood.primary} />
+            </Pressable>
           </View>
-
-          <Text style={styles.sectionCount}>
-            Showing {HOME_REQUISITIONS.length} of {REQUISITION_TOTAL}
-          </Text>
-        </View>
-
-        <View style={styles.list}>
-          {HOME_REQUISITIONS.map((item) => (
-            <RequisitionCard key={item.reference} item={item} />
-          ))}
-        </View>
-
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={STORAGE_CARD.label}
-          onPress={() => {
-            router.push(ROUTES.hospitalStorage);
-          }}
-          style={({ pressed }) => [styles.storage, pressed && styles.pressed]}
-        >
-          <View style={styles.storageIcon}>
-            <Feather name="droplet" size={15} color={Blood.primary} />
-          </View>
-
-          <Text style={styles.storageTitle}>{STORAGE_CARD.label}</Text>
-
-          <Feather name="chevron-right" size={18} color={Blood.primary} />
-        </Pressable>
+        </AsyncState>
       </ScrollView>
 
       <DonorCheckInModal visible={checkInOpen} onClose={() => setCheckInOpen(false)} />
@@ -141,12 +302,12 @@ export default function HospitalHomeScreen() {
   );
 }
 
-/** One KPI card; the reserve card inverts to a warning tint. */
+/** One KPI card; the critical card inverts to a warning tint. */
 function TriageStatCard({ stat }: { stat: TriageStat }) {
-  const isReserve = stat.key === "reserve";
+  const isCritical = stat.key === "critical";
 
   return (
-    <View style={[styles.statCard, isReserve && styles.statCardReserve]}>
+    <View style={[styles.statCard, isCritical && styles.statCardReserve]}>
       <View style={styles.statHead}>
         <Text style={styles.statLabel} numberOfLines={2}>
           {stat.label}
@@ -155,7 +316,7 @@ function TriageStatCard({ stat }: { stat: TriageStat }) {
         <Feather
           name={stat.icon}
           size={14}
-          color={isReserve ? Blood.primary : Surface.textSecondary}
+          color={isCritical ? Blood.primary : Surface.textSecondary}
         />
       </View>
 
@@ -163,8 +324,8 @@ function TriageStatCard({ stat }: { stat: TriageStat }) {
         <Text
           style={[
             styles.statValue,
-            stat.key === "critical" && styles.statValueCritical,
-            isReserve && styles.statValueReserve,
+            isCritical && styles.statValueCritical,
+            isCritical && styles.statValueReserve,
           ]}
           numberOfLines={1}
           adjustsFontSizeToFit
@@ -176,11 +337,7 @@ function TriageStatCard({ stat }: { stat: TriageStat }) {
       </View>
 
       <Text
-        style={[
-          styles.statCaption,
-          stat.key === "transit" && styles.statCaptionGreen,
-          isReserve && styles.statCaptionRed,
-        ]}
+        style={[styles.statCaption, isCritical && styles.statCaptionRed]}
         numberOfLines={2}
       >
         {stat.caption}
@@ -201,6 +358,14 @@ const styles = StyleSheet.create({
 
   content: {
     paddingHorizontal: 20,
+    gap: 14,
+  },
+
+  dynamic: {
+    gap: 14,
+  },
+
+  skeletonBlock: {
     gap: 14,
   },
 
@@ -306,8 +471,8 @@ const styles = StyleSheet.create({
   },
 
   statValue: {
-    fontSize: 26,
-    lineHeight: 30,
+    fontSize: 27,
+    lineHeight: 32,
     fontWeight: "800",
     letterSpacing: -0.6,
     color: Surface.text,
@@ -332,10 +497,6 @@ const styles = StyleSheet.create({
     ...Typography.small,
     fontSize: 10.5,
     color: Surface.textSecondary,
-  },
-
-  statCaptionGreen: {
-    color: Surface.online,
   },
 
   statCaptionRed: {

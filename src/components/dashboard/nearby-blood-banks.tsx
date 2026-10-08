@@ -24,8 +24,8 @@ type NearbyBloodBanksProps = {
 /**
  * Nearby bank rows with an availability pill and a chevron.
  *
- * Inventory is not yet exposed by the API, so the rows take their content from
- * the caller until that endpoint lands.
+ * The caller loads the facility directory from the blood-banks endpoint and
+ * maps it to rows; distances stay out until the API can compute them.
  */
 export function NearbyBloodBanks({ banks, onBankPress }: NearbyBloodBanksProps) {
   return (

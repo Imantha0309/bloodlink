@@ -17,6 +17,8 @@ type AsyncStateProps = {
   emptyMessage?: string;
   /** Optional call to action inside the empty state. */
   emptyAction?: EmptyStateAction;
+  /** Shape-matched placeholder rendered instead of the plain spinner. */
+  skeleton?: ReactNode;
   onRetry?: () => void;
   children: ReactNode;
 };
@@ -34,10 +36,15 @@ export function AsyncState({
   emptyTitle = "Nothing here yet",
   emptyMessage = "There is nothing to show right now.",
   emptyAction,
+  skeleton,
   onRetry,
   children,
 }: AsyncStateProps) {
   if (isLoading) {
+    if (skeleton !== undefined) {
+      return <>{skeleton}</>;
+    }
+
     return (
       <View style={styles.centered} accessibilityRole="progressbar" accessibilityLabel="Loading">
         <ActivityIndicator size="large" color={Blood.primary} />

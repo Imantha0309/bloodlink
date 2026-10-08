@@ -252,6 +252,21 @@ export class MockAuthService implements AuthService {
     return account.user;
   }
 
+  async updateRecipientDistrict(district: string): Promise<AuthUser> {
+    const session = await loadSession();
+    if (!session || session.user.role !== "recipient") {
+      throw new ApiError("unauthorized", "Only recipients can update their area.");
+    }
+
+    const account = MOCK_ACCOUNTS.find((candidate) => candidate.user.id === session.user.id);
+    if (!account) throw new ApiError("not_found", "Account could not be found.");
+
+    account.user = { ...account.user, district };
+    const updatedSession = { ...session, user: account.user };
+    await saveSession(updatedSession);
+    return account.user;
+  }
+
   async restoreSession(): Promise<AuthSession | null> {
     return loadSession();
   }

@@ -1,24 +1,42 @@
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import { useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { AsyncState } from "@/components/ui/async-state";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Blood, Elevation, Surface } from "@/constants/colors";
-import {
-  BLOOD_STORAGE,
-  CRITICAL_RESERVE,
-  RESERVE_GAUGES,
-  STORAGE_FRACTIONS,
-  VAULT_COMPARTMENTS,
-  type ReserveGauge,
-  type VaultCompartment,
-} from "@/constants/hospital-demo";
+import { BLOOD_GROUPS, type BloodGroup } from "@/constants/blood-groups";
+import { BLOOD_STORAGE } from "@/constants/hospital-demo";
 import { Radius } from "@/constants/radius";
 import { ROLE_HOME, ROUTES } from "@/constants/routes";
 import { Typography } from "@/constants/typography";
 import { useAuth } from "@/providers/auth-provider";
+import { apiErrorMessage } from "@/services/api/errors";
+import {
+  type BloodComponent,
+  type HospitalInventoryBank,
+  type InventoryItem,
+} from "@/services/blood-banks";
+import { getHospitalInventory, updateInventoryItem } from "@/services/hospital";
+import { haptics } from "@/utils/haptics";
 import { initialsOf } from "@/utils/initials";
+
+const COMPONENT_ORDER: readonly BloodComponent[] = [
+  "whole_blood",
+  "prbc",
+  "plasma",
+  "platelets",
+];
+
+const COMPONENT_LABELS: Record<BloodComponent, string> = {
+  whole_blood: "Whole Blood",
+  prbc: "PRBC Red Cells",
+  plasma: "FFP Plasma",
+  platelets: "Platelets",
+};
 
 /** Shared pill palette for the reserve tags. */
 const TONE_PILL = {
@@ -27,23 +45,136 @@ const TONE_PILL = {
   safe: { background: Surface.softBlue, border: Surface.softBlueBorder, color: Surface.textSecondary },
 } as const;
 
-/** Shared pill palette for compartment health. */
-const STATUS_COLOR = {
-  optimal: Surface.online,
-  alert: Blood.primary,
-} as const;
+type ReserveTone = keyof typeof TONE_PILL;
+
+type GroupTotal = { group: BloodGroup; units: number; tone: ReserveTone; tag: string };
+
+function unitsFor(inventory: InventoryItem[], group: BloodGroup, component?: BloodComponent) {
+  return inventory
+    .filter(
+      (item) => item.bloodGroup === group && (component === undefined || item.component === component),
+    )
+    .reduce((sum, item) => sum + item.units, 0);
+}
+
+function toneFor(units: number): { tone: ReserveTone; tag: string } {
+  if (units < 8) return { tone: "critical", tag: "Critical" };
+  if (units < 20) return { tone: "safe", tag: "Low" };
+  return { tone: "surplus", tag: "Surplus" };
+}
 
 /**
  * Blood bank storage monitor.
  *
- * Reached from the Home tab's storage card. Content is the approved design,
- * fed from `@/constants/hospital-demo` until a storage API exists — the screen
- * reads only the shapes in that file.
+ * Reached from the Home tab's storage card. Stock comes from the hospital
+ * inventory endpoint and the steppers write back through
+ * `updateInventoryItem`, so a restock here is visible to recipients
+ * immediately; the banner's plant telemetry stays fixture copy.
  */
 export default function HospitalStorageScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { session } = useAuth();
+
+  const [banks, setBanks] = useState<HospitalInventoryBank[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [componentFilter, setComponentFilter] = useState<BloodComponent>("whole_blood");
+  const [isSaving, setIsSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
+  // Initial load: state only changes inside the promise callbacks, so the
+  // effect body itself never triggers a cascading render.
+  useEffect(() => {
+    let cancelled = false;
+
+    getHospitalInventory()
+      .then((result) => {
+        if (!cancelled) {
+          setBanks(result.banks);
+          setError(null);
+        }
+      })
+      .catch((caught) => {
+        if (!cancelled) {
+          setError(apiErrorMessage(caught));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /** Retry — invoked from event handlers only. */
+  async function load() {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      setBanks((await getHospitalInventory()).banks);
+    } catch (caught) {
+      setError(apiErrorMessage(caught));
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function adjust(group: BloodGroup, delta: number) {
+    const bank = banks[0];
+
+    if (bank === undefined || isSaving) {
+      return;
+    }
+
+    const current = unitsFor(bank.inventory, group, componentFilter);
+    const next = Math.max(0, current + delta);
+
+    if (next === current) {
+      return;
+    }
+
+    setIsSaving(true);
+    setEditError(null);
+
+    try {
+      const updated = await updateInventoryItem(bank.id, group, componentFilter, next);
+      haptics.light();
+
+      setBanks((previous) =>
+        previous.map((entry) => {
+          if (entry.id !== bank.id) {
+            return entry;
+          }
+
+          const exists = entry.inventory.some(
+            (item) => item.bloodGroup === group && item.component === componentFilter,
+          );
+
+          return {
+            ...entry,
+            inventory: exists
+              ? entry.inventory.map((item) =>
+                  item.bloodGroup === group && item.component === componentFilter
+                    ? updated
+                    : item,
+                )
+              : [...entry.inventory, updated],
+          };
+        }),
+      );
+    } catch (caught) {
+      haptics.error();
+      setEditError(apiErrorMessage(caught));
+    } finally {
+      setIsSaving(false);
+    }
+  }
 
   function handleBack() {
     if (router.canGoBack()) {
@@ -54,6 +185,40 @@ export default function HospitalStorageScreen() {
     // Opened directly (deep link / cold start) — the Home tab is the parent.
     router.replace(ROLE_HOME.hospital);
   }
+
+  const bank = banks[0] ?? null;
+  const inventory = bank?.inventory ?? [];
+
+  const totalUnits = inventory.reduce((sum, item) => sum + item.units, 0);
+  const stockLines = inventory.length;
+  const stockedLines = inventory.filter((item) => item.units > 0).length;
+  const capacityPct = stockLines > 0 ? Math.round((stockedLines / stockLines) * 100) : 0;
+  const bloodTypeCount = new Set(inventory.map((item) => item.bloodGroup)).size;
+
+  const groupTotals: GroupTotal[] = BLOOD_GROUPS.map((group) => {
+    const units = unitsFor(inventory, group);
+    return { group, units, ...toneFor(units) };
+  });
+  const gaugeScale = Math.max(40, ...groupTotals.map((entry) => entry.units));
+  const gauges = [...groupTotals].sort((a, b) => a.units - b.units).slice(0, 3);
+  const lowest = gauges[0];
+
+  const componentTotals = COMPONENT_ORDER.map((component) => ({
+    component,
+    label: COMPONENT_LABELS[component],
+    units: inventory
+      .filter((item) => item.component === component)
+      .reduce((sum, item) => sum + item.units, 0),
+  }));
+
+  const storageSkeleton = (
+    <View style={styles.skeletonBlock}>
+      <Skeleton height={150} radius={Radius.field} />
+      <Skeleton height={96} radius={Radius.field} />
+      <Skeleton height={200} radius={Radius.card} />
+      <Skeleton height={260} radius={Radius.card} />
+    </View>
+  );
 
   return (
     <View style={styles.root}>
@@ -89,7 +254,7 @@ export default function HospitalStorageScreen() {
               <View style={styles.subtitleDot} />
 
               <Text style={styles.subtitle} numberOfLines={1}>
-                {BLOOD_STORAGE.subtitle}
+                {bank !== null ? `${bank.name} • ${bank.district}` : "Loading stock…"}
               </Text>
             </View>
           </View>
@@ -109,134 +274,259 @@ export default function HospitalStorageScreen() {
           </View>
         </View>
 
-        {/* ================= VAULT BANNER ================= */}
-
-        <View style={styles.banner}>
-          <View style={styles.bannerHead}>
-            <Feather name="command" size={15} color={Blood.primary} />
-
-            <View style={styles.bannerHeadText}>
-              <Text style={styles.bannerName} numberOfLines={1}>
-                {BLOOD_STORAGE.vaultName}
-              </Text>
-
-              <Text style={styles.bannerNote} numberOfLines={1}>
-                {BLOOD_STORAGE.vaultNote}
-              </Text>
-            </View>
-
-            <View style={styles.tempPill}>
-              <Feather name="cloud-snow" size={11} color={Surface.onPrimary} />
-              <Text style={styles.tempText}>{BLOOD_STORAGE.temperature}</Text>
-            </View>
-          </View>
-
-          <View style={styles.bannerFacts}>
-            <BannerFact icon="zap" label={BLOOD_STORAGE.powerLabel} value={BLOOD_STORAGE.powerValue} />
-            <BannerFact icon="clock" label={BLOOD_STORAGE.auditLabel} value={BLOOD_STORAGE.auditValue} />
-          </View>
-
-          <View style={styles.stockStrip}>
-            <View style={styles.stockRow}>
-              <Feather name="droplet" size={13} color={Blood.primary} />
-
-              <Text style={styles.stockText} numberOfLines={1}>
-                Total Bank Stock: {BLOOD_STORAGE.totalUnits.toLocaleString("en-US")} Units
-              </Text>
-
-              <Text style={styles.stockPct}>{BLOOD_STORAGE.capacityPct}% of Capacity</Text>
-            </View>
-
-            <View style={styles.stockTrack}>
-              <View style={[styles.stockFill, { width: `${BLOOD_STORAGE.capacityPct}%` }]} />
-            </View>
-          </View>
-        </View>
-
-        {/* ================= CYLINDER GAUGES ================= */}
-
-        <View style={styles.sectionRow}>
-          <Text style={styles.sectionTitle}>Cylinder Reserve Gauges</Text>
-
-          <View style={styles.typePill}>
-            <Text style={styles.typePillText}>{BLOOD_STORAGE.bloodTypeCount} Blood Types</Text>
-          </View>
-        </View>
-
-        <Text style={styles.sectionNote}>{BLOOD_STORAGE.gaugeNote}</Text>
-
-        <View style={styles.criticalCard}>
-          <View style={styles.criticalBadge}>
-            <Text style={styles.criticalBadgeText}>{CRITICAL_RESERVE.group}</Text>
-          </View>
-
-          <View style={styles.criticalText}>
-            <View style={styles.criticalHead}>
-              <Text style={styles.criticalLabel} numberOfLines={1}>
-                {CRITICAL_RESERVE.label}
-              </Text>
-
-              <View style={styles.criticalTag}>
-                <Text style={styles.criticalTagText}>{CRITICAL_RESERVE.tag}</Text>
-              </View>
-            </View>
-
-            <Text style={styles.criticalDetail} numberOfLines={1}>
-              {CRITICAL_RESERVE.detail}
-            </Text>
-          </View>
-
-          <Feather name="info" size={15} color={Blood.primary} />
-        </View>
-
-        <View style={styles.gaugeRow}>
-          {RESERVE_GAUGES.map((gauge) => (
-            <ReserveGaugeCard key={gauge.group} gauge={gauge} />
-          ))}
-        </View>
-
-        {/* ================= VAULT COMPARTMENTS ================= */}
-
-        <View style={styles.sectionRow}>
-          <Text style={styles.sectionTitle}>Vault Compartments</Text>
-
-          <Text style={styles.sectionNote}>{BLOOD_STORAGE.compartmentNote}</Text>
-        </View>
-
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.chips}
-        >
-          {STORAGE_FRACTIONS.map((fraction) => (
-            <View
-              key={fraction.label}
-              style={[styles.chip, fraction.active && styles.chipActive]}
-            >
-              <Text style={[styles.chipText, fraction.active && styles.chipTextActive]}>
-                {fraction.label}
-              </Text>
-            </View>
-          ))}
-        </ScrollView>
-
-        <View style={styles.list}>
-          {VAULT_COMPARTMENTS.map((item) => (
-            <VaultCompartmentCard key={item.id} item={item} />
-          ))}
-        </View>
-
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Request blood"
-          onPress={() => {
-            router.push(ROUTES.hospitalCreateRequest);
+        <AsyncState
+          isLoading={isLoading}
+          error={error}
+          isEmpty={bank === null}
+          emptyTitle="No storage assigned"
+          emptyMessage="This account has no blood bank in its district yet."
+          skeleton={storageSkeleton}
+          onRetry={() => {
+            void load();
           }}
-          style={({ pressed }) => [styles.cta, pressed && styles.pressed]}
         >
-          <Feather name="bar-chart-2" size={18} color={Surface.onPrimary} />
-          <Text style={styles.ctaText}>Request blood</Text>
-        </Pressable>
+          {bank === null ? null : (
+            <>
+              {/* ================= VAULT BANNER ================= */}
+
+              <View style={styles.banner}>
+                <View style={styles.bannerHead}>
+                  <Feather name="command" size={15} color={Blood.primary} />
+
+                  <View style={styles.bannerHeadText}>
+                    <Text style={styles.bannerName} numberOfLines={1}>
+                      {bank.name}
+                    </Text>
+
+                    <Text style={styles.bannerNote} numberOfLines={1}>
+                      {`${bank.district} District • ${BLOOD_STORAGE.vaultNote}`}
+                    </Text>
+                  </View>
+
+                  <View style={styles.tempPill}>
+                    <Feather name="cloud-snow" size={11} color={Surface.onPrimary} />
+                    <Text style={styles.tempText}>{BLOOD_STORAGE.temperature}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.bannerFacts}>
+                  <BannerFact icon="zap" label={BLOOD_STORAGE.powerLabel} value={BLOOD_STORAGE.powerValue} />
+                  <BannerFact icon="clock" label={BLOOD_STORAGE.auditLabel} value={BLOOD_STORAGE.auditValue} />
+                </View>
+
+                <View style={styles.stockStrip}>
+                  <View style={styles.stockRow}>
+                    <Feather name="droplet" size={13} color={Blood.primary} />
+
+                    <Text style={styles.stockText} numberOfLines={1}>
+                      Total Bank Stock: {totalUnits.toLocaleString("en-US")} Units
+                    </Text>
+
+                    <Text style={styles.stockPct}>{`${stockedLines}/${stockLines} lines`}</Text>
+                  </View>
+
+                  <View style={styles.stockTrack}>
+                    <View style={[styles.stockFill, { width: `${capacityPct}%` }]} />
+                  </View>
+                </View>
+              </View>
+
+              {/* ================= CYLINDER GAUGES ================= */}
+
+              <View style={styles.sectionRow}>
+                <Text style={styles.sectionTitle}>Cylinder Reserve Gauges</Text>
+
+                <View style={styles.typePill}>
+                  <Text style={styles.typePillText}>{bloodTypeCount} Blood Types</Text>
+                </View>
+              </View>
+
+              <Text style={styles.sectionNote}>Lowest reserves across all components</Text>
+
+              {lowest !== undefined ? (
+                <View style={styles.criticalCard}>
+                  <View style={styles.criticalBadge}>
+                    <Text style={styles.criticalBadgeText}>{lowest.group}</Text>
+                  </View>
+
+                  <View style={styles.criticalText}>
+                    <View style={styles.criticalHead}>
+                      <Text style={styles.criticalLabel} numberOfLines={1}>
+                        {`${lowest.group} Reserve`}
+                      </Text>
+
+                      <View style={styles.criticalTag}>
+                        <Text style={styles.criticalTagText}>
+                          {lowest.units < 8 ? "Critical Low" : "Lowest"}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <Text style={styles.criticalDetail} numberOfLines={1}>
+                      {`Current: ${lowest.units} Units • across ${stockLines} stock lines`}
+                    </Text>
+                  </View>
+
+                  <Feather name="info" size={15} color={Blood.primary} />
+                </View>
+              ) : null}
+
+              <View style={styles.gaugeRow}>
+                {gauges.map((gauge) => (
+                  <ReserveGaugeCard
+                    key={gauge.group}
+                    group={gauge.group}
+                    units={gauge.units}
+                    tone={gauge.tone}
+                    tag={gauge.tag}
+                    fillPct={Math.min(100, Math.round((gauge.units / gaugeScale) * 100))}
+                  />
+                ))}
+              </View>
+
+              {/* ================= STOCK BY COMPONENT ================= */}
+
+              <View style={styles.sectionRow}>
+                <Text style={styles.sectionTitle}>Stock Adjustments</Text>
+
+                <Text style={styles.sectionNote}>Tap ± to restock or quarantine</Text>
+              </View>
+
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.chips}
+              >
+                {componentTotals.map((entry) => {
+                  const active = entry.component === componentFilter;
+
+                  return (
+                    <Pressable
+                      key={entry.component}
+                      onPress={() => {
+                        haptics.light();
+                        setComponentFilter(entry.component);
+                        setEditError(null);
+                      }}
+                      accessibilityRole="tab"
+                      accessibilityLabel={entry.label}
+                      accessibilityState={{ selected: active }}
+                      style={({ pressed }) => [
+                        styles.chip,
+                        active && styles.chipActive,
+                        pressed && styles.pressed,
+                      ]}
+                    >
+                      <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                        {`${entry.label} (${entry.units})`}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+
+              {editError !== null ? (
+                <View style={styles.editError}>
+                  <Feather name="alert-circle" size={14} color={Blood.primary} />
+                  <Text style={styles.editErrorText}>{editError}</Text>
+                </View>
+              ) : null}
+
+              <View style={styles.list}>
+                {BLOOD_GROUPS.map((group) => {
+                  const units = unitsFor(inventory, group, componentFilter);
+                  const { tone } = toneFor(units);
+                  const toneMeta = TONE_PILL[tone];
+                  const updated = inventory.find(
+                    (item) => item.bloodGroup === group && item.component === componentFilter,
+                  );
+
+                  return (
+                    <View key={group} style={styles.stockCard}>
+                      <View
+                        style={[
+                          styles.stockBadge,
+                          { backgroundColor: toneMeta.background, borderColor: toneMeta.border },
+                        ]}
+                      >
+                        <Text style={[styles.stockBadgeText, { color: toneMeta.color }]}>
+                          {group}
+                        </Text>
+                      </View>
+
+                      <View style={styles.stockInfo}>
+                        <Text style={styles.stockName} numberOfLines={1}>
+                          {`${units} Units`}
+                        </Text>
+
+                        <Text style={styles.stockMeta} numberOfLines={1}>
+                          {updated !== undefined
+                            ? `Updated ${new Date(updated.updatedAt).toLocaleTimeString("en-GB", {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}`
+                            : "No stock on this line"}
+                        </Text>
+                      </View>
+
+                      <View style={styles.stepper}>
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel={`Remove one ${group} unit`}
+                          accessibilityState={{ disabled: units <= 0 || isSaving }}
+                          disabled={units <= 0 || isSaving}
+                          onPress={() => {
+                            void adjust(group, -1);
+                          }}
+                          style={({ pressed }) => [
+                            styles.stepButton,
+                            pressed && styles.pressed,
+                            (units <= 0 || isSaving) && styles.stepButtonDisabled,
+                          ]}
+                        >
+                          <Feather name="minus" size={15} color={Surface.text} />
+                        </Pressable>
+
+                        <Text style={styles.stepValue} accessibilityLiveRegion="polite">
+                          {units}
+                        </Text>
+
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel={`Add one ${group} unit`}
+                          accessibilityState={{ disabled: isSaving }}
+                          disabled={isSaving}
+                          onPress={() => {
+                            void adjust(group, 1);
+                          }}
+                          style={({ pressed }) => [
+                            styles.stepButton,
+                            pressed && styles.pressed,
+                            isSaving && styles.stepButtonDisabled,
+                          ]}
+                        >
+                          <Feather name="plus" size={15} color={Surface.text} />
+                        </Pressable>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Request blood"
+                onPress={() => {
+                  router.push(ROUTES.hospitalCreateRequest);
+                }}
+                style={({ pressed }) => [styles.cta, pressed && styles.pressed]}
+              >
+                <Feather name="bar-chart-2" size={18} color={Surface.onPrimary} />
+                <Text style={styles.ctaText}>Request blood</Text>
+              </Pressable>
+            </>
+          )}
+        </AsyncState>
       </ScrollView>
     </View>
   );
@@ -267,24 +557,38 @@ function BannerFact({
 }
 
 /** One blood group's calibrated reserve cylinder. */
-function ReserveGaugeCard({ gauge }: { gauge: ReserveGauge }) {
-  const tone = TONE_PILL[gauge.tone];
+function ReserveGaugeCard({
+  group,
+  units,
+  tone,
+  tag,
+  fillPct,
+}: {
+  group: BloodGroup;
+  units: number;
+  tone: ReserveTone;
+  tag: string;
+  fillPct: number;
+}) {
+  const toneMeta = TONE_PILL[tone];
 
   return (
     <View style={styles.gaugeCard}>
       <View style={styles.gaugeHead}>
-        <Text style={styles.gaugeGroup}>{gauge.group}</Text>
+        <Text style={styles.gaugeGroup}>{group}</Text>
 
-        <View style={[styles.gaugeTag, { backgroundColor: tone.background, borderColor: tone.border }]}>
-          <Text style={[styles.gaugeTagText, { color: tone.color }]} numberOfLines={1}>
-            {gauge.tag}
+        <View
+          style={[styles.gaugeTag, { backgroundColor: toneMeta.background, borderColor: toneMeta.border }]}
+        >
+          <Text style={[styles.gaugeTagText, { color: toneMeta.color }]} numberOfLines={1}>
+            {tag}
           </Text>
         </View>
       </View>
 
       <View style={styles.tubeRow}>
         <View style={styles.tube}>
-          <View style={[styles.tubeFill, { height: `${gauge.fillPct}%` }]} />
+          <View style={[styles.tubeFill, { height: `${fillPct}%` }]} />
         </View>
 
         <View style={styles.ticks}>
@@ -296,43 +600,10 @@ function ReserveGaugeCard({ gauge }: { gauge: ReserveGauge }) {
       </View>
 
       <Text style={styles.gaugeUnits} adjustsFontSizeToFit numberOfLines={1}>
-        {gauge.units} U
+        {units} U
       </Text>
 
-      <Text style={styles.gaugePct}>{gauge.fillPct}% full</Text>
-    </View>
-  );
-}
-
-/** One cold-storage compartment and its live telemetry. */
-function VaultCompartmentCard({ item }: { item: VaultCompartment }) {
-  return (
-    <View style={styles.compartment}>
-      <View style={styles.compartmentIcon}>
-        <Feather name={item.icon} size={16} color={Blood.primary} />
-      </View>
-
-      <View style={styles.compartmentText}>
-        <View style={styles.compartmentHead}>
-          <Text style={styles.compartmentName} numberOfLines={1}>
-            {item.name}
-          </Text>
-
-          <View style={styles.tempChip}>
-            <Text style={styles.tempChipText}>{item.temperature}</Text>
-          </View>
-
-          <Text style={styles.compartmentPct}>{item.capacityPct}%</Text>
-        </View>
-
-        <Text style={styles.compartmentDetail} numberOfLines={1}>
-          {item.detail}
-        </Text>
-
-        <Text style={[styles.compartmentStatus, { color: STATUS_COLOR[item.tone] }]}>
-          {item.status}
-        </Text>
-      </View>
+      <Text style={styles.gaugePct}>{fillPct}% full</Text>
     </View>
   );
 }
@@ -349,6 +620,10 @@ const styles = StyleSheet.create({
 
   content: {
     paddingHorizontal: 20,
+    gap: 14,
+  },
+
+  skeletonBlock: {
     gap: 14,
   },
 
@@ -739,7 +1014,7 @@ const styles = StyleSheet.create({
     color: Surface.textMuted,
   },
 
-  /* ================= COMPARTMENTS ================= */
+  /* ================= COMPONENT CHIPS ================= */
 
   chips: {
     gap: 8,
@@ -770,14 +1045,34 @@ const styles = StyleSheet.create({
     color: Surface.onPrimary,
   },
 
+  editError: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    padding: 10,
+    borderRadius: Radius.sm,
+    borderWidth: 1,
+    borderColor: Surface.softRedBorder,
+    backgroundColor: Surface.softRed,
+  },
+
+  editErrorText: {
+    flex: 1,
+    ...Typography.small,
+    fontWeight: "600",
+    color: Blood.primary,
+  },
+
+  /* ================= STOCK LINES ================= */
+
   list: {
     gap: 10,
   },
 
-  compartment: {
+  stockCard: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
     padding: 12,
     borderRadius: Radius.field,
     borderWidth: StyleSheet.hairlineWidth,
@@ -785,62 +1080,61 @@ const styles = StyleSheet.create({
     backgroundColor: Surface.card,
   },
 
-  compartmentIcon: {
-    width: 38,
-    height: 38,
+  stockBadge: {
+    width: 44,
+    height: 44,
     borderRadius: Radius.sm,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: Surface.softBlue,
     borderWidth: 1,
-    borderColor: Surface.softBlueBorder,
   },
 
-  compartmentText: {
+  stockBadgeText: {
+    ...Typography.cardTitle,
+  },
+
+  stockInfo: {
     flex: 1,
-    gap: 3,
+    gap: 2,
   },
 
-  compartmentHead: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-
-  compartmentName: {
-    flexShrink: 1,
+  stockName: {
     ...Typography.label,
     color: Surface.text,
   },
 
-  tempChip: {
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: Radius.sm,
-    backgroundColor: Surface.softBlue,
-  },
-
-  tempChipText: {
-    ...Typography.micro,
-    fontSize: 9.5,
-    color: Surface.textSecondary,
-  },
-
-  compartmentPct: {
-    marginLeft: "auto",
-    ...Typography.label,
-    color: Surface.text,
-  },
-
-  compartmentDetail: {
+  stockMeta: {
     ...Typography.small,
     fontSize: 10.5,
-    color: Surface.textSecondary,
+    color: Surface.textMuted,
   },
 
-  compartmentStatus: {
-    ...Typography.micro,
-    fontSize: 10,
+  stepper: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+
+  stepButton: {
+    width: 36,
+    height: 36,
+    borderRadius: Radius.full,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Surface.background,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Surface.border,
+  },
+
+  stepButtonDisabled: {
+    opacity: 0.4,
+  },
+
+  stepValue: {
+    minWidth: 24,
+    textAlign: "center",
+    ...Typography.cardTitle,
+    color: Blood.primary,
   },
 
   /* ================= CTA ================= */

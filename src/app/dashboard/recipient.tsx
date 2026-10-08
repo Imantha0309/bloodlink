@@ -1,4 +1,5 @@
 import { useRouter } from "expo-router";
+import { useEffect, useState } from "react";
 import { StyleSheet, View } from "react-native";
 
 import {
@@ -20,8 +21,10 @@ import {
 } from "@/components/dashboard/nearby-blood-banks";
 import { QuickActionGrid, type QuickAction } from "@/components/dashboard/quick-action-grid";
 import { SupportCard } from "@/components/dashboard/support-card";
+import { SkeletonCard } from "@/components/ui/skeleton";
 import { DASHBOARD_TABS, ROUTES } from "@/constants/routes";
 import { useAuth } from "@/providers/auth-provider";
+import { listBloodBanks, type BloodBank } from "@/services/blood-banks";
 import type { EmergencyRequest } from "@/services/requests/emergency-requests";
 import { isRequestLive } from "@/utils/request-timeline";
 import { referenceFor } from "@/utils/reference";
@@ -39,26 +42,18 @@ function getAlertCount(requests: EmergencyRequest[]): string {
 }
 
 /**
- * Nearby banks are static for now — the API exposes no bank or inventory
- * endpoint, and fabricating distances would read as real data.
- * This provides helpful reference information until real data is available.
+ * Directory row for one facility. Distances stay out until the API can
+ * compute them — the district, hours and verification flag are real.
  */
-const BLOOD_BANKS: BloodBankSummary[] = [
-  {
-    id: "bank_national",
-    name: "National Hospital",
-    meta: "Colombo 07 · 2.4 km",
-    availability: "Open",
-    isOpen: true,
-  },
-  {
-    id: "bank_lady_ridge",
-    name: "Lady Ridgeway Hospital",
-    meta: "Colombo 05 · 4.1 km",
-    availability: "Open",
-    isOpen: true,
-  },
-];
+function toBankSummary(bank: BloodBank): BloodBankSummary {
+  return {
+    id: bank.id,
+    name: bank.name,
+    meta: bank.hours !== null ? `${bank.district} · ${bank.hours}` : bank.district,
+    availability: bank.isVerified ? "Verified" : "Unverified",
+    isOpen: bank.isVerified,
+  };
+}
 
 function getTabs(alertCount: string): DashboardTab[] {
   return [
@@ -83,6 +78,35 @@ export default function RecipientDashboardScreen() {
   const { session } = useAuth();
 
   const user = session?.user ?? null;
+
+  const [banks, setBanks] = useState<BloodBankSummary[]>([]);
+  const [areBanksLoading, setAreBanksLoading] = useState(true);
+
+  // Facility directory: state only changes inside the promise callbacks, so
+  // the effect body itself never triggers a cascading render. A failed fetch
+  // just leaves the section out — Home must not block on it.
+  useEffect(() => {
+    let cancelled = false;
+
+    listBloodBanks()
+      .then((list) => {
+        if (!cancelled) {
+          setBanks(list.slice(0, 3).map(toBankSummary));
+        }
+      })
+      .catch(() => {
+        // Degrade to no section rather than an error card on Home.
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setAreBanksLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const goToTab = (key: DashboardTabKey) => {
     // Home is already the active tab; re-pushing it would stack a duplicate of
@@ -182,12 +206,16 @@ export default function RecipientDashboardScreen() {
 
             <QuickActionGrid actions={quickActions} />
 
-            <NearbyBloodBanks
-              banks={BLOOD_BANKS}
-              onBankPress={() => {
-                router.push(ROUTES.bloodBankDetail);
-              }}
-            />
+            {areBanksLoading ? (
+              <SkeletonCard lines={2} />
+            ) : banks.length > 0 ? (
+              <NearbyBloodBanks
+                banks={banks}
+                onBankPress={(id) => {
+                  router.push({ pathname: ROUTES.bloodBankDetail, params: { id } });
+                }}
+              />
+            ) : null}
 
             <SupportCard />
           </View>

@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useState } from "react";
+import { type ComponentProps, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -12,7 +12,11 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import QRCode from "react-native-qrcode-svg";
 
+import { EmptyNote } from "@/components/dashboard/empty-note";
+import { Skeleton } from "@/components/ui/skeleton";
+import { type BloodGroup, BLOOD_GROUPS } from "@/constants/blood-groups";
 import { Blood, Elevation, Surface } from "@/constants/colors";
 import {
   AUTO_DISPATCH,
@@ -20,82 +24,75 @@ import {
   CLINICAL_ROLES,
   COLD_STORAGE,
   HOSPITAL_PROFILE,
-  ID_CARD_FIELDS,
   PROFILE_MENU,
-  PROFILE_STATS,
   type ProfileMenuItem,
-  type ProfileStat,
 } from "@/constants/hospital-demo";
 import { Radius } from "@/constants/radius";
 import { ROUTES } from "@/constants/routes";
 import { Typography } from "@/constants/typography";
 import { useAuth } from "@/providers/auth-provider";
+import { apiErrorMessage } from "@/services/api/errors";
+import {
+  type DashboardStat,
+  type DashboardSummary,
+  getDashboardSummary,
+} from "@/services/dashboard/dashboard";
+import { type HospitalInventoryBank, type InventoryItem } from "@/services/blood-banks";
+import { getHospitalInventory } from "@/services/hospital";
 import { initialsOf } from "@/utils/initials";
 
 /* ================= CREDENTIAL ARTWORK ================= */
 
 const QR_SIZE = 66;
-const QR_MODULES = 13;
-const QR_CELL = QR_SIZE / QR_MODULES;
-const QR_FINDERS = [
-  [0, 0],
-  [QR_MODULES - 5, 0],
-  [0, QR_MODULES - 5],
-] as const;
 
-/** Decorative module scatter — deterministic so the code never re-shuffles. */
-function qrModuleOn(row: number, column: number) {
-  const inFinder = QR_FINDERS.some(
-    ([originRow, originColumn]) =>
-      row >= originRow &&
-      row < originRow + 5 &&
-      column >= originColumn &&
-      column < originColumn + 5,
-  );
+const COMPONENT_ORDER = ["whole_blood", "prbc", "plasma", "platelets"] as const;
 
-  if (inFinder) {
-    return false;
-  }
+const COMPONENT_LABELS: Record<(typeof COMPONENT_ORDER)[number], string> = {
+  whole_blood: "Whole Blood",
+  prbc: "PRBC Red Cells",
+  plasma: "FFP Plasma",
+  platelets: "Platelets",
+};
 
-  return (row * 5 + column * 3 + row * column) % 7 < 3;
+/** Units held for one blood group across every component. */
+function unitsOf(inventory: InventoryItem[], group: BloodGroup) {
+  return inventory
+    .filter((item) => item.bloodGroup === group)
+    .reduce((sum, item) => sum + item.units, 0);
 }
 
-/** Stand-in for the credential QR — no QR encoder ships with the app yet. */
-function CredentialQr() {
-  return (
-    <View style={styles.qr} accessible accessibilityLabel="Credential QR code">
-      {Array.from({ length: QR_MODULES }, (_, row) =>
-        Array.from({ length: QR_MODULES }, (_, column) => {
-          if (!qrModuleOn(row, column)) {
-            return null;
-          }
+type ProfileStat = {
+  key: string;
+  icon: ComponentProps<typeof Feather>["name"];
+  value: string;
+  label: string;
+  note: string;
+  noteTone: "positive" | "critical";
+  valueCritical?: boolean;
+  badgeTone: "red" | "blue";
+};
 
-          return (
-            <View
-              key={`${row}-${column}`}
-              pointerEvents="none"
-              style={[
-                styles.qrModule,
-                { left: column * QR_CELL, top: row * QR_CELL },
-              ]}
-            />
-          );
-        }),
-      )}
+const STAT_ICONS: Record<string, ComponentProps<typeof Feather>["name"]> = {
+  pending: "clock",
+  critical: "alert-circle",
+  alerts: "bell",
+  donors: "users",
+};
 
-      {QR_FINDERS.map(([row, column]) => (
-        <View
-          key={`f-${row}-${column}`}
-          pointerEvents="none"
-          style={[styles.qrFinder, { left: column * QR_CELL, top: row * QR_CELL }]}
-        >
-          <View style={styles.qrFinderEye}>
-            <View style={styles.qrFinderPupil} />
-          </View>
-        </View>
-      ))}
-    </View>
-  );
+/** Server stat → KPI tile; the critical row keeps the red treatment. */
+function toProfileStat(stat: DashboardStat): ProfileStat {
+  const critical = stat.key === "critical" || stat.key === "alerts";
+
+  return {
+    key: stat.key,
+    icon: STAT_ICONS[stat.key] ?? "bar-chart-2",
+    value: stat.value,
+    label: stat.label,
+    note: stat.hint ?? (critical ? "Needs review" : "Updated live"),
+    noteTone: critical ? "critical" : "positive",
+    valueCritical: critical,
+    badgeTone: critical ? "red" : "blue",
+  };
 }
 
 const SPARK_WIDTH = 92;
@@ -142,8 +139,9 @@ function Sparkline({ points }: { points: readonly number[] }) {
  * Staff profile: duty state, blood-bank credential, station telemetry and the
  * account actions.
  *
- * Everything but the name, the auto-dispatch switch and sign-out is fixture
- * state — the dashboard API reports none of these fields yet.
+ * Identity comes from the session; the KPI strip and the cold-storage card
+ * are live (dashboard summary + hospital inventory). The duty shift, clinical
+ * roles and plant telemetry are copy the API does not carry.
  */
 export default function HospitalProfileScreen() {
   const insets = useSafeAreaInsets();
@@ -153,7 +151,114 @@ export default function HospitalProfileScreen() {
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [autoDispatch, setAutoDispatch] = useState(true);
 
-  const name = session?.user.fullName ?? HOSPITAL_PROFILE.fallbackName;
+  const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [banks, setBanks] = useState<HospitalInventoryBank[]>([]);
+  const [statsError, setStatsError] = useState<string | null>(null);
+  const [storageError, setStorageError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Initial load: every state change happens inside the promise callbacks, so
+  // the effect body itself never triggers a cascading render.
+  useEffect(() => {
+    let cancelled = false;
+
+    void Promise.allSettled([getDashboardSummary(), getHospitalInventory()]).then(
+      ([summaryResult, inventoryResult]) => {
+        if (cancelled) {
+          return;
+        }
+
+        if (summaryResult.status === "fulfilled") {
+          setSummary(summaryResult.value);
+        } else {
+          setStatsError(apiErrorMessage(summaryResult.reason));
+        }
+
+        if (inventoryResult.status === "fulfilled") {
+          setBanks(inventoryResult.value.banks);
+        } else {
+          setStorageError(apiErrorMessage(inventoryResult.reason));
+        }
+
+        setIsLoading(false);
+      },
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /** Retry both sections — invoked from event handlers only. */
+  async function load() {
+    setIsLoading(true);
+    setStatsError(null);
+    setStorageError(null);
+
+    const [summaryResult, inventoryResult] = await Promise.allSettled([
+      getDashboardSummary(),
+      getHospitalInventory(),
+    ]);
+
+    if (summaryResult.status === "fulfilled") {
+      setSummary(summaryResult.value);
+    } else {
+      setStatsError(apiErrorMessage(summaryResult.reason));
+    }
+
+    if (inventoryResult.status === "fulfilled") {
+      setBanks(inventoryResult.value.banks);
+    } else {
+      setStorageError(apiErrorMessage(inventoryResult.reason));
+    }
+
+    setIsLoading(false);
+  }
+
+  const user = session?.user;
+  const name = user?.fullName ?? "Hospital Staff";
+  const district = user?.district ?? null;
+  const roleLine =
+    user === undefined
+      ? "Hospital // Sri Lanka"
+      : `${user.role.charAt(0).toUpperCase()}${user.role.slice(1)} // ${
+          district !== null ? `${district} District` : "Sri Lanka"
+        }`;
+  const facility = district !== null ? `${district} District Blood Bank` : "Regional Blood Bank";
+  const idBankLine = district !== null ? `${district} Regional Blood Center` : "Regional Blood Center";
+  const identifier = user?.mobile ?? user?.email ?? user?.id ?? "—";
+  const credentialValue = `bloodlink:user:${user?.id ?? ""}`;
+
+  const credentialFields = [
+    { label: "Role", value: user === undefined ? "—" : "Hospital" },
+    { label: "Email", value: user?.email ?? "Not set" },
+    { label: "Auth", value: "Password" },
+  ];
+
+  const stats = (summary?.stats ?? []).slice(0, 3).map(toProfileStat);
+
+  const bank = banks[0] ?? null;
+  const inventory = bank?.inventory ?? [];
+  const totalUnits = inventory.reduce((sum, item) => sum + item.units, 0);
+  const stockedLines = inventory.filter((item) => item.units > 0).length;
+  const stockLines = inventory.length;
+  const storageLines = COMPONENT_ORDER.map((component) => ({
+    label: COMPONENT_LABELS[component],
+    units: inventory
+      .filter((item) => item.component === component)
+      .reduce((sum, item) => sum + item.units, 0),
+  }))
+    .sort((a, b) => b.units - a.units)
+    .slice(0, 2)
+    .map((entry) => `${entry.label}: ${entry.units} units`);
+  const groupMax = Math.max(1, ...BLOOD_GROUPS.map((group) => unitsOf(inventory, group)));
+  const trend = BLOOD_GROUPS.map((group) => unitsOf(inventory, group) / groupMax);
+
+  const storageTitle = bank !== null ? bank.name : "Cold Storage";
+  const storageDetail =
+    bank !== null
+      ? `${stockedLines}/${stockLines} lines stocked • ${totalUnits} units • ${bank.district} District`
+      : "No stock data";
 
   async function handleSignOut() {
     if (isSigningOut) {
@@ -237,9 +342,9 @@ export default function HospitalProfileScreen() {
                 {name}
               </Text>
 
-              <Text style={styles.identityRole}>{HOSPITAL_PROFILE.role}</Text>
+              <Text style={styles.identityRole}>{roleLine}</Text>
 
-              <Text style={styles.identityFacility}>{HOSPITAL_PROFILE.facility}</Text>
+              <Text style={styles.identityFacility}>{facility}</Text>
             </View>
 
             <Pressable
@@ -261,7 +366,7 @@ export default function HospitalProfileScreen() {
               <Feather name="droplet" size={14} color={Surface.onPrimary} />
             </View>
 
-            <Text style={styles.idBank}>{HOSPITAL_PROFILE.idBank}</Text>
+            <Text style={styles.idBank}>{idBankLine}</Text>
 
             <View style={styles.tierPill}>
               <Feather name="award" size={11} color={Blood.primary} />
@@ -271,18 +376,23 @@ export default function HospitalProfileScreen() {
 
           <View style={styles.identifierRow}>
             <View style={styles.identifierText}>
-              <Text style={styles.identifierLabel}>
-                {HOSPITAL_PROFILE.idIdentifierLabel}
-              </Text>
+              <Text style={styles.identifierLabel}>Registered Contact</Text>
 
               <Text style={styles.identifierValue} selectable>
-                {HOSPITAL_PROFILE.idIdentifier}
+                {identifier}
               </Text>
             </View>
 
             <View style={styles.groupBox}>
-              <Text style={styles.groupValue}>{HOSPITAL_PROFILE.idGroup}</Text>
-              <Text style={styles.groupLabel}>{HOSPITAL_PROFILE.idGroupLabel}</Text>
+              <Text
+                style={styles.groupValue}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.6}
+              >
+                {district ?? "LK"}
+              </Text>
+              <Text style={styles.groupLabel}>District</Text>
             </View>
           </View>
 
@@ -299,14 +409,28 @@ export default function HospitalProfileScreen() {
               </Text>
             </View>
 
-            <CredentialQr />
+            <View
+              style={styles.qr}
+              accessible
+              accessibilityLabel="Credential QR code"
+            >
+              <QRCode
+                value={credentialValue}
+                size={QR_SIZE}
+                color={Surface.text}
+                backgroundColor={Surface.card}
+                ecl="M"
+              />
+            </View>
           </View>
 
           <View style={styles.idFields}>
-            {ID_CARD_FIELDS.map((field) => (
+            {credentialFields.map((field) => (
               <View key={field.label} style={styles.idField}>
                 <Text style={styles.idFieldLabel}>{field.label}</Text>
-                <Text style={styles.idFieldValue}>{field.value}</Text>
+                <Text style={styles.idFieldValue} numberOfLines={1} ellipsizeMode="tail">
+                  {field.value}
+                </Text>
               </View>
             ))}
           </View>
@@ -314,47 +438,83 @@ export default function HospitalProfileScreen() {
 
         {/* ================= STATS ================= */}
 
-        <View style={styles.statRow}>
-          {PROFILE_STATS.map((stat) => (
-            <StatCard key={stat.key} stat={stat} />
-          ))}
-        </View>
+        {isLoading ? (
+          <View style={styles.statRow}>
+            <Skeleton height={104} radius={Radius.field} />
+            <Skeleton height={104} radius={Radius.field} />
+            <Skeleton height={104} radius={Radius.field} />
+          </View>
+        ) : statsError !== null ? (
+          <SectionNote
+            message={statsError}
+            onRetry={() => {
+              void load();
+            }}
+          />
+        ) : stats.length > 0 ? (
+          <View style={styles.statRow}>
+            {stats.map((stat) => (
+              <StatCard key={stat.key} stat={stat} />
+            ))}
+          </View>
+        ) : null}
 
         {/* ================= COLD STORAGE ================= */}
 
-        <View style={styles.card}>
-          <View style={styles.storageHead}>
-            <View style={styles.storageIcon}>
-              <Feather name="cloud-snow" size={17} color={Blood.primary} />
-            </View>
+        {isLoading ? (
+          <Skeleton height={148} radius={Radius.card} />
+        ) : storageError !== null ? (
+          <SectionNote
+            message={storageError}
+            onRetry={() => {
+              void load();
+            }}
+          />
+        ) : bank === null ? (
+          <EmptyNote
+            title="No storage assigned"
+            message="This account has no blood bank in its district yet."
+            icon="cloud-snow"
+          />
+        ) : (
+          <View style={styles.card}>
+            <View style={styles.storageHead}>
+              <View style={styles.storageIcon}>
+                <Feather name="cloud-snow" size={17} color={Blood.primary} />
+              </View>
 
-            <View style={styles.storageText}>
-              <Text style={styles.storageTitle}>{COLD_STORAGE.title}</Text>
-              <Text style={styles.storageDetail}>{COLD_STORAGE.detail}</Text>
-            </View>
+              <View style={styles.storageText}>
+                <Text style={styles.storageTitle} numberOfLines={1}>
+                  {storageTitle}
+                </Text>
+                <Text style={styles.storageDetail} numberOfLines={2}>
+                  {storageDetail}
+                </Text>
+              </View>
 
-            <View style={styles.tempPill}>
-              <View style={styles.tempDot} pointerEvents="none" />
+              <View style={styles.tempPill}>
+                <View style={styles.tempDot} pointerEvents="none" />
 
-              <View style={styles.tempText}>
-                <Text style={styles.tempValue}>{COLD_STORAGE.temperature}</Text>
-                <Text style={styles.tempStatus}>{COLD_STORAGE.status}</Text>
+                <View style={styles.tempText}>
+                  <Text style={styles.tempValue}>{COLD_STORAGE.temperature}</Text>
+                  <Text style={styles.tempStatus}>{COLD_STORAGE.status}</Text>
+                </View>
               </View>
             </View>
-          </View>
 
-          <View style={styles.storagePanel}>
-            <View style={styles.storageLines}>
-              {COLD_STORAGE.lines.map((line) => (
-                <Text key={line} style={styles.storageLine}>
-                  {line}
-                </Text>
-              ))}
+            <View style={styles.storagePanel}>
+              <View style={styles.storageLines}>
+                {storageLines.map((line) => (
+                  <Text key={line} style={styles.storageLine}>
+                    {line}
+                  </Text>
+                ))}
+              </View>
+
+              <Sparkline points={trend} />
             </View>
-
-            <Sparkline points={COLD_STORAGE.trend} />
           </View>
-        </View>
+        )}
 
         {/* ================= CLINICAL ROLES ================= */}
 
@@ -507,6 +667,30 @@ function MenuRow({ item, first }: { item: ProfileMenuItem; first: boolean }) {
 
       <Feather name="chevron-right" size={18} color={Surface.textSecondary} />
     </Pressable>
+  );
+}
+
+/** Inline fetch failure with a retry, used by the live sections. */
+function SectionNote({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <View style={styles.sectionError}>
+      <Feather name="alert-circle" size={15} color={Blood.primary} />
+
+      <Text style={styles.sectionErrorText} numberOfLines={2}>
+        {message}
+      </Text>
+
+      <Pressable
+        onPress={onRetry}
+        accessibilityRole="button"
+        accessibilityLabel="Retry loading"
+        hitSlop={6}
+        style={({ pressed }) => [styles.sectionRetry, pressed && styles.pressed]}
+      >
+        <Feather name="refresh-cw" size={13} color={Blood.primary} />
+        <Text style={styles.sectionRetryText}>Retry</Text>
+      </Pressable>
+    </View>
   );
 }
 
@@ -838,36 +1022,6 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
 
-  qrModule: {
-    position: "absolute",
-    width: QR_CELL,
-    height: QR_CELL,
-    backgroundColor: Surface.text,
-  },
-
-  qrFinder: {
-    position: "absolute",
-    width: QR_CELL * 5,
-    height: QR_CELL * 5,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: Surface.text,
-  },
-
-  qrFinderEye: {
-    width: QR_CELL * 3,
-    height: QR_CELL * 3,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: Surface.card,
-  },
-
-  qrFinderPupil: {
-    width: QR_CELL * 1.4,
-    height: QR_CELL * 1.4,
-    backgroundColor: Surface.text,
-  },
-
   idFields: {
     flexDirection: "row",
     gap: 10,
@@ -1167,6 +1321,44 @@ const styles = StyleSheet.create({
     ...Typography.small,
     lineHeight: 16,
     color: Surface.textSecondary,
+  },
+
+  /* ================= SECTION ERROR ================= */
+
+  sectionError: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    padding: 12,
+    borderRadius: Radius.field,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Surface.softRedBorder,
+    backgroundColor: Surface.softRed,
+  },
+
+  sectionErrorText: {
+    flex: 1,
+    ...Typography.small,
+    fontWeight: "600",
+    color: Surface.text,
+  },
+
+  sectionRetry: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: Radius.pill,
+    backgroundColor: Surface.card,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Surface.softRedBorder,
+  },
+
+  sectionRetryText: {
+    ...Typography.micro,
+    fontSize: 10,
+    color: Blood.primary,
   },
 
   /* ================= SIGN OUT ================= */

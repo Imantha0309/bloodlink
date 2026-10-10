@@ -3,13 +3,13 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
 import {
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
+    KeyboardAvoidingView,
+    Platform,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    View,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -33,10 +33,10 @@ import { Typography } from "@/constants/typography";
 import { useAuth } from "@/providers/auth-provider";
 import { apiErrorMessage } from "@/services/auth";
 import {
-  asBloodGroup,
-  hasRegisterErrors,
-  validateRegisterForm,
-  type RegisterFormErrors,
+    asBloodGroup,
+    hasRegisterErrors,
+    validateRegisterForm,
+    type RegisterFormErrors,
 } from "@/utils/validation";
 
 const NO_ERRORS: RegisterFormErrors = {
@@ -102,6 +102,7 @@ export default function RegisterScreen() {
   const selectedRole: SelfRegisterRole = role;
 
   const isDonor = selectedRole === "donor";
+  const isRecipient = selectedRole === "recipient";
   const isHospital = selectedRole === "hospital";
 
   /** Clears a field's error as soon as the user starts fixing it. */
@@ -204,7 +205,7 @@ export default function RegisterScreen() {
 
   const stepTitles = [
     { badge: "2", label: "STEP 2 OF 4 • YOUR DETAILS" },
-    { badge: "3", label: `STEP 3 OF 4 • ${isHospital ? "HOSPITAL" : "BLOOD PROFILE"}` },
+    { badge: "3", label: `STEP 3 OF 4 • ${isHospital ? "HOSPITAL" : isDonor ? "BLOOD PROFILE" : "BLOOD GROUP (OPTIONAL)"}` },
     { badge: "4", label: "STEP 4 OF 4 • SECURITY" },
   ] as const;
 
@@ -303,10 +304,10 @@ export default function RegisterScreen() {
               </View>
             ) : null}
 
-            {step === 2 && !isHospital ? (
+            {step === 2 && (isDonor || isRecipient) ? (
               <View style={styles.form}>
                 <OptionChips
-                  label="Blood Group"
+                  label={isRecipient ? "Your Blood Group (optional)" : "Blood Group"}
                   options={BLOOD_GROUPS}
                   value={asBloodGroup(bloodGroup ?? "")}
                   onChange={(value) => {
@@ -316,6 +317,16 @@ export default function RegisterScreen() {
                   error={errors.bloodGroup}
                   captionFor={(value) => BLOOD_GROUP_NOTES[value]}
                 />
+
+                {isRecipient ? (
+                  <View style={styles.notice}>
+                    <Feather name="info" size={14} color={Surface.textSecondary} />
+                    <Text style={styles.noticeText}>
+                      Adding your blood group lets you also respond to donation requests as a donor.
+                      You can skip this and add it later from your profile.
+                    </Text>
+                  </View>
+                ) : null}
 
                 {isDonor ? (
                   <TextField
@@ -382,6 +393,19 @@ export default function RegisterScreen() {
             ) : null}
 
             <FormAlert message={formError} />
+
+            {step === 2 && isRecipient ? (
+              <Pressable
+                onPress={() => {
+                  setBloodGroup(null);
+                  setStep(3);
+                }}
+                accessibilityRole="button"
+                style={styles.skipButton}
+              >
+                <Text style={styles.skipText}>Skip — I'll add my blood group later</Text>
+              </Pressable>
+            ) : null}
 
             <PrimaryAuthButton
               label={step < 3 ? "Continue" : "Create Account"}
@@ -478,5 +502,16 @@ const styles = StyleSheet.create({
     ...Typography.small,
     color: Surface.textSecondary,
     flex: 1,
+  },
+
+  skipButton: {
+    alignItems: "center",
+    paddingVertical: 10,
+  },
+
+  skipText: {
+    ...Typography.small,
+    color: Surface.textSecondary,
+    textDecorationLine: "underline",
   },
 });

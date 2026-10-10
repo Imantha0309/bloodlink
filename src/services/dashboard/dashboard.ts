@@ -1,19 +1,26 @@
 /**
  * Per-role dashboard data.
  *
- * One endpoint feeds all four role screens: the server decides what each role
- * may see, so the client never filters for authorization — only for layout.
+ * `GetDashboardSummary` provides the role, the stat cards and (for donors)
+ * availability state; the request list is appended by the role-appropriate
+ * list query so every dashboard screen keeps receiving `requests`.
  */
 
-import { request } from "@/services/api/client";
 import { ApiError } from "@/services/api/errors";
 import { loadSession } from "@/services/auth/session";
 import type { UserRole } from "@/services/auth/types";
-import { hasRemoteApi } from "@/services/config";
+import { toApiError } from "@/services/dataconnect/errors";
+import { app } from "@/services/firebase";
 import {
-  listEmergencyRequests,
-  type EmergencyRequest,
+    listEmergencyRequests,
+    type EmergencyRequest,
 } from "@/services/requests/emergency-requests";
+import {
+    getDashboardSummary as fetchDashboardSummary,
+    deleteDonorAvailability as removeAvailability,
+    setDonorAvailability as writeAvailability,
+} from "@dataconnect/generated";
+import { getFunctions, httpsCallable } from "firebase/functions";
 
 export type DashboardStat = {
   key: string;
@@ -36,118 +43,143 @@ export type DashboardSummary = {
   availability: DonorAvailability | null;
 };
 
-/** Availability state when running without a backend. */
-let offlineAvailability: DonorAvailability = {
-  isAvailable: false,
-  lastDonationAt: null,
-  recordExists: false,
-};
-
-function readSummary(body: unknown): DashboardSummary | null {
-  if (typeof body !== "object" || body === null) {
+function readStat(row: unknown): DashboardStat | null {
+  if (typeof row !== "object" || row === null) {
     return null;
   }
 
-  const candidate = body as Partial<DashboardSummary>;
+  const candidate = row as Partial<DashboardStat>;
 
-  if (typeof candidate.role !== "string" || !Array.isArray(candidate.stats)) {
+  if (
+    typeof candidate.key !== "string" ||
+    typeof candidate.label !== "string" ||
+    typeof candidate.value !== "string"
+  ) {
     return null;
   }
 
   return {
-    role: candidate.role as UserRole,
-    stats: candidate.stats as DashboardStat[],
-    requests: Array.isArray(candidate.requests)
-      ? (candidate.requests as EmergencyRequest[])
-      : [],
-    availability: candidate.availability ?? null,
+    key: candidate.key,
+    label: candidate.label,
+    value: candidate.value,
+    hint: typeof candidate.hint === "string" ? candidate.hint : null,
   };
 }
 
+function isRole(value: unknown): value is UserRole {
+  return value === "recipient" || value === "donor" || value === "hospital" || value === "admin";
+}
+
+/** Narrows the summary row returned by `GetDashboardSummary`. */
+function readSummary(value: unknown): Pick<DashboardSummary, "role" | "stats" | "availability"> | null {
+  if (typeof value !== "object" || value === null) {
+    return null;
+  }
+
+  const candidate = value as {
+    role?: unknown;
+    stats?: unknown;
+    availability?: unknown;
+  };
+
+  if (!isRole(candidate.role) || !Array.isArray(candidate.stats)) {
+    return null;
+  }
+
+  const stats: DashboardStat[] = [];
+
+  for (const row of candidate.stats) {
+    const stat = readStat(row);
+
+    if (stat !== null) {
+      stats.push(stat);
+    }
+  }
+
+  const availabilitySource = candidate.availability;
+
+  const availability: DonorAvailability | null =
+    typeof availabilitySource === "object" && availabilitySource !== null
+      ? {
+          isAvailable: (availabilitySource as { isAvailable?: unknown }).isAvailable === true,
+          lastDonationAt:
+            typeof (availabilitySource as { lastDonationAt?: unknown }).lastDonationAt === "string"
+              ? (availabilitySource as { lastDonationAt?: unknown }).lastDonationAt as string
+              : null,
+          recordExists:
+            (availabilitySource as { recordExists?: unknown }).recordExists === true,
+        }
+      : null;
+
+  return { role: candidate.role, stats, availability };
+}
+
 export async function getDashboardSummary(): Promise<DashboardSummary> {
-  if (hasRemoteApi) {
-    const summary = readSummary(await request<unknown>("/dashboard/me"));
+  try {
+    const session = await loadSession();
+
+    if (session === null) {
+      throw new ApiError("unauthorized", "Your session has expired. Please sign in again.");
+    }
+
+    const [summaryResult, requests] = await Promise.all([
+      fetchDashboardSummary(),
+      listEmergencyRequests(),
+    ]);
+
+    const summary = readSummary(summaryResult.data.summary);
 
     if (summary === null) {
       throw new ApiError("unknown", "The server returned an unexpected response.");
     }
 
-    return summary;
+    return { ...summary, requests };
+  } catch (error) {
+    throw toApiError(error);
   }
-
-  // Offline: build a summary from whatever the mock services know about.
-  const session = await loadSession();
-  const role: UserRole = session?.user.role ?? "recipient";
-  const requests = await listEmergencyRequests();
-
-  const open = requests.filter(
-    (item) => item.status === "pending" || item.status === "verified",
-  ).length;
-  const critical = requests.filter((item) => item.urgency === "critical").length;
-
-  const stats: DashboardStat[] =
-    role === "donor"
-      ? [
-          {
-            key: "availability",
-            label: "Your availability",
-            value: offlineAvailability.isAvailable ? "Active" : "Paused",
-            hint: offlineAvailability.isAvailable
-              ? "You are receiving alerts"
-              : "You are hidden from dispatch",
-          },
-          {
-            key: "matching",
-            label: "Matching requests",
-            value: String(open),
-            hint: session?.user.bloodGroup ? `Compatible with ${session.user.bloodGroup}` : null,
-          },
-          { key: "open", label: "Open nationwide", value: String(open), hint: "Awaiting a donor" },
-        ]
-      : [
-          { key: "open", label: "Open requests", value: String(open), hint: "Being matched" },
-          { key: "critical", label: "Critical", value: String(critical), hint: "Highest priority" },
-          { key: "total", label: "Total logged", value: String(requests.length), hint: "All time" },
-        ];
-
-  return {
-    role,
-    stats,
-    requests,
-    availability: role === "donor" ? offlineAvailability : null,
-  };
 }
 
 export async function setDonorAvailability(isAvailable: boolean): Promise<DonorAvailability> {
-  if (!hasRemoteApi) {
-    offlineAvailability = { ...offlineAvailability, isAvailable, recordExists: true };
+  try {
+    const { data } = await writeAvailability({
+      isAvailable,
+      lastDonationAt: null,
+      hasLastDonation: false,
+    });
 
-    return offlineAvailability;
+    const row = data.availability as { lastDonationAt?: unknown } | null | undefined;
+
+    if (row === null || row === undefined) {
+      throw new ApiError("unknown", "The server returned an unexpected response.");
+    }
+
+    // Sync availability to Firestore push_tokens so the notifyDonors function
+    // respects paused donors — non-blocking
+    void (async () => {
+      try {
+        const fns = getFunctions(app);
+        const update = httpsCallable(fns, "updateTokenAvailability");
+        await update({ isAvailable });
+      } catch {
+        // Best-effort; Data Connect is the source of truth for availability
+      }
+    })();
+
+    return {
+      isAvailable,
+      lastDonationAt: typeof row.lastDonationAt === "string" ? row.lastDonationAt : null,
+      recordExists: true,
+    };
+  } catch (error) {
+    throw toApiError(error);
   }
-
-  const body = await request<{ availability?: DonorAvailability }>("/donors/me/availability", {
-    method: "PUT",
-    body: { isAvailable },
-  });
-
-  if (!body.availability) {
-    throw new ApiError("unknown", "The server returned an unexpected response.");
-  }
-
-  return body.availability;
 }
 
 export async function deleteDonorAvailability(): Promise<DonorAvailability> {
-  if (!hasRemoteApi) {
-    offlineAvailability = { isAvailable: false, lastDonationAt: null, recordExists: false };
-    return offlineAvailability;
+  try {
+    await removeAvailability();
+    return { isAvailable: false, lastDonationAt: null, recordExists: false };
+  } catch (error) {
+    throw toApiError(error);
   }
-
-  const body = await request<{ availability?: DonorAvailability }>("/donors/me/availability", {
-    method: "DELETE",
-  });
-  if (!body.availability) {
-    throw new ApiError("unknown", "The server returned an unexpected response.");
-  }
-  return body.availability;
 }

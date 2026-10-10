@@ -54,6 +54,8 @@ export const DASHBOARD_TABS = {
   requests: "/dashboard/requests",
   alerts: "/dashboard/alerts",
   profile: "/dashboard/profile",
+  /** Donate is an in-screen tab on the recipient dashboard, not a separate route. */
+  donate: "/dashboard/recipient",
 } as const satisfies Record<string, Href>;
 
 /** Dashboard for each role, per the post-authentication flow. */

@@ -1,10 +1,26 @@
-import { ApiError } from "@/services/api/errors";
-import { request } from "@/services/api/client";
-import { hasRemoteApi } from "@/services/config";
+/**
+ * Donor commitment workflow: accepting a request, travelling to the hospital,
+ * and the single-use intake ticket a hospital scans on arrival.
+ *
+ * The raw intake token lives only on the donor's device; only its SHA-256 hash
+ * is ever sent to the backend. The ticket string embeds the request id and the
+ * secret so a scanner can recover both: `bloodlink-intake:<requestId>:<secret>`.
+ */
+
 import {
-  listEmergencyRequests,
-  type DonorResponse,
+  completeDonationCase as finishDonationCase,
+  createDonorCheckInTicket as issueCheckInTicket,
+  listDonorCommitments as fetchDonorCommitments,
+  listDonorResponses as fetchDonorResponses,
+  startDonorTransit as startTransit,
+  verifyDonorCheckIn as verifyCheckIn,
+} from "@dataconnect/generated";
+import { CryptoDigestAlgorithm, digestStringAsync, randomUUID } from "expo-crypto";
+import { toApiError } from "@/services/dataconnect/errors";
+import {
+  readEmergencyRequest,
   type DonationStage,
+  type DonorResponse,
   type EmergencyRequest,
 } from "@/services/requests/emergency-requests";
 
@@ -18,138 +34,136 @@ export type DonorResponseRecord = {
 };
 export type DonorCheckInTicket = { ticket: string; expiresAt: string };
 
-const mockStages = new Map<string, DonationStage>();
+async function hashToken(token: string): Promise<string> {
+  return digestStringAsync(CryptoDigestAlgorithm.SHA256, token);
+}
 
+/** The donor's accepted cases (active + completed history). */
 export async function listDonorCommitments(): Promise<DonorCommitment[]> {
-  if (!hasRemoteApi) {
-    return (await listEmergencyRequests())
-      .filter((item) => item.donorResponse === "accepted")
-      .map((item) => ({ ...item, donorStage: mockStages.get(item.id) ?? item.donorStage ?? "accepted" }));
+  try {
+    const { data } = await fetchDonorCommitments();
+    const rows = Array.isArray(data.commitments) ? data.commitments : [];
+
+    const commitments: DonorCommitment[] = [];
+
+    for (const row of rows) {
+      const request = readEmergencyRequest(row);
+
+      if (
+        request !== null &&
+        request.donorResponse === "accepted" &&
+        request.donorStage !== null
+      ) {
+        commitments.push({ ...request, donorStage: request.donorStage });
+      }
+    }
+
+    return commitments;
+  } catch (error) {
+    throw toApiError(error);
   }
-
-  const body = await request<{ commitments?: unknown }>("/donors/me/commitments");
-  if (!Array.isArray(body.commitments)) return [];
-
-  return body.commitments.filter(
-    (item): item is DonorCommitment =>
-      typeof item === "object" &&
-      item !== null &&
-      typeof (item as DonorCommitment).id === "string" &&
-      (item as DonorCommitment).donorResponse === "accepted" &&
-      typeof (item as DonorCommitment).donorStage === "string",
-  );
 }
 
+/** Every response the donor created, including declined ones. */
 export async function listDonorResponses(): Promise<DonorResponseRecord[]> {
-  if (!hasRemoteApi) {
-    const requests = await listEmergencyRequests();
-    return requests.flatMap((request) =>
-      request.donorResponse === null
-        ? []
-        : [{
-            request,
-            response: request.donorResponse,
-            stage: request.donorStage ?? "accepted",
-            createdAt: request.createdAt,
-            updatedAt: request.createdAt,
-          }],
-    );
-  }
+  try {
+    const { data } = await fetchDonorResponses();
+    const rows = Array.isArray(data.responses) ? data.responses : [];
 
-  const body = await request<{ responses?: unknown }>("/donors/me/responses");
-  if (!Array.isArray(body.responses)) return [];
-  return body.responses.filter(
-    (item): item is DonorResponseRecord =>
-      typeof item === "object" &&
-      item !== null &&
-      typeof (item as DonorResponseRecord).request?.id === "string" &&
-      ((item as DonorResponseRecord).response === "accepted" ||
-        (item as DonorResponseRecord).response === "declined"),
-  );
+    const records: DonorResponseRecord[] = [];
+
+    for (const row of rows) {
+      const request = readEmergencyRequest(row);
+
+      if (request === null || request.donorResponse === null) {
+        continue;
+      }
+
+      const source = row as { responseCreatedAt?: unknown; responseUpdatedAt?: unknown };
+
+      records.push({
+        request,
+        response: request.donorResponse,
+        stage: request.donorStage ?? "accepted",
+        createdAt:
+          typeof source.responseCreatedAt === "string"
+            ? source.responseCreatedAt
+            : request.createdAt,
+        updatedAt:
+          typeof source.responseUpdatedAt === "string"
+            ? source.responseUpdatedAt
+            : request.updatedAt,
+      });
+    }
+
+    return records;
+  } catch (error) {
+    throw toApiError(error);
+  }
 }
 
+/** Moves an accepted commitment into transit. */
 export async function startDonorTransit(requestId: string): Promise<DonationStage> {
-  if (!hasRemoteApi) {
-    const commitments = await listDonorCommitments();
-    const found = commitments.find((item) => item.id === requestId);
-    if (!found) {
-      throw new ApiError("not_found", "Accept this request before starting transit.");
-    }
-    if (found.donorStage !== "accepted") {
-      throw new ApiError("conflict", "Transit has already started for this request.");
-    }
-    mockStages.set(requestId, "en_route");
+  try {
+    await startTransit({ requestId });
     return "en_route";
+  } catch (error) {
+    throw toApiError(error, "Accept this request before starting transit.");
   }
-
-  const body = await request<{ stage?: unknown }>(
-    `/donors/me/commitments/${encodeURIComponent(requestId)}/en-route`,
-    { method: "POST", body: {} },
-  );
-  if (body.stage !== "en_route") throw new ApiError("unknown", "Could not start donor transit.");
-  return body.stage;
 }
 
+/** Issues a 15-minute, single-use intake ticket bound to this request. */
 export async function createDonorCheckInTicket(requestId: string): Promise<DonorCheckInTicket> {
-  if (!hasRemoteApi) {
-    const localToken = `bloodlink-intake:${requestId}:demo-${Date.now().toString(36)}`;
-    return { ticket: localToken, expiresAt: new Date(Date.now() + 15 * 60_000).toISOString() };
-  }
+  try {
+    const secret = randomUUID().replace(/-/g, "");
+    const { data } = await issueCheckInTicket({
+      requestId,
+      tokenHash: await hashToken(secret),
+    });
 
-  const body = await request<{ ticket?: unknown; expiresAt?: unknown }>(
-    `/donors/me/commitments/${encodeURIComponent(requestId)}/check-in-ticket`,
-    { method: "POST", body: {} },
-  );
-  if (typeof body.ticket !== "string" || typeof body.expiresAt !== "string") {
-    throw new ApiError("unknown", "The server returned an invalid intake ticket.");
+    const ticket = data.ticket as { expiresAt?: unknown } | null | undefined;
+
+    if (typeof ticket?.expiresAt !== "string") {
+      throw new Error("The server returned an invalid intake ticket.");
+    }
+
+    return { ticket: `bloodlink-intake:${requestId}:${secret}`, expiresAt: ticket.expiresAt };
+  } catch (error) {
+    throw toApiError(error, "Start transit before opening your intake QR.");
   }
-  return { ticket: body.ticket, expiresAt: body.expiresAt };
 }
 
+/** Hospital scan: verifies the ticket and marks the donor as arrived. */
 export async function verifyDonorCheckIn(
   requestId: string,
   token: string,
 ): Promise<{ stage: DonationStage; checkedInAt: string }> {
-  if (!hasRemoteApi) {
-    mockStages.set(requestId, "arrived");
-    return { stage: "arrived", checkedInAt: new Date().toISOString() };
+  try {
+    const { data } = await verifyCheckIn({
+      requestId,
+      tokenHash: await hashToken(token),
+    });
+
+    const verified = data.verified as { checkedInAt?: unknown } | null | undefined;
+
+    if (typeof verified?.checkedInAt !== "string") {
+      throw new Error("Could not verify donor intake.");
+    }
+
+    return { stage: "arrived", checkedInAt: verified.checkedInAt };
+  } catch (error) {
+    throw toApiError(error, "This intake QR is invalid or has expired.");
   }
-
-  const body = await request<{ stage?: unknown; checkedInAt?: unknown }>(
-    `/donors/requests/${encodeURIComponent(requestId)}/check-in`,
-    {
-      method: "POST",
-      body: { token },
-    },
-  );
-
-  if (body.stage !== "arrived" || typeof body.checkedInAt !== "string") {
-    throw new ApiError("unknown", "Could not verify donor intake.");
-  }
-
-  return { stage: "arrived", checkedInAt: body.checkedInAt };
 }
 
+/** Staff close the case: the donation completes and the request is fulfilled. */
 export async function completeDonationCase(
   requestId: string,
 ): Promise<{ stage: DonationStage; completedAt: string }> {
-  if (!hasRemoteApi) {
-    mockStages.set(requestId, "completed");
+  try {
+    await finishDonationCase({ requestId });
     return { stage: "completed", completedAt: new Date().toISOString() };
+  } catch (error) {
+    throw toApiError(error, "Could not complete donation case.");
   }
-
-  const body = await request<{ stage?: unknown; completedAt?: unknown }>(
-    `/donors/requests/${encodeURIComponent(requestId)}/complete`,
-    {
-      method: "POST",
-      body: {},
-    },
-  );
-
-  if (body.stage !== "completed" || typeof body.completedAt !== "string") {
-    throw new ApiError("unknown", "Could not complete donation case.");
-  }
-
-  return { stage: "completed", completedAt: body.completedAt };
 }
-

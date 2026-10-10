@@ -1,12 +1,10 @@
 /**
- * The in-app notification feed.
- *
- * Offline the alerts live in a module array so read-state changes still
- * behave; they are never persisted across reloads in that mode.
+ * The in-app notification feed, read straight from Data Connect. Read-state
+ * changes go straight back through `MarkAlertsRead`.
  */
 
-import { request } from "@/services/api/client";
-import { hasRemoteApi } from "@/services/config";
+import { listAlerts as fetchAlerts, markAlertsRead as markRead } from "@dataconnect/generated";
+import { toApiError } from "@/services/dataconnect/errors";
 
 export type AlertType = "new_match" | "status_change" | "donor_accepted" | "request_fulfilled";
 
@@ -25,66 +23,86 @@ export type AlertFeed = {
   unreadCount: number;
 };
 
-const OFFLINE_ALERTS: Alert[] = [
-  {
-    id: "alrt_off_1",
-    type: "new_match",
-    requestId: null,
-    title: "New critical request in Colombo",
-    body: "O- needed for a patient at National Hospital of Sri Lanka.",
-    readAt: null,
-    createdAt: new Date(Date.now() - 20 * 60 * 1000).toISOString(),
-  },
-  {
-    id: "alrt_off_2",
-    type: "donor_accepted",
-    requestId: "req_mock_2",
-    title: "A donor accepted your request",
-    body: "A nearby donor is ready to donate A+ for F. A. Rizwan.",
-    readAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
-    createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
-  },
+const ALERT_TYPES: readonly AlertType[] = [
+  "new_match",
+  "status_change",
+  "donor_accepted",
+  "request_fulfilled",
 ];
 
-export async function listAlerts(): Promise<AlertFeed> {
-  if (!hasRemoteApi) {
-    const sorted = [...OFFLINE_ALERTS].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-    return {
-      alerts: sorted,
-      unreadCount: sorted.filter((alert) => alert.readAt === null).length,
-    };
+function isAlertType(value: unknown): value is AlertType {
+  return typeof value === "string" && (ALERT_TYPES as readonly string[]).includes(value);
+}
+
+/** Narrows one alert row; malformed rows are dropped rather than trusted. */
+export function readAlert(row: unknown): Alert | null {
+  if (typeof row !== "object" || row === null) {
+    return null;
   }
 
-  const body = await request<{ alerts?: unknown; unreadCount?: unknown }>("/alerts");
-  const list = Array.isArray(body.alerts) ? body.alerts : [];
+  const candidate = row as Partial<Alert>;
+
+  if (
+    typeof candidate.id !== "string" ||
+    !isAlertType(candidate.type) ||
+    typeof candidate.title !== "string" ||
+    typeof candidate.body !== "string" ||
+    typeof candidate.createdAt !== "string"
+  ) {
+    return null;
+  }
 
   return {
-    alerts: list.filter(
-      (item): item is Alert =>
-        typeof item === "object" && item !== null && typeof (item as Alert).id === "string",
-    ),
-    unreadCount: typeof body.unreadCount === "number" ? body.unreadCount : 0,
+    id: candidate.id,
+    type: candidate.type,
+    requestId: typeof candidate.requestId === "string" ? candidate.requestId : null,
+    title: candidate.title,
+    body: candidate.body,
+    readAt: typeof candidate.readAt === "string" ? candidate.readAt : null,
+    createdAt: candidate.createdAt,
   };
+}
+
+function readFeed(value: unknown): AlertFeed {
+  if (typeof value !== "object" || value === null) {
+    return { alerts: [], unreadCount: 0 };
+  }
+
+  const candidate = value as { alerts?: unknown; unreadCount?: unknown };
+
+  const alerts: Alert[] = [];
+
+  if (Array.isArray(candidate.alerts)) {
+    for (const row of candidate.alerts) {
+      const alert = readAlert(row);
+
+      if (alert !== null) {
+        alerts.push(alert);
+      }
+    }
+  }
+
+  return {
+    alerts,
+    unreadCount: typeof candidate.unreadCount === "number" ? candidate.unreadCount : 0,
+  };
+}
+
+export async function listAlerts(): Promise<AlertFeed> {
+  try {
+    const { data } = await fetchAlerts();
+    return readFeed(data.feed);
+  } catch (error) {
+    throw toApiError(error);
+  }
 }
 
 /** Marks the given ids read, or everything when `ids` is omitted. */
 export async function markAlertsRead(ids?: string[]): Promise<number> {
-  if (!hasRemoteApi) {
-    const targets = ids?.length
-      ? OFFLINE_ALERTS.filter((alert) => alert.readAt === null && ids.includes(alert.id))
-      : OFFLINE_ALERTS.filter((alert) => alert.readAt === null);
-
-    targets.forEach((alert) => {
-      alert.readAt = new Date().toISOString();
-    });
-
-    return targets.length;
+  try {
+    const { data } = await markRead({ ids: ids?.length ? ids.join(",") : null });
+    return typeof data.updated === "number" ? data.updated : 0;
+  } catch (error) {
+    throw toApiError(error);
   }
-
-  const body = await request<{ updated?: unknown }>("/alerts/read", {
-    method: "POST",
-    body: ids?.length ? { ids } : {},
-  });
-
-  return typeof body.updated === "number" ? body.updated : 0;
 }

@@ -1,28 +1,21 @@
 /**
  * Single entry point for authentication.
  *
- * The app talks to `authService` and never to a concrete adapter. Setting
- * `EXPO_PUBLIC_API_URL` switches the whole app from the local mock to the real
- * backend with no changes at the call sites.
+ * The app talks to `authService` and never to a concrete adapter. All identity
+ * comes from Firebase Auth; the Data Connect profile row comes with it.
  */
 
-import { hasRemoteApi } from "@/services/config";
-
-import { HttpAuthService } from "./http-auth-service";
-import { MockAuthService } from "./mock-auth-service";
+import { FirebaseAuthService } from "./firebase-auth-service";
 import type { AuthService } from "./types";
 
-export const authService: AuthService = hasRemoteApi ? new HttpAuthService() : new MockAuthService();
+export const authService: AuthService = new FirebaseAuthService();
 
-export { HttpAuthService } from "./http-auth-service";
-export { MockAuthService, MOCK_CREDENTIAL_HINT, MOCK_RESET_CODE } from "./mock-auth-service";
+export { FirebaseAuthService } from "./firebase-auth-service";
+export { DEMO_ACCOUNTS } from "./demo-accounts";
 export { clearSession, loadSession, saveSession } from "./session";
 
 /** Failure type and its user-facing copy. */
 export { ApiError, apiErrorMessage } from "@/services/api/errors";
-
-/** Whether a backend is configured; drives the dev-only hints in the UI. */
-export { hasRemoteApi } from "@/services/config";
 
 export {
   USER_ROLES,
@@ -30,7 +23,6 @@ export {
   type AuthSession,
   type AuthUser,
   type DonorProfileInput,
-  type PasswordResetChallenge,
   type SelfRegisterRole,
   type SignInInput,
   type SignUpInput,

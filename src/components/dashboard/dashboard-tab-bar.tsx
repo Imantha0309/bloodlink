@@ -8,7 +8,7 @@ import { Typography } from "@/constants/typography";
 
 type TabIconName = ComponentProps<typeof Feather>["name"];
 
-export type DashboardTabKey = "home" | "requests" | "alerts" | "profile";
+export type DashboardTabKey = "home" | "requests" | "alerts" | "profile" | "donate";
 
 export type DashboardTab = {
   key: DashboardTabKey;

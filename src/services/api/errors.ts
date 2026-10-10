@@ -97,9 +97,8 @@ export function apiErrorMessage(error: unknown): string {
     }
   }
 
-  // `client.ts` funnels every transport failure into `ApiError("network")`, so
-  // reaching here means something unexpected failed inside the app itself —
-  // storage, or serialising the request body. Reporting that as a connectivity
+  // Reaching this point means something unexpected failed inside the app
+  // itself — storage, or serialising a request. Reporting that as a connectivity
   // problem would point the reader at the network instead of the real fault.
   return GENERIC_FAILURE;
 }

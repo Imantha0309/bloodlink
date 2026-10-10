@@ -6,7 +6,7 @@ import { Blood, Surface } from "@/constants/colors";
 import { Radius } from "@/constants/radius";
 import { ROLE_NAME } from "@/constants/roles";
 import { Typography } from "@/constants/typography";
-import { MOCK_CREDENTIAL_HINT, hasRemoteApi } from "@/services/auth";
+import { DEMO_ACCOUNTS } from "@/services/auth";
 
 type DevCredentialsHintProps = {
   /** Fills the sign-in form with the chosen account. */
@@ -16,21 +16,14 @@ type DevCredentialsHintProps = {
 /**
  * Collapsible list of demo accounts, shown in development builds only.
  *
- * Both adapters ship the same four fixtures — the mock holds them in memory and
- * the server seeds them — so the same list is correct whether or not
- * `EXPO_PUBLIC_API_URL` is set. Collapsed by default so the sign-in screen
- * still reads as the production one.
- *
- * IMPORTANT: Only show when using mock auth (no backend configured).
- * When hasRemoteApi is true, real authentication is active and demo
- * credentials should not be displayed.
+ * The four fixtures are seeded into Firebase Auth, so the same list is correct
+ * for sign-in regardless of the environment. Collapsed by default so the
+ * sign-in screen still reads as the production one.
  */
 export function DevCredentialsHint({ onPick }: DevCredentialsHintProps) {
   const [isOpen, setIsOpen] = useState(false);
 
-  // Only show in dev builds AND when no backend API is configured.
-  // When a real backend is available, use actual credentials.
-  if (!__DEV__ || hasRemoteApi) {
+  if (!__DEV__) {
     return null;
   }
 
@@ -54,7 +47,7 @@ export function DevCredentialsHint({ onPick }: DevCredentialsHintProps) {
 
       {isOpen ? (
         <View style={styles.list}>
-          {MOCK_CREDENTIAL_HINT.map((account) => (
+          {DEMO_ACCOUNTS.map((account) => (
             <Pressable
               key={account.identifier}
               onPress={() => onPick(account.identifier, account.password)}

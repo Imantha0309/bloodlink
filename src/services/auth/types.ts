@@ -26,6 +26,8 @@ export type AuthUser = {
   mobile: string | null;
   district?: string | null;
   bloodGroup?: string | null;
+  /** True when this user has a blood group set — they can act as a donor regardless of role. */
+  isDonorEligible?: boolean;
 };
 
 export type AuthSession = {
@@ -63,16 +65,6 @@ export type DonorProfileInput = {
   bloodGroup: string;
 };
 
-/** What `requestPasswordReset` hands back for the next step. */
-export type PasswordResetChallenge = {
-  resetId: string;
-  /**
-   * The one-time code, returned by the local backend because no SMS or email
-   * provider is wired up. `null`/absent against a real server.
-   */
-  devCode?: string | null;
-};
-
 /**
  * Machine-readable failure reasons.
  *
@@ -103,12 +95,10 @@ export interface AuthService {
 
   signOut(): Promise<void>;
 
-  /** Starts password recovery. Rejects when the account does not exist. */
-  requestPasswordReset(identifier: string): Promise<PasswordResetChallenge>;
-
-  /** Exchanges a correct code for a single-use reset token. */
-  verifyPasswordResetCode(resetId: string, code: string): Promise<string>;
-
-  /** Completes recovery. Invalidates every existing session for the account. */
-  resetPassword(resetToken: string, newPassword: string): Promise<void>;
+  /**
+   * Emails a password-reset link to the account behind `identifier`. Resolves
+   * even when the account is unknown, so the caller never reveals whether an
+   * address is registered.
+   */
+  requestPasswordReset(identifier: string): Promise<void>;
 }

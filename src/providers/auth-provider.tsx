@@ -1,14 +1,31 @@
 import { createContext, use, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Platform } from "react-native";
+
+import { app } from "@/services/firebase";
+import * as Device from "expo-device";
+import * as Notifications from "expo-notifications";
+import { getFunctions, httpsCallable } from "firebase/functions";
 
 import {
-  authService,
-  saveSession,
-  type AuthSession,
-  type AuthUser,
-  type DonorProfileInput,
-  type SignInInput,
-  type SignUpInput,
+    authService,
+    saveSession,
+    type AuthSession,
+    type AuthUser,
+    type DonorProfileInput,
+    type SignInInput,
+    type SignUpInput,
 } from "@/services/auth";
+
+// Show alerts even when the app is foregrounded
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  }),
+});
 
 /**
  * Whether the stored session has been checked yet.
@@ -37,6 +54,65 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+/**
+ * Registers the device for push notifications and saves the FCM token to
+ * Firestore (via the savePushToken Cloud Function) so the notification fan-out
+ * function can target this device.
+ *
+ * Non-blocking — a failure here must never break sign-in or session restore.
+ */
+async function registerForPushNotifications(user: AuthUser): Promise<void> {
+  try {
+    // Push notifications only work on physical devices
+    if (!Device.isDevice) {
+      return;
+    }
+
+    // Android requires a notification channel
+    if (Platform.OS === "android") {
+      await Notifications.setNotificationChannelAsync("blood_requests", {
+        name: "Blood Requests",
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: "#D32F2F",
+        sound: "default",
+      });
+    }
+
+    const { status: existingStatus } = await Notifications.getPermissionsAsync();
+    let finalStatus = existingStatus;
+
+    if (existingStatus !== "granted") {
+      const { status } = await Notifications.requestPermissionsAsync();
+      finalStatus = status;
+    }
+
+    if (finalStatus !== "granted") {
+      // User denied — that's fine, we just won't send push
+      return;
+    }
+
+    // Get the raw FCM/APNs device token (not the Expo push token)
+    const tokenData = await Notifications.getDevicePushTokenAsync();
+    const rawToken = tokenData.data;
+
+    if (!rawToken) {
+      return;
+    }
+
+    // Save to Firestore via the Cloud Function so the fan-out query can reach it
+    const fns = getFunctions(app);
+    const savePushTokenFn = httpsCallable(fns, "savePushToken");
+    await savePushTokenFn({
+      token: rawToken,
+      bloodGroup: user.bloodGroup ?? null,
+      isAvailable: true,
+    });
+  } catch {
+    // Non-blocking — push is best-effort; auth flow must not be affected
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<AuthSession | null>(null);
   const [isResolved, setIsResolved] = useState(false);
@@ -51,6 +127,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       setSession(restored);
       setIsResolved(true);
+
+      // Register for push notifications on session restore (non-blocking)
+      if (restored !== null) {
+        void registerForPushNotifications(restored.user);
+      }
     });
 
     return () => {
@@ -65,6 +146,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // still closed and the redirect bounces straight back to login.
     setSession(next);
 
+    // Register push token after successful sign-in (non-blocking)
+    void registerForPushNotifications(next.user);
+
     return next;
   }, []);
 
@@ -74,6 +158,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Must land before the caller navigates, otherwise the dashboard guard is
     // still closed and the redirect bounces straight back to registration.
     setSession(next);
+
+    // Register push token after successful sign-up (non-blocking)
+    void registerForPushNotifications(next.user);
 
     return next;
   }, []);

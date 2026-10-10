@@ -2,17 +2,39 @@
  * Emergency blood requests.
  *
  * `createEmergencyRequest` is intentionally usable while signed out — that is
- * the "Zero Login" urgent path. In mock mode the requests live in a module-level
- * array so the whole flow is still demoable with no server running.
+ * the "Zero Login" urgent path. Signed-in callers are attributed to their
+ * account. Listing dispatches by the caller's role, mirroring the server's
+ * `GET /emergency` behaviour: recipients see their own requests, donors see the
+ * compatible open feed, hospital staff and admins see the triage queue.
  */
 
-import { request } from "@/services/api/client";
+import { isBloodGroup, type BloodGroup } from "@/constants/blood-groups";
+import { isUrgencyLevel, type RequestStatus, type UrgencyLevel } from "@/constants/emergency";
 import { ApiError } from "@/services/api/errors";
-import type { BloodGroup } from "@/constants/blood-groups";
-import type { UrgencyLevel } from "@/constants/emergency";
-import { hasRemoteApi } from "@/services/config";
+import { loadSession } from "@/services/auth/session";
+import type { UserRole } from "@/services/auth/types";
+import { toApiError } from "@/services/dataconnect/errors";
+import { app } from "@/services/firebase";
+import {
+  createEmergencyRequestAsUser,
+  createEmergencyRequest as createRequestPublic,
+  deleteDonorResponse,
+  getEmergencyRequest as fetchEmergencyRequest,
+  DonorResponse as GeneratedDonorResponse,
+  RequestStatus as GeneratedRequestStatus,
+  UrgencyLevel as GeneratedUrgencyLevel,
+  listDonorFeed,
+  listMyRequests,
+  listTriageQueue,
+  respondToRequest,
+  updateDonorResponse,
+  updateRequestStatus,
+} from "@dataconnect/generated";
+import { getFunctions, httpsCallable } from "firebase/functions";
 
-export type RequestStatus = "pending" | "verified" | "fulfilled" | "cancelled";
+/** The app's string unions, re-exported for consumers of this module. */
+export type { RequestStatus, UrgencyLevel } from "@/constants/emergency";
+
 export type DonorResponse = "accepted" | "declined";
 export type DonationStage = "accepted" | "en_route" | "arrived" | "completed";
 
@@ -53,137 +75,191 @@ export type EmergencyRequestInput = {
   notes?: string | null;
 };
 
-/**
- * Offline stand-in so the screens have something to render without a server.
- *
- * Seeded with a couple of plausible requests; anything the user creates is
- * pushed onto the same list.
- */
-const OFFLINE_REQUESTS: EmergencyRequest[] = [
-  {
-    id: "req_mock_1",
-    patientName: "R. M. Silva",
-    bloodGroup: "O-",
-    units: 3,
-    hospital: "National Hospital of Sri Lanka",
-    district: "Colombo",
-    contactName: "Ravindu Silva",
-    contactMobile: "0771234501",
-    urgency: "critical",
-    notes: "Road traffic accident. Theatre scheduled within the hour.",
-    status: "pending",
-    createdAt: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
-    updatedAt: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
-    isAnonymous: true,
-    donorResponse: null,
-    donorStage: null,
-  },
-  {
-    id: "req_mock_2",
-    patientName: "F. A. Rizwan",
-    bloodGroup: "A+",
-    units: 2,
-    hospital: "Kandy Teaching Hospital",
-    district: "Kandy",
-    contactName: "Fathima Rizwan",
-    contactMobile: "0775551234",
-    urgency: "urgent",
-    notes: "Post-operative transfusion.",
-    status: "verified",
-    createdAt: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(),
-    updatedAt: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(),
-    isAnonymous: false,
-    donorResponse: null,
-    donorStage: null,
-  },
-];
+const REQUEST_STATUSES: readonly RequestStatus[] = ["pending", "verified", "fulfilled", "cancelled"];
+const DONOR_RESPONSES: readonly DonorResponse[] = ["accepted", "declined"];
+const DONATION_STAGES: readonly DonationStage[] = ["accepted", "en_route", "arrived", "completed"];
 
-function readRequestBody(body: unknown): EmergencyRequest | null {
-  const candidate = (body as { request?: unknown } | null)?.request;
+function isRequestStatus(value: unknown): value is RequestStatus {
+  return typeof value === "string" && (REQUEST_STATUSES as readonly string[]).includes(value);
+}
 
-  if (typeof candidate !== "object" || candidate === null) {
+function isDonorResponse(value: unknown): value is DonorResponse {
+  return typeof value === "string" && (DONOR_RESPONSES as readonly string[]).includes(value);
+}
+
+function isDonorResponseValue(value: unknown): value is DonorResponse | null {
+  return value === null || isDonorResponse(value);
+}
+
+function isDonationStage(value: unknown): value is DonationStage {
+  return typeof value === "string" && (DONATION_STAGES as readonly string[]).includes(value);
+}
+
+function isDonationStageValue(value: unknown): value is DonationStage | null {
+  return value === null || isDonationStage(value);
+}
+
+/** Narrows one request row returned by the raw-SQL list queries. */
+export function readEmergencyRequest(row: unknown): EmergencyRequest | null {
+  if (typeof row !== "object" || row === null) {
     return null;
   }
 
-  const record = candidate as Partial<EmergencyRequest>;
+  const candidate = row as Partial<EmergencyRequest>;
 
-  return typeof record.id === "string" && typeof record.patientName === "string"
-    ? (record as EmergencyRequest)
-    : null;
+  if (
+    typeof candidate.id !== "string" ||
+    typeof candidate.patientName !== "string" ||
+    typeof candidate.bloodGroup !== "string" ||
+    !isBloodGroup(candidate.bloodGroup) ||
+    typeof candidate.units !== "number" ||
+    typeof candidate.hospital !== "string" ||
+    typeof candidate.contactName !== "string" ||
+    typeof candidate.contactMobile !== "string" ||
+    typeof candidate.urgency !== "string" ||
+    !isUrgencyLevel(candidate.urgency) ||
+    typeof candidate.status !== "string" ||
+    !isRequestStatus(candidate.status) ||
+    typeof candidate.createdAt !== "string" ||
+    typeof candidate.updatedAt !== "string" ||
+    typeof candidate.isAnonymous !== "boolean" ||
+    !isDonorResponseValue(candidate.donorResponse) ||
+    !isDonationStageValue(candidate.donorStage)
+  ) {
+    return null;
+  }
+
+  return {
+    id: candidate.id,
+    patientName: candidate.patientName,
+    bloodGroup: candidate.bloodGroup,
+    units: candidate.units,
+    hospital: candidate.hospital,
+    district: typeof candidate.district === "string" ? candidate.district : null,
+    contactName: candidate.contactName,
+    contactMobile: candidate.contactMobile,
+    urgency: candidate.urgency,
+    notes: typeof candidate.notes === "string" ? candidate.notes : null,
+    status: candidate.status,
+    createdAt: candidate.createdAt,
+    updatedAt: candidate.updatedAt,
+    isAnonymous: candidate.isAnonymous,
+    donorResponse: candidate.donorResponse,
+    donorStage: candidate.donorStage,
+    acceptedByOtherDonor:
+      typeof candidate.acceptedByOtherDonor === "boolean" ? candidate.acceptedByOtherDonor : false,
+  };
 }
 
-export async function createEmergencyRequest(
-  input: EmergencyRequestInput,
-): Promise<EmergencyRequest> {
-  if (!hasRemoteApi) {
-    // No backend to validate against, so the mock keeps the contract the server
-    // would enforce rather than accepting anything.
-    if (input.units < 1 || input.units > 20) {
-      throw new ApiError("validation", "Units must be between 1 and 20.", {
-        units: "Units must be between 1 and 20.",
-      });
-    }
+function readRequestList(value: unknown): EmergencyRequest[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
 
-    const created: EmergencyRequest = {
-      id: `req_mock_${Date.now().toString(36)}`,
-      patientName: input.patientName,
-      bloodGroup: input.bloodGroup,
-      units: input.units,
-      hospital: input.hospital,
-      district: input.district ?? null,
-      contactName: input.contactName,
-      contactMobile: input.contactMobile,
-      urgency: input.urgency,
-      notes: input.notes ?? null,
-      status: "pending",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      isAnonymous: true,
+  const requests: EmergencyRequest[] = [];
+
+  for (const row of value) {
+    const request = readEmergencyRequest(row);
+
+    if (request !== null) {
+      requests.push(request);
+    }
+  }
+
+  return requests;
+}
+
+export async function createEmergencyRequest(input: EmergencyRequestInput): Promise<EmergencyRequest> {
+  const vars = {
+    patientName: input.patientName.trim(),
+    bloodGroup: input.bloodGroup,
+    units: input.units,
+    hospital: input.hospital.trim(),
+    district: input.district ?? null,
+    contactName: input.contactName.trim(),
+    contactMobile: input.contactMobile.trim(),
+    urgency: GeneratedUrgencyLevel[input.urgency],
+    notes: input.notes?.trim() || null,
+  };
+
+  try {
+    const session = await loadSession();
+    const row = session
+      ? (await createEmergencyRequestAsUser(vars)).data.request
+      : (await createRequestPublic(vars)).data.request;
+
+    const request = readEmergencyRequest({
+      ...(typeof row === "object" && row !== null ? row : {}),
+      isAnonymous: session === null,
       donorResponse: null,
       donorStage: null,
-    };
+    });
 
-    OFFLINE_REQUESTS.unshift(created);
+    if (request === null) {
+      throw new ApiError("unknown", "The server returned an unexpected response.");
+    }
 
-    return created;
+    // Fan-out push notifications to compatible available donors — non-blocking.
+    // This is best-effort: the request was already created; a push failure
+    // must not roll it back.
+    void notifyDonorsViaPush(request).catch(() => {
+      // Intentionally swallowed
+    });
+
+    return request;
+  } catch (error) {
+    throw toApiError(error);
   }
-
-  const body = await request<unknown>("/emergency-requests", {
-    method: "POST",
-    body: {
-      patientName: input.patientName.trim(),
-      bloodGroup: input.bloodGroup,
-      units: input.units,
-      hospital: input.hospital.trim(),
-      district: input.district ?? undefined,
-      contactName: input.contactName.trim(),
-      contactMobile: input.contactMobile.trim(),
-      urgency: input.urgency,
-      notes: input.notes?.trim() || undefined,
-    },
-  });
-
-  const created = readRequestBody(body);
-
-  if (created === null) {
-    throw new ApiError("unknown", "The server returned an unexpected response.");
-  }
-
-  return created;
 }
 
-export async function listEmergencyRequests(): Promise<EmergencyRequest[]> {
-  if (!hasRemoteApi) {
-    return [...OFFLINE_REQUESTS];
+/**
+ * Calls the `notifyDonors` Cloud Function to fan-out FCM push notifications
+ * to all compatible available donors. Non-blocking fire-and-forget.
+ */
+async function notifyDonorsViaPush(request: EmergencyRequest): Promise<void> {
+  try {
+    const fns = getFunctions(app);
+    const notify = httpsCallable(fns, "notifyDonors");
+    await notify({
+      bloodGroup: request.bloodGroup,
+      urgency: request.urgency,
+      requestId: request.id,
+      patientName: request.patientName,
+      district: request.district,
+    });
+  } catch {
+    // Non-blocking — push failure must not surface to the user
   }
+}
 
-  const body = await request<{ requests?: unknown }>("/emergency-requests");
-  const list = Array.isArray(body.requests) ? body.requests : [];
+/** The signed-in user's list, by role — never the raw table. */
+export async function listEmergencyRequests(): Promise<EmergencyRequest[]> {
+  try {
+    const session = await loadSession();
 
-  return list.filter(
-    (item): item is EmergencyRequest =>
-      typeof item === "object" && item !== null && typeof (item as EmergencyRequest).id === "string",
-  );
+    if (session === null) {
+      return [];
+    }
+
+    const { data } = await listByRole(session.user.role);
+
+    return readRequestList(data.requests);
+  } catch (error) {
+    throw toApiError(error);
+  }
+}
+
+function listByRole(role: UserRole) {
+  switch (role) {
+    case "donor":
+      return listDonorFeed();
+    case "hospital":
+    case "admin":
+      return listTriageQueue();
+    case "recipient":
+    default:
+      return listMyRequests();
+  }
 }
 
 export type EmergencyRequestDetail = {
@@ -193,147 +269,79 @@ export type EmergencyRequestDetail = {
 };
 
 export async function getEmergencyRequest(id: string): Promise<EmergencyRequestDetail> {
-  if (!hasRemoteApi) {
-    const found = OFFLINE_REQUESTS.find((item) => item.id === id);
+  try {
+    const { data } = await fetchEmergencyRequest({ id });
+    const row = data.request;
 
-    if (found === undefined) {
+    if (typeof row !== "object" || row === null) {
       throw new ApiError("not_found", "That request could not be found.");
     }
 
-    return { request: found, compatibleDonorGroups: [] };
+    const request = readEmergencyRequest(row);
+
+    if (request === null) {
+      throw new ApiError("not_found", "That request could not be found.");
+    }
+
+    const compatible = (row as { compatibleDonorGroups?: unknown }).compatibleDonorGroups;
+    const compatibleDonorGroups: BloodGroup[] = Array.isArray(compatible)
+      ? compatible.filter(isBloodGroup)
+      : [];
+
+    return { request, compatibleDonorGroups };
+  } catch (error) {
+    throw toApiError(error, "That request could not be found.");
   }
-
-  const body = await request<{ request?: unknown; compatibleDonorGroups?: unknown }>(
-    `/emergency-requests/${encodeURIComponent(id)}`,
-  );
-
-  const found = readRequestBody(body);
-
-  if (found === null) {
-    throw new ApiError("not_found", "That request could not be found.");
-  }
-
-  return {
-    request: found,
-    compatibleDonorGroups: Array.isArray(body.compatibleDonorGroups)
-      ? (body.compatibleDonorGroups as BloodGroup[])
-      : [],
-  };
 }
 
-/** Mirrors the server's legal moves — terminal states have no exits. */
-const ALLOWED_TRANSITIONS: Record<RequestStatus, readonly RequestStatus[]> = {
-  pending: ["verified", "fulfilled", "cancelled"],
-  verified: ["fulfilled", "cancelled"],
-  fulfilled: [],
-  cancelled: [],
-};
-
-/**
- * Moves a request to a new status.
- *
- * The server is the authority on who may do what (owner cancels, hospital and
- * admin run triage) and answers 401/409 — those errors surface as `ApiError`s
- * for the caller to render.
- */
+/** Moves a request to a new status; the server enforces who may do what. */
 export async function updateEmergencyRequestStatus(
   id: string,
   status: RequestStatus,
 ): Promise<EmergencyRequest> {
-  if (!hasRemoteApi) {
-    const found = OFFLINE_REQUESTS.find((item) => item.id === id);
-
-    if (found === undefined) {
-      throw new ApiError("not_found", "That request could not be found.");
-    }
-
-    if (!ALLOWED_TRANSITIONS[found.status].includes(status) || status === found.status) {
-      throw new ApiError(
-        "conflict",
-        `A request that is ${found.status} cannot be marked ${status}.`,
-      );
-    }
-
-    found.status = status;
-    found.updatedAt = new Date().toISOString();
-
-    return { ...found };
+  try {
+    await updateRequestStatus({ requestId: id, status: GeneratedRequestStatus[status] });
+    const { request } = await getEmergencyRequest(id);
+    return request;
+  } catch (error) {
+    throw toApiError(error);
   }
-
-  const body = await request<unknown>(`/emergency-requests/${encodeURIComponent(id)}`, {
-    method: "PATCH",
-    body: { status },
-  });
-
-  const updated = readRequestBody(body);
-
-  if (updated === null) {
-    throw new ApiError("unknown", "The server returned an unexpected response.");
-  }
-
-  return updated;
 }
 
 export async function respondToEmergencyRequest(
   id: string,
   response: DonorResponse,
 ): Promise<DonorResponse> {
-  if (!hasRemoteApi) {
-    const found = OFFLINE_REQUESTS.find((item) => item.id === id);
+  try {
+    const { data } = await respondToRequest({ requestId: id, response: GeneratedDonorResponse[response] });
+    const recorded = (data.created as { response?: unknown } | null | undefined)?.response;
 
-    if (!found) {
-      throw new ApiError("not_found", "That request could not be found.");
+    if (!isDonorResponse(recorded)) {
+      throw new ApiError("unknown", "The server returned an unexpected response.");
     }
 
-    if (found.status !== "pending" && found.status !== "verified") {
-      throw new ApiError("conflict", "This request is no longer accepting responses.");
-    }
-
-    found.donorResponse = response;
-    found.donorStage = response === "accepted" ? "accepted" : null;
-    return response;
+    return recorded;
+  } catch (error) {
+    throw toApiError(error);
   }
-
-  const body = await request<{ response?: unknown }>(
-    `/emergency-requests/${encodeURIComponent(id)}/response`,
-    { method: "POST", body: { response } },
-  );
-
-  if (body.response !== "accepted" && body.response !== "declined") {
-    throw new ApiError("unknown", "The server returned an unexpected response.");
-  }
-
-  return body.response;
 }
 
 export async function updateEmergencyResponse(
   id: string,
   response: DonorResponse,
 ): Promise<DonorResponse> {
-  if (!hasRemoteApi) {
-    return respondToEmergencyRequest(id, response);
+  try {
+    await updateDonorResponse({ requestId: id, response: GeneratedDonorResponse[response] });
+    return response;
+  } catch (error) {
+    throw toApiError(error);
   }
-
-  const body = await request<{ response?: unknown }>(
-    `/emergency-requests/${encodeURIComponent(id)}/response`,
-    { method: "PUT", body: { response } },
-  );
-  if (body.response !== "accepted" && body.response !== "declined") {
-    throw new ApiError("unknown", "The server returned an unexpected response.");
-  }
-  return body.response;
 }
 
 export async function deleteEmergencyResponse(id: string): Promise<void> {
-  if (!hasRemoteApi) {
-    const found = OFFLINE_REQUESTS.find((item) => item.id === id);
-    if (!found) throw new ApiError("not_found", "That request could not be found.");
-    found.donorResponse = null;
-    found.donorStage = null;
-    return;
+  try {
+    await deleteDonorResponse({ requestId: id });
+  } catch (error) {
+    throw toApiError(error);
   }
-
-  await request<{ deleted?: boolean }>(`/emergency-requests/${encodeURIComponent(id)}/response`, {
-    method: "DELETE",
-  });
 }

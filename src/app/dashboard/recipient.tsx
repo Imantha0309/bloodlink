@@ -3,33 +3,42 @@ import { useEffect, useState } from "react";
 import { StyleSheet, View } from "react-native";
 
 import {
-  ActiveRequestCard,
-  type ActiveRequest,
+    ActiveRequestCard,
+    type ActiveRequest,
 } from "@/components/dashboard/active-request-card";
+import { AvailabilityCard } from "@/components/dashboard/availability-card";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import {
-  DashboardTabBar,
-  type DashboardTab,
-  type DashboardTabKey,
+    DashboardTabBar,
+    type DashboardTab,
+    type DashboardTabKey,
 } from "@/components/dashboard/dashboard-tab-bar";
 import { EmergencyAlertCard } from "@/components/dashboard/emergency-alert-card";
 import { GreetingSection } from "@/components/dashboard/greeting-section";
 import { HomeHeader } from "@/components/dashboard/home-header";
 import {
-  NearbyBloodBanks,
-  type BloodBankSummary,
+    NearbyBloodBanks,
+    type BloodBankSummary,
 } from "@/components/dashboard/nearby-blood-banks";
 import { QuickActionGrid, type QuickAction } from "@/components/dashboard/quick-action-grid";
+import { RequestList } from "@/components/dashboard/request-list";
 import { SupportCard } from "@/components/dashboard/support-card";
 import { Reveal } from "@/components/motion/reveal";
 import { SkeletonCard } from "@/components/ui/skeleton";
+import { CAN_DONATE_TO, isBloodGroup } from "@/constants/blood-groups";
 import { DASHBOARD_TABS, ROUTES } from "@/constants/routes";
 import { useUnreadAlerts } from "@/hooks/use-unread-alerts";
 import { useAuth } from "@/providers/auth-provider";
 import { listBloodBanks, type BloodBank } from "@/services/blood-banks";
+import type { DashboardSummary } from "@/services/dashboard/dashboard";
 import type { EmergencyRequest } from "@/services/requests/emergency-requests";
-import { isRequestLive } from "@/utils/request-timeline";
+import {
+    deleteEmergencyResponse,
+    respondToEmergencyRequest,
+    updateEmergencyResponse,
+} from "@/services/requests/emergency-requests";
 import { referenceFor } from "@/utils/reference";
+import { isRequestLive } from "@/utils/request-timeline";
 import { timeAgo } from "@/utils/time";
 
 /**
@@ -46,13 +55,20 @@ function toBankSummary(bank: BloodBank): BloodBankSummary {
   };
 }
 
-function getTabs(alertCount: string | undefined): DashboardTab[] {
-  return [
+function getTabs(alertCount: string | undefined, isDonorEligible: boolean): DashboardTab[] {
+  const tabs: DashboardTab[] = [
     { key: "home", label: "Home", icon: "home" },
     { key: "requests", label: "Requests", icon: "file-text" },
     { key: "alerts", label: "Alerts", icon: "bell", badge: alertCount },
     { key: "profile", label: "Profile", icon: "user" },
   ];
+
+  if (isDonorEligible) {
+    // Insert Donate tab before Requests
+    tabs.splice(1, 0, { key: "donate" as DashboardTabKey, label: "Donate", icon: "heart" });
+  }
+
+  return tabs;
 }
 
 const TAB_HREFS = DASHBOARD_TABS;
@@ -70,7 +86,9 @@ export default function RecipientDashboardScreen() {
   const unreadAlerts = useUnreadAlerts();
 
   const user = session?.user ?? null;
+  const isDonorEligible = user?.isDonorEligible === true;
 
+  const [activeTab, setActiveTab] = useState<"home" | "donate">("home");
   const [banks, setBanks] = useState<BloodBankSummary[]>([]);
   const [areBanksLoading, setAreBanksLoading] = useState(true);
 
@@ -101,9 +119,14 @@ export default function RecipientDashboardScreen() {
   }, []);
 
   const goToTab = (key: DashboardTabKey) => {
-    // Home is already the active tab; re-pushing it would stack a duplicate of
-    // the screen the user is already looking at.
+    // Handle the donate tab in-screen
+    if (key === "donate") {
+      setActiveTab("donate");
+      return;
+    }
+
     if (key === "home") {
+      setActiveTab("home");
       return;
     }
 
@@ -146,13 +169,19 @@ export default function RecipientDashboardScreen() {
       }
       footer={
         <DashboardTabBar
-          tabs={getTabs(unreadAlerts > 0 ? String(unreadAlerts) : undefined)}
-          activeKey="home"
+          tabs={getTabs(unreadAlerts > 0 ? String(unreadAlerts) : undefined, isDonorEligible)}
+          activeKey={activeTab === "donate" ? "donate" : "home"}
           onSelect={goToTab}
         />
       }
     >
       {(summary) => {
+        if (activeTab === "donate") {
+          return (
+            <RecipientDonateView summary={summary} />
+          );
+        }
+
         const request = summary.requests[0] ?? null;
         const notificationCount = unreadAlerts;
 
@@ -230,6 +259,61 @@ export default function RecipientDashboardScreen() {
         );
       }}
     </DashboardShell>
+  );
+}
+
+/**
+ * Inline donate view rendered inside the recipient dashboard when the
+ * user switches to the Donate tab. Reuses the same DashboardSummary that
+ * the shell already fetched — no extra network call.
+ */
+function RecipientDonateView({ summary }: { summary: DashboardSummary }) {
+  const { session } = useAuth();
+  const rawGroup = session?.user.bloodGroup ?? null;
+  const donorGroup = isBloodGroup(rawGroup) ? rawGroup : null;
+  const donorDistrict = session?.user.district ?? null;
+  const isAvailable = summary.availability?.isAvailable ?? false;
+
+  const matching = (summary.requests ?? []).filter((r) => {
+    if (r.status !== "pending" && r.status !== "verified") return false;
+    if (donorGroup === null) return false;
+    const receivable = CAN_DONATE_TO[donorGroup];
+    return receivable.includes(r.bloodGroup);
+  });
+
+  return (
+    <View style={styles.body}>
+      {summary.availability !== null ? (
+        <AvailabilityCard
+          availability={summary.availability}
+          onSaved={() => {}}
+        />
+      ) : null}
+
+      <RequestList
+        requests={matching}
+        donorGroup={donorGroup}
+        canAccept={isAvailable}
+        onDonorResponse={async (id, response, isUpdate) => {
+          return isUpdate
+            ? await updateEmergencyResponse(id, response)
+            : await respondToEmergencyRequest(id, response);
+        }}
+        onRemoveDonorResponse={async (id) => {
+          await deleteEmergencyResponse(id);
+        }}
+        emptyTitle={
+          donorGroup === null
+            ? "No blood group set"
+            : "No matching requests right now"
+        }
+        emptyMessage={
+          donorGroup === null
+            ? "Your profile doesn't have a blood group yet."
+            : "You'll be notified when a compatible request comes in."
+        }
+      />
+    </View>
   );
 }
 

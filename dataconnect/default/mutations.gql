@@ -1,0 +1,705 @@
+﻿# BloodLink write operations (ported from `server/src/routes/**` and
+# `server/src/lib/{alerts,users}.ts`).
+#
+# Conventions:
+#   - Role, ownership, compatibility and lifecycle checks all live inside the
+#     SQL WHERE clauses. A caller that cannot perform the action gets a
+#     `NULL` result, which a `@check(expr: "this != null", ...)` turns into a
+#     clean error.
+#   - Multi-step writes use `@transaction`, so e.g. a rolled-back response
+#     insert can never leave an orphaned requester alert behind.
+#   - Check-in tickets store only a SHA-256 hash (`$tokenHash`), never the raw
+#     token; the raw token never crosses the server.
+
+# ---------------------------------------------------------------------------
+# Emergency requests
+# ---------------------------------------------------------------------------
+
+# Zero-login urgent path: creates an anonymous request with no owner.
+# Mirrors `POST /emergency` without a token.
+mutation CreateEmergencyRequest(
+  $patientName: String!
+  $bloodGroup: String!
+  $units: Int!
+  $hospital: String!
+  $district: String
+  $registrationNumber: String
+  $contactName: String!
+  $contactMobile: String!
+  $urgency: UrgencyLevel!
+  $notes: String
+)
+  @auth(level: PUBLIC, insecureReason: "The zero-login urgent path lets a signed-out caller create a request; it is recorded as anonymous.")
+  @transaction {
+  request: _executeReturningFirst(
+    sql: """
+    INSERT INTO emergency_requests
+      (requester_uid, patient_name, blood_group, units, hospital, district,
+       registration_number, contact_name, contact_mobile, urgency, notes, status)
+    VALUES
+      (NULL, $1::text, $2::text, $3::integer, $4::text, $5::text, $6::text,
+       $7::text, $8::text, $9::text, $10::text, 'pending')
+    RETURNING id::text AS id, requester_uid AS "requesterUid",
+              patient_name AS "patientName", blood_group AS "bloodGroup",
+              units, hospital, district,
+              registration_number AS "registrationNumber",
+              contact_name AS "contactName", contact_mobile AS "contactMobile",
+              urgency, notes, status,
+              created_at AS "createdAt", updated_at AS "updatedAt"
+    """,
+    params: [$patientName, $bloodGroup, $units, $hospital, $district,
+             $registrationNumber, $contactName, $contactMobile, $urgency, $notes]
+  ) @check(expr: "this != null", message: "Could not create the request.")
+}
+
+# Signed-in request creation: the request is attributed to the caller.
+# Mirrors `POST /emergency` with a token.
+mutation CreateEmergencyRequestAsUser(
+  $patientName: String!
+  $bloodGroup: String!
+  $units: Int!
+  $hospital: String!
+  $district: String
+  $registrationNumber: String
+  $contactName: String!
+  $contactMobile: String!
+  $urgency: UrgencyLevel!
+  $notes: String
+) @auth(level: USER) @transaction {
+  request: _executeReturningFirst(
+    sql: """
+    INSERT INTO emergency_requests
+      (requester_uid, patient_name, blood_group, units, hospital, district,
+       registration_number, contact_name, contact_mobile, urgency, notes, status)
+    VALUES
+      ($1::text, $2::text, $3::text, $4::integer, $5::text, $6::text, $7::text,
+       $8::text, $9::text, $10::text, $11::text, 'pending')
+    RETURNING id::text AS id, requester_uid AS "requesterUid",
+              patient_name AS "patientName", blood_group AS "bloodGroup",
+              units, hospital, district,
+              registration_number AS "registrationNumber",
+              contact_name AS "contactName", contact_mobile AS "contactMobile",
+              urgency, notes, status,
+              created_at AS "createdAt", updated_at AS "updatedAt"
+    """,
+    params: [{_expr: "auth.uid"}, $patientName, $bloodGroup, $units, $hospital,
+             $district, $registrationNumber, $contactName, $contactMobile,
+             $urgency, $notes]
+  ) @check(expr: "this != null", message: "Could not create the request.")
+}
+
+# Legal request-status moves. Terminal states have no exits.
+# Mirrors `PATCH /emergency/:id` (owners may cancel; verified staff may review).
+mutation UpdateRequestStatus($requestId: UUID!, $status: RequestStatus!) @auth(level: USER) @transaction {
+  updated: _executeReturningFirst(
+    sql: """
+    UPDATE emergency_requests r
+       SET status = $2::text, updated_at = now()
+      FROM users u
+     WHERE r.id = $1::uuid
+       AND u.uid = $3::text
+       AND (
+         (r.requester_uid = u.uid AND $2::text = 'cancelled')
+         OR (u.role IN ('hospital', 'admin') AND (u.role = 'admin' OR u.is_verified = true))
+       )
+       AND $2::text <> r.status
+       AND CASE r.status
+             WHEN 'pending'  THEN $2::text IN ('verified', 'fulfilled', 'cancelled')
+             WHEN 'verified' THEN $2::text IN ('fulfilled', 'cancelled')
+             ELSE false
+           END
+    RETURNING r.id, r.status, r.updated_at AS "updatedAt"
+    """,
+    params: [$requestId, $status, {_expr: "auth.uid"}]
+  ) @check(expr: "this != null", message: "This status change is not allowed for this request.")
+# The moment a request becomes `verified` it appears to donors: everyone
+#   available and compatible gets a new-match alert (set-based INSERT).
+  notifyCompatibleDonors: _execute(
+    sql: """
+    INSERT INTO alerts (user_uid, type, request_id, title, body, created_at)
+    SELECT u.id, 'new_match', $1::uuid,
+           'New ' || r.urgency || ' request in ' || COALESCE(r.district, 'your area'),
+           r.blood_group || ' needed for ' || r.patient_name || ' at ' || r.hospital || '.',
+           now()
+      FROM users u
+      JOIN donor_availability d ON d.user_id = u.uid
+      JOIN emergency_requests r ON r.id = $1::uuid AND r.status = 'verified'
+     WHERE (u.role = 'donor' OR (u.role = 'recipient' AND u.blood_group IS NOT NULL))
+       AND d.is_available = true
+       AND u.blood_group IN (
+         CASE r.blood_group
+           WHEN 'O-'  THEN ARRAY['O-']
+           WHEN 'O+'  THEN ARRAY['O-','O+']
+           WHEN 'A-'  THEN ARRAY['O-','A-']
+           WHEN 'A+'  THEN ARRAY['O-','O+','A-','A+']
+           WHEN 'B-'  THEN ARRAY['O-','B-']
+           WHEN 'B+'  THEN ARRAY['O-','O+','B-','B+']
+           WHEN 'AB-' THEN ARRAY['O-','A-','B-','AB-']
+           ELSE            ARRAY['O-','O+','A-','A+','B-','B+','AB-','AB+']
+         END
+       )
+    """,
+    params: [$requestId]
+  )
+# The requester hears about any move on their own request.
+  notifyRequester: _execute(
+    sql: """
+    INSERT INTO alerts (user_uid, type, request_id, title, body, created_at)
+    SELECT r.requester_uid,
+           CASE WHEN $2::text = 'fulfilled' THEN 'request_fulfilled' ELSE 'status_change' END,
+           r.id,
+           CASE WHEN $2::text = 'fulfilled' THEN 'Request fulfilled' ELSE 'Request updated' END,
+           CASE WHEN $2::text = 'fulfilled'
+                THEN format('%s''s request was marked fulfilled. Thank you.', r.patient_name)
+                ELSE format('%s''s request is now %s.', r.patient_name, $2::text) END,
+           now()
+      FROM emergency_requests r
+     WHERE r.id = $1::uuid
+       AND r.requester_uid IS NOT NULL
+       AND r.status = $2::text
+    """,
+    params: [$requestId, $status]
+  )
+# The accepted donor hears about terminal moves.
+  notifyDonor: _execute(
+    sql: """
+    INSERT INTO alerts (user_uid, type, request_id, title, body, created_at)
+    SELECT du.id,
+           CASE WHEN $2::text = 'fulfilled' THEN 'request_fulfilled' ELSE 'status_change' END,
+           r.id,
+           CASE WHEN $2::text = 'fulfilled' THEN 'Donation completed' ELSE 'Request cancelled' END,
+           CASE WHEN $2::text = 'fulfilled'
+                THEN format('Your donation for %s has been recorded.', r.patient_name)
+                ELSE format('The request for %s was cancelled - no travel needed.', r.patient_name) END,
+           now()
+      FROM donor_request_responses d
+      JOIN users du ON du.uid = d.donor_uid
+      JOIN emergency_requests r ON r.id = d.request_id
+     WHERE r.id = $1::uuid
+       AND d.response = 'accepted'
+       AND $2::text IN ('fulfilled', 'cancelled')
+    """,
+    params: [$requestId, $status]
+  )
+}
+
+# ---------------------------------------------------------------------------
+# Registration & profile
+# ---------------------------------------------------------------------------
+
+# Creates the app user row for the authenticated Firebase account.
+# Role whitelist is enforced in SQL (unsupported roles coerce to recipient); a
+# second registration attempt for the same uid is rejected by the `@check`.
+# Mirrors `POST /auth/register` (identity now comes from Firebase Auth).
+mutation RegisterUser(
+  $role: UserRole!
+  $fullName: String!
+  $district: String
+  $bloodGroup: String
+  $registrationNumber: String
+  $lastDonationAt: Timestamp
+  $email: String
+  $mobile: String
+) @auth(level: USER) @transaction {
+  created: _executeReturningFirst(
+    sql: """
+    INSERT INTO users (uid, role, full_name, email, mobile, district,
+                       registration_number, blood_group, is_verified,
+                       created_at, updated_at)
+    SELECT $1::text,
+           CASE WHEN $2::text IN ('recipient', 'donor', 'hospital')
+                THEN $2::text ELSE 'recipient' END,
+           $3::text, $7::text, $8::text, $4::text, $5::text, $6::text,
+           CASE WHEN $2::text = 'hospital' THEN false ELSE true END,
+           now(), now()
+     WHERE NOT EXISTS (SELECT 1 FROM users WHERE uid = $1::text)
+    RETURNING uid, role, full_name AS "fullName", email, mobile, district,
+              blood_group AS "bloodGroup", is_verified AS "isVerified",
+              created_at AS "createdAt", updated_at AS "updatedAt"
+    """,
+    params: [{_expr: "auth.uid"}, $role, $fullName, $district, $registrationNumber,
+             $bloodGroup, $email, $mobile]
+  ) @check(expr: "this != null", message: "This Firebase account is already registered here.")
+# Donors get an availability row immediately (on by default).
+  availability: _execute(
+    sql: """
+    INSERT INTO donor_availability (user_id, is_available, last_donation_at, updated_at)
+    SELECT $1::text, true, $2, now()
+     WHERE EXISTS (SELECT 1 FROM users WHERE uid = $1::text AND (role = 'donor' OR (role = 'recipient' AND blood_group IS NOT NULL)))
+    """,
+    params: [{_expr: "auth.uid"}, $lastDonationAt]
+  )
+}
+
+# Donor self-service profile edit. Duplicate email/mobile attempts are
+# rejected before the update. Mirrors `PATCH /auth/me` (donor branch).
+mutation UpdateDonorProfile(
+  $fullName: String!
+  $email: String
+  $mobile: String
+  $district: String
+  $bloodGroup: String
+) @auth(level: USER) @transaction {
+  dup: query {
+    users(
+      where: {
+        _and: [
+          { uid: { ne_expr: "auth.uid" } }
+          {
+            _or: [
+              { email: { isNull: false, eq: $email } }
+              { mobile: { isNull: false, eq: $mobile } }
+            ]
+          }
+        ]
+      }
+      limit: 1
+    ) {
+      uid
+    }
+  }
+  updated: _executeReturningFirst(
+    sql: """
+    UPDATE users
+       SET full_name = $1::text,
+           email = $2::text,
+           mobile = $3::text,
+           district = $4::text,
+           blood_group = $5::text,
+           updated_at = now()
+     WHERE uid = $6::text AND role = 'donor'
+    RETURNING uid, role, full_name AS "fullName", email, mobile, district,
+              blood_group AS "bloodGroup", is_verified AS "isVerified",
+              created_at AS "createdAt", updated_at AS "updatedAt"
+    """,
+    params: [$fullName, $email, $mobile, $district, $bloodGroup, {_expr: "auth.uid"}]
+  )
+}
+
+# Recipient self-service: only their home district, which feeds local blood-bank
+# suggestions. Mirrors `PATCH /auth/me` (recipient branch).
+mutation UpdateRecipientDistrict($district: String) @auth(level: USER) @transaction {
+  updated: _executeReturningFirst(
+    sql: """
+    UPDATE users
+       SET district = $1::text, updated_at = now()
+     WHERE uid = $2::text AND role = 'recipient'
+    RETURNING uid, role, full_name AS "fullName", email, mobile, district,
+              blood_group AS "bloodGroup", is_verified AS "isVerified",
+              created_at AS "createdAt", updated_at AS "updatedAt"
+    """,
+    params: [$district, {_expr: "auth.uid"}]
+  )
+}
+
+# ---------------------------------------------------------------------------
+# Donor responses (feed)
+# ---------------------------------------------------------------------------
+
+# Records a donor's choice. Compatibility, availability, exclusivity and the
+# lifecycle are all enforced inside the guarded INSERT; the requester is warned
+# in the same transaction exactly when a commitment commits.
+# Mirrors `POST /emergency/:id/response`.
+mutation RespondToRequest($requestId: UUID!, $response: DonorResponse!) @auth(level: USER) @transaction {
+  created: _executeReturningFirst(
+    sql: """
+    INSERT INTO donor_request_responses (request_id, donor_uid, response, created_at, updated_at)
+    SELECT $1::uuid, $2::text, $3::text, now(), now()
+     WHERE (SELECT status FROM emergency_requests WHERE id = $1::uuid)
+             IN ('pending', 'verified')
+       AND (SELECT role FROM users WHERE uid = $2::text) IN ('donor', 'recipient')
+       AND (SELECT blood_group FROM users WHERE uid = $2::text) IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM donor_request_responses e
+                        WHERE e.request_id = $1::uuid AND e.donor_uid = $2::text)
+       AND ($3::text = 'declined' OR (
+             (SELECT is_available FROM donor_availability WHERE user_id = $2::text) IS TRUE
+             AND (SELECT blood_group FROM users WHERE uid = $2::text) IN (
+               CASE (SELECT blood_group FROM emergency_requests WHERE id = $1::uuid)
+                 WHEN 'O-'  THEN ARRAY['O-']
+                 WHEN 'O+'  THEN ARRAY['O-','O+']
+                 WHEN 'A-'  THEN ARRAY['O-','A-']
+                 WHEN 'A+'  THEN ARRAY['O-','O+','A-','A+']
+                 WHEN 'B-'  THEN ARRAY['O-','B-']
+                 WHEN 'B+'  THEN ARRAY['O-','O+','B-','B+']
+                 WHEN 'AB-' THEN ARRAY['O-','A-','B-','AB-']
+                 ELSE            ARRAY['O-','O+','A-','A+','B-','B+','AB-','AB+']
+               END
+             )
+             AND NOT EXISTS (SELECT 1 FROM donor_request_responses a
+                              WHERE a.request_id = $1::uuid AND a.response = 'accepted')
+           ))
+    RETURNING id, request_id AS "requestId", donor_uid AS "donorUid",
+              response, stage, created_at AS "createdAt", updated_at AS "updatedAt"
+    """,
+    params: [$requestId, {_expr: "auth.uid"}, $response]
+  ) @check(
+    expr: "this != null",
+    message: "This request is not accepting responses, is not compatible with your blood group, or another donor has already accepted it."
+  )
+  alert: _execute(
+    sql: """
+    INSERT INTO alerts (user_uid, type, request_id, title, body, created_at)
+    SELECT r.requester_uid, 'donor_accepted', r.id,
+           'A donor accepted your request',
+           du.full_name || ' is ready to donate ' || r.blood_group || ' for ' || r.patient_name || '.',
+           now()
+      FROM emergency_requests r
+      JOIN donor_request_responses d ON d.request_id = r.id
+      JOIN users du ON du.uid = d.donor_uid
+     WHERE r.id = $1::uuid
+       AND d.response = 'accepted'
+       AND d.donor_uid = $2::text
+       AND r.requester_uid IS NOT NULL
+    """,
+    params: [$requestId, {_expr: "auth.uid"}]
+  )
+}
+
+# Changes an existing response while the donor has not started transit.
+# Clears any stale check-in ticket. Mirrors `PUT /emergency/:id/response`.
+mutation UpdateDonorResponse($requestId: UUID!, $response: DonorResponse!) @auth(level: USER) @transaction {
+  updated: _executeReturningFirst(
+    sql: """
+    UPDATE donor_request_responses d
+       SET response = $3::text,
+           checkin_token_hash = NULL,
+           checkin_token_expires_at = NULL,
+           updated_at = now()
+      FROM emergency_requests r,
+           users u LEFT JOIN donor_availability da ON da.user_id = u.uid
+     WHERE d.request_id = $1::uuid
+       AND d.donor_uid = $2::text
+       AND d.stage = 'accepted'
+       AND r.id = d.request_id
+       AND u.uid = d.donor_uid
+       AND r.status IN ('pending', 'verified')
+       AND u.role IN ('donor', 'recipient')
+       AND u.blood_group IS NOT NULL
+       AND ($3::text = 'declined' OR (
+             da.is_available IS TRUE
+             AND u.blood_group IN (
+               CASE r.blood_group
+                 WHEN 'O-'  THEN ARRAY['O-']
+                 WHEN 'O+'  THEN ARRAY['O-','O+']
+                 WHEN 'A-'  THEN ARRAY['O-','A-']
+                 WHEN 'A+'  THEN ARRAY['O-','O+','A-','A+']
+                 WHEN 'B-'  THEN ARRAY['O-','B-']
+                 WHEN 'B+'  THEN ARRAY['O-','O+','B-','B+']
+                 WHEN 'AB-' THEN ARRAY['O-','A-','B-','AB-']
+                 ELSE            ARRAY['O-','O+','A-','A+','B-','B+','AB-','AB+']
+               END
+             )
+             AND NOT EXISTS (SELECT 1 FROM donor_request_responses a
+                              WHERE a.request_id = d.request_id
+                                AND a.response = 'accepted'
+                                AND a.donor_uid <> d.donor_uid)
+           ))
+    RETURNING d.id, d.request_id AS "requestId", d.response,
+              d.updated_at AS "updatedAt"
+    """,
+    params: [$requestId, {_expr: "auth.uid"}, $response]
+  ) @check(expr: "this != null", message: "You have not responded to this request yet, or transit has already started.")
+}
+
+# Withdraws a response; accepted donations can only be withdrawn before
+# transit starts. Mirrors `DELETE /emergency/:id/response`.
+mutation DeleteDonorResponse($requestId: UUID!) @auth(level: USER) @transaction {
+  deleted: _executeReturningFirst(
+    sql: """
+    DELETE FROM donor_request_responses
+     WHERE request_id = $1::uuid
+       AND donor_uid = $2::text
+       AND stage = 'accepted'
+    RETURNING id, request_id AS "requestId"
+    """,
+    params: [$requestId, {_expr: "auth.uid"}]
+  ) @check(expr: "this != null", message: "You have not responded to this request, or a response cannot be removed after transit.")
+}
+
+# ---------------------------------------------------------------------------
+# Donor availability
+# ---------------------------------------------------------------------------
+
+# Turns the donor's alerts on/off. A paused donor is hidden from dispatch and
+# the reassurance card. Mirrors `PUT /donors/me/availability`.
+mutation SetDonorAvailability(
+  $isAvailable: Boolean!
+  $lastDonationAt: Timestamp
+  $hasLastDonation: Boolean!
+) @auth(level: USER) @transaction {
+  availability: _executeReturningFirst(
+    sql: """
+    INSERT INTO donor_availability (user_id, is_available, last_donation_at, updated_at)
+    SELECT $1::text, $2, $3, now()
+     WHERE EXISTS (SELECT 1 FROM users WHERE uid = $1::text AND role IN ('donor', 'recipient') AND blood_group IS NOT NULL)
+    ON CONFLICT (user_id) DO UPDATE SET
+      is_available = excluded.is_available,
+      last_donation_at = CASE WHEN $4::boolean
+                             THEN excluded.last_donation_at
+                             ELSE donor_availability.last_donation_at END,
+      updated_at = excluded.updated_at
+    RETURNING user_id AS "userId",
+              is_available AS "isAvailable",
+              last_donation_at AS "lastDonationAt",
+              true AS "recordExists"
+    """,
+    params: [{_expr: "auth.uid"}, $isAvailable, $lastDonationAt, $hasLastDonation]
+  ) @check(expr: "this != null", message: "Only donors and donor-eligible recipients have an availability window.")
+}
+
+# Removes the self-service availability record; a missing record reads as
+# paused. Mirrors `DELETE /donors/me/availability`.
+mutation DeleteDonorAvailability @auth(level: USER) {
+  deleted: _executeReturningFirst(
+    sql: """
+    DELETE FROM donor_availability WHERE user_id = $1::text
+    RETURNING user_id AS "userId"
+    """,
+    params: [{_expr: "auth.uid"}]
+  )
+}
+
+# ---------------------------------------------------------------------------
+# Donation workflow
+# ---------------------------------------------------------------------------
+
+# The donor starts travelling. Mirrors `POST /donors/me/commitments/:id/en-route`.
+mutation StartDonorTransit($requestId: UUID!) @auth(level: USER) @transaction {
+  updated: _executeReturningFirst(
+    sql: """
+    UPDATE donor_request_responses d
+       SET stage = 'en_route',
+           checkin_token_hash = NULL,
+           checkin_token_expires_at = NULL,
+           updated_at = now()
+     WHERE d.donor_uid = $2::text
+       AND d.request_id = $1::uuid
+       AND d.response = 'accepted'
+       AND d.stage = 'accepted'
+    RETURNING d.request_id AS "requestId", d.stage, d.updated_at AS "updatedAt"
+    """,
+    params: [$requestId, {_expr: "auth.uid"}]
+  ) @check(expr: "this != null", message: "Accept this open request before starting transit.")
+}
+
+# Issues a short-lived, single-use intake ticket. Only the SHA-256 hash is
+# stored; the raw token stays on the device. Mirrors
+# `POST /donors/me/commitments/:id/check-in-ticket`.
+mutation CreateDonorCheckInTicket($requestId: UUID!, $tokenHash: String!) @auth(level: USER) @transaction {
+  ticket: _executeReturningFirst(
+    sql: """
+    UPDATE donor_request_responses d
+       SET checkin_token_hash = $3::text,
+           checkin_token_expires_at = now() + interval '15 minutes',
+           updated_at = now()
+     WHERE d.donor_uid = $2::text
+       AND d.request_id = $1::uuid
+       AND d.response = 'accepted'
+       AND d.stage = 'en_route'
+    RETURNING d.request_id AS "requestId",
+              d.checkin_token_expires_at AS "expiresAt",
+              d.updated_at AS "updatedAt"
+    """,
+    params: [$requestId, {_expr: "auth.uid"}, $tokenHash]
+  ) @check(expr: "this != null", message: "Start transit before opening your intake QR.")
+}
+
+# Hospital scan: the ticket is request-bound, expiring and single-use.
+# Mirrors `POST /donors/requests/:requestId/check-in`.
+mutation VerifyDonorCheckIn($requestId: UUID!, $tokenHash: String!) @auth(level: USER) @transaction {
+  verified: _executeReturningFirst(
+    sql: """
+    UPDATE donor_request_responses d
+       SET stage = 'arrived',
+           checkin_token_hash = NULL,
+           checkin_token_expires_at = NULL,
+           updated_at = now()
+      FROM users u
+     WHERE d.request_id = $1::uuid
+       AND d.response = 'accepted'
+       AND d.stage = 'en_route'
+       AND d.checkin_token_hash = $3::text
+       AND d.checkin_token_expires_at > now()
+       AND u.uid = $2::text
+       AND (u.role = 'admin' OR (u.role = 'hospital' AND u.is_verified = true))
+    RETURNING d.request_id AS "requestId",
+              d.stage AS stage,
+              d.updated_at AS "checkedInAt"
+    """,
+    params: [$requestId, {_expr: "auth.uid"}, $tokenHash]
+  ) @check(expr: "this != null", message: "This intake QR is invalid or has expired.")
+}
+
+# Records intake vitals (an append-only history, never replaced).
+# Mirrors `POST /donors/requests/:requestId/screening`.
+mutation SubmitScreening(
+  $requestId: UUID!
+  $temperature: String
+  $bloodPressure: String
+  $pulse: String
+  $hemoglobin: String
+  $eligible: Boolean!
+  $bedLabel: String
+) @auth(level: USER) @transaction {
+  screening: _executeReturningFirst(
+    sql: """
+    INSERT INTO donor_screening
+      (response_id, temperature, blood_pressure, pulse, hemoglobin,
+       eligible, bed_label, screened_by_uid, created_at)
+    SELECT d.id, $2::text, $3::text, $4::text, $5::text,
+           $6, $7::text, $8::text, now()
+      FROM donor_request_responses d
+      JOIN emergency_requests r ON r.id = d.request_id
+      JOIN users u ON u.uid = $8::text
+     WHERE d.request_id = $1::uuid
+       AND d.response = 'accepted'
+       AND d.stage = 'arrived'
+       AND (u.role = 'admin' OR (u.role = 'hospital' AND u.is_verified = true))
+    RETURNING id, eligible, created_at AS "createdAt", 'arrived' AS stage
+    """,
+    params: [$requestId, $temperature, $bloodPressure, $pulse, $hemoglobin, $eligible, $bedLabel, {_expr: "auth.uid"}]
+  ) @check(expr: "this != null", message: "Check the donor in before recording vitals.")
+}
+
+# Starts the extraction session after an eligible screening.
+# Mirrors `POST /donors/requests/:requestId/extraction`.
+mutation StartExtraction($requestId: UUID!) @auth(level: USER) @transaction {
+  extraction: _executeReturningFirst(
+    sql: """
+    INSERT INTO extraction_sessions (response_id, status, started_at, created_at)
+    SELECT d.id, 'in_progress', now(), now()
+      FROM donor_request_responses d
+      JOIN emergency_requests r ON r.id = d.request_id
+      JOIN users u ON u.uid = $2::text
+      JOIN LATERAL (
+             SELECT s.eligible FROM donor_screening s
+              WHERE s.response_id = d.id
+              ORDER BY s.created_at DESC LIMIT 1
+           ) latest ON true
+     WHERE d.request_id = $1::uuid
+       AND d.response = 'accepted'
+       AND d.stage = 'arrived'
+       AND latest.eligible = true
+       AND NOT EXISTS (SELECT 1 FROM extraction_sessions e
+                        WHERE e.response_id = d.id AND e.status = 'in_progress')
+       AND (u.role = 'admin' OR (u.role = 'hospital' AND u.is_verified = true))
+    RETURNING id, status, started_at AS "startedAt"
+    """,
+    params: [$requestId, {_expr: "auth.uid"}]
+  ) @check(expr: "this != null", message: "The donor must be checked in, screened and cleared, with no collection already running.")
+}
+
+# Closes the running session with the volume actually collected.
+# Mirrors `PATCH /donors/requests/:requestId/extraction`.
+mutation CompleteExtraction($requestId: UUID!, $volumeMl: Int, $phlebotomistName: String) @auth(level: USER) @transaction {
+  extraction: _executeReturningFirst(
+    sql: """
+    UPDATE extraction_sessions es
+       SET status = 'completed',
+           volume_ml = $2,
+           phlebotomist_name = $3::text,
+           completed_at = now()
+      FROM donor_request_responses d, users u
+     WHERE es.response_id = d.id
+       AND d.request_id = $1::uuid
+       AND es.status = 'in_progress'
+       AND u.uid = $4::text
+       AND (u.role = 'admin' OR (u.role = 'hospital' AND u.is_verified = true))
+    RETURNING es.id, es.status, es.volume_ml AS "volumeMl", es.completed_at AS "completedAt"
+    """,
+    params: [$requestId, $volumeMl, $phlebotomistName, {_expr: "auth.uid"}]
+  ) @check(expr: "this != null", message: "There is no collection session to complete.")
+}
+
+# Staff finish the case: the accepted donor moves to completed and the request
+# becomes fulfilled, atomically. Mirrors `POST /donors/requests/:requestId/complete`.
+mutation CompleteDonationCase($requestId: UUID!) @auth(level: USER) @transaction {
+  first: _executeReturningFirst(
+    sql: """
+    UPDATE donor_request_responses d
+       SET stage = 'completed', updated_at = now()
+      FROM users u
+     WHERE d.request_id = $1::uuid
+       AND d.response = 'accepted'
+       AND d.stage = 'arrived'
+       AND u.uid = $2::text
+       AND (u.role = 'admin' OR (u.role = 'hospital' AND u.is_verified = true))
+    RETURNING d.id, d.stage
+    """,
+    params: [$requestId, {_expr: "auth.uid"}]
+  ) @check(expr: "this != null", message: "The donor must be checked in before completing this request.")
+  second: _execute(
+    sql: """
+    UPDATE emergency_requests
+       SET status = 'fulfilled', updated_at = now()
+     WHERE id = $1::uuid AND status IN ('pending', 'verified')
+    """,
+    params: [$requestId]
+  )
+}
+
+# ---------------------------------------------------------------------------
+# Hospital inventory
+# ---------------------------------------------------------------------------
+
+# Adjusts one stock line: restock, reservation or correction. Scoped to the
+# bank district for hospitals; admins manage everything.
+# Mirrors `PUT /hospital/inventory/:bankId/:bloodGroup/:component`.
+mutation UpdateInventoryItem($bankId: UUID!, $bloodGroup: String!, $component: BloodComponent!, $units: Int!)
+  @auth(level: USER) @transaction {
+  inventory: _executeReturningFirst(
+    sql: """
+    INSERT INTO blood_inventory (bank_id, blood_group, component, units, updated_at)
+    SELECT $1::uuid, $2::text, $3::text, $4, now()
+      FROM blood_banks b
+      JOIN users u ON u.uid = $5::text
+     WHERE b.id = $1::uuid
+       AND (u.role = 'admin'
+            OR (u.role = 'hospital' AND u.is_verified = true AND u.district = b.district))
+    ON CONFLICT (bank_id, blood_group, component) DO UPDATE SET
+      units = excluded.units,
+      updated_at = excluded.updated_at
+    RETURNING bank_id AS "bloodBankId",
+              blood_group AS "bloodGroup",
+              component,
+              units,
+              updated_at AS "updatedAt"
+    """,
+    params: [$bankId, $bloodGroup, $component, $units, {_expr: "auth.uid"}]
+  ) @check(expr: "this != null", message: "That blood bank could not be found or is outside your district.")
+}
+
+# ---------------------------------------------------------------------------
+# Push token
+# ---------------------------------------------------------------------------
+
+# Stores the device's FCM push token so the Cloud Function can fan-out
+# notifications. Silently overwrites on each sign-in.
+mutation UpdatePushToken($token: String!) @auth(level: USER) {
+  updated: _execute(
+    sql: """
+    UPDATE users SET push_token = $2::text, updated_at = now()
+     WHERE uid = $1::text
+    """,
+    params: [{_expr: "auth.uid"}, $token]
+  )
+}
+
+# ---------------------------------------------------------------------------
+# Alerts
+# ---------------------------------------------------------------------------
+
+# Marks alerts read. `$ids` is a comma-joined id list; `null` marks the whole
+# feed read. Mirrors `POST /alerts/read`.
+mutation MarkAlertsRead($ids: String) @auth(level: USER) {
+  updated: _execute(
+    sql: """
+    UPDATE alerts
+       SET read_at = now()
+     WHERE user_uid = $1::text
+       AND read_at IS NULL
+       AND ($2::text IS NULL OR id::text = ANY (string_to_array($2, ',')))
+    """,
+    params: [{_expr: "auth.uid"}, $ids]
+  )
+}

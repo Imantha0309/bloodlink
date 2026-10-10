@@ -1,8 +1,10 @@
-import { Stack } from "expo-router";
+import * as Notifications from "expo-notifications";
+import { Stack, useRouter } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
 
 import { Surface } from "@/constants/colors";
+import { ROLE_HOME, ROUTES } from "@/constants/routes";
 import { AuthProvider, useAuth } from "@/providers/auth-provider";
 
 import "@/global.css";
@@ -28,14 +30,31 @@ export default function RootLayout() {
  * cold start.
  */
 function AppNavigator() {
-  const { status } = useAuth();
+  const { status, session } = useAuth();
   const isResolved = status !== "loading";
+  const router = useRouter();
 
   useEffect(() => {
     if (isResolved) {
       SplashScreen.hideAsync();
     }
   }, [isResolved]);
+
+  // Handle notification taps — deep-link to the relevant request or dashboard
+  useEffect(() => {
+    const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
+      const data = response.notification.request.content.data as Record<string, unknown> | null;
+      const requestId = typeof data?.requestId === "string" ? data.requestId : null;
+
+      if (requestId) {
+        router.push({ pathname: ROUTES.requestStatus, params: { id: requestId } });
+      } else if (session?.user.role) {
+        router.push(ROLE_HOME[session.user.role]);
+      }
+    });
+
+    return () => subscription.remove();
+  }, [session, router]);
 
   return (
     <Stack

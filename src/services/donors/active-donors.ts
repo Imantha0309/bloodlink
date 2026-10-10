@@ -1,14 +1,15 @@
 /**
  * Active-donor statistics shown on the login screen.
  *
- * With a backend configured these come from `GET /donors/stats` and are real
- * aggregate numbers. Without one, a static summary is used so the card still
- * renders in offline/mock mode. Either way the login UI has no knowledge of
- * where the numbers come from.
+ * Feeds off the PUBLIC `GetActiveDonorStats` op: available donors come back as
+ * `fullName` + `district`, and this module derives the headline count, the
+ * provinces they cover and the monogram avatars from those rows. A failed fetch
+ * degrades to an empty summary — the card is reassurance, not a UX blocker.
  */
 
-import { request } from "@/services/api/client";
-import { hasRemoteApi } from "@/services/config";
+import { provinceOf } from "@/constants/districts";
+import { getActiveDonorStats } from "@dataconnect/generated";
+import { personInitials } from "@/utils/initials";
 
 export type ActiveDonorsSummary = {
   /** Headline count, e.g. 12480. */
@@ -20,74 +21,63 @@ export type ActiveDonorsSummary = {
   updatedAt: string;
 };
 
-const RESOLVE_LATENCY_MS = 350;
+export async function getActiveDonors(): Promise<ActiveDonorsSummary> {
+  const empty: ActiveDonorsSummary = {
+    total: 0,
+    provinces: [],
+    avatarInitials: [],
+    updatedAt: new Date(0).toISOString(),
+  };
 
-/** Used only when no backend is configured. Clearly a placeholder figure. */
-const OFFLINE_SUMMARY: ActiveDonorsSummary = {
-  total: 0,
-  provinces: [],
-  avatarInitials: [],
-  updatedAt: new Date(0).toISOString(),
-};
+  try {
+    const { data } = await getActiveDonorStats();
+    const list = Array.isArray(data.donors) ? data.donors : [];
+
+    const provinces = new Set<string>();
+    const avatarInitials: string[] = [];
+
+    for (const row of list) {
+      if (typeof row !== "object" || row === null) {
+        continue;
+      }
+
+      const donor = row as { fullName?: unknown; district?: unknown };
+
+      if (typeof donor.fullName === "string") {
+        const initials = personInitials(donor.fullName);
+
+        if (initials !== null) {
+          avatarInitials.push(initials);
+        }
+      }
+
+      const province = provinceOf(typeof donor.district === "string" ? donor.district : null);
+
+      if (province !== null) {
+        provinces.add(province);
+      }
+    }
+
+    return {
+      total: list.length,
+      provinces: Array.from(provinces),
+      avatarInitials,
+      updatedAt: new Date().toISOString(),
+    };
+  } catch {
+    return empty;
+  }
+}
 
 /** Formats a count the way the card headline reads: `12,480+`. */
 export function formatDonorCount(total: number): string {
   return `${total.toLocaleString("en-US")}+`;
 }
 
-function readStringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
-}
-
-function readSummary(body: unknown): ActiveDonorsSummary | null {
-  if (typeof body !== "object" || body === null) {
-    return null;
-  }
-
-  const candidate = body as Partial<ActiveDonorsSummary>;
-
-  if (typeof candidate.total !== "number") {
-    return null;
-  }
-
-  return {
-    total: candidate.total,
-    provinces: readStringArray(candidate.provinces),
-    avatarInitials: readStringArray(candidate.avatarInitials),
-    updatedAt:
-      typeof candidate.updatedAt === "string" ? candidate.updatedAt : new Date().toISOString(),
-  };
-}
-
-export async function getActiveDonors(): Promise<ActiveDonorsSummary> {
-  if (!hasRemoteApi) {
-    await new Promise((resolve) => {
-      setTimeout(resolve, RESOLVE_LATENCY_MS);
-    });
-
-    return { ...OFFLINE_SUMMARY, updatedAt: new Date().toISOString() };
-  }
-
-  try {
-    const summary = readSummary(await request<unknown>("/donors/stats", { anonymous: true }));
-
-    if (summary !== null) {
-      return summary;
-    }
-  } catch {
-    // The card is reassurance, not information the user acts on. A failed
-    // fetch must not turn the sign-in screen into an error state, so it falls
-    // through to the placeholder rather than surfacing.
-  }
-
-  return { ...OFFLINE_SUMMARY, updatedAt: new Date().toISOString() };
-}
-
 /**
  * How many provinces are named before the line is summarised.
  *
- * The server reports every province with a donor online, which is nine of the
- * nine at full coverage — far more than fits on one line of the card.
+ * Full coverage is nine provinces — far more than fits on one line of the card.
  */
 const PROVINCE_LIMIT = 3;
 

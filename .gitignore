@@ -26,6 +26,17 @@ npm-debug.*
 yarn-debug.*
 yarn-error.*
 
+# Firebase emulator logs and CLI state
+.firebase/
+*-debug.log
+*-debug.*.log
+
+# Data Connect emulator state (PGlite) — recreated on `firebase emulators:start`
+dataconnect/.dataconnect/
+
+# Cloud Functions build output — produced by `npm run build` in functions/
+functions/lib/
+
 # macOS
 .DS_Store
 *.pem
@@ -37,11 +48,15 @@ yarn-error.*
 # typescript
 *.tsbuildinfo
 
-# backend (server/) — local SQLite database and its journal files
-server/data/
+# local SQLite databases
 *.db
 *.db-shm
 *.db-wal
+
+# local agent tooling
+.agents/
+.claude/
+skills-lock.json
 
 example
 

@@ -13,9 +13,9 @@ import { isBloodGroup, type BloodGroup } from "@/constants/blood-groups";
 import type { UrgencyLevel } from "@/constants/emergency";
 import type { SelfRegisterRole } from "@/services/auth/types";
 import {
-  looksLikeMobile,
-  normalizeEmail,
-  normalizeMobile,
+    looksLikeMobile,
+    normalizeEmail,
+    normalizeMobile,
 } from "@/utils/contact";
 
 export const ValidationMessages = {
@@ -185,7 +185,8 @@ export function validateRegisterForm(
   values: RegisterFormValues,
   role: SelfRegisterRole,
 ): RegisterFormErrors {
-  const needsBloodGroup = role === "donor" || role === "recipient";
+  // Donors must set a blood group; recipients may skip it (they can add it later from profile)
+  const needsBloodGroup = role === "donor";
 
   const bloodGroupError = needsBloodGroup
     ? isBloodGroup(values.bloodGroup)

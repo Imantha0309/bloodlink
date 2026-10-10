@@ -316,6 +316,20 @@ exports.updateInventoryItem = function updateInventoryItem(dcOrVars, vars) {
 }
 ;
 
+const updatePushTokenRef = (dcOrVars, vars) => {
+  const { dc: dcInstance, vars: inputVars} = validateArgs(connectorConfig, dcOrVars, vars, true);
+  dcInstance._useGeneratedSdk();
+  return mutationRef(dcInstance, 'UpdatePushToken', inputVars);
+}
+updatePushTokenRef.operationName = 'UpdatePushToken';
+exports.updatePushTokenRef = updatePushTokenRef;
+
+exports.updatePushToken = function updatePushToken(dcOrVars, vars) {
+  const { dc: dcInstance, vars: inputVars } = validateArgs(connectorConfig, dcOrVars, vars, true);
+  return executeMutation(updatePushTokenRef(dcInstance, inputVars));
+}
+;
+
 const markAlertsReadRef = (dcOrVars, vars) => {
   const { dc: dcInstance, vars: inputVars} = validateArgs(connectorConfig, dcOrVars, vars);
   dcInstance._useGeneratedSdk();
@@ -341,7 +355,7 @@ exports.getMeRef = getMeRef;
 exports.getMe = function getMe(dcOrOptions, options) {
   
   const { dc: dcInstance, vars: inputVars, options: inputOpts } = validateArgsWithOptions(connectorConfig, dcOrOptions, options, undefined,false, false);
-  return executeQuery(getMeRef(dcInstance, inputVars), inputOpts && { fetchPolicy: inputOpts.fetchPolicy });
+  return executeQuery(getMeRef(dcInstance, inputVars), inputOpts && inputOpts.fetchPolicy);
 }
 ;
 
@@ -356,7 +370,7 @@ exports.listBloodBanksRef = listBloodBanksRef;
 exports.listBloodBanks = function listBloodBanks(dcOrOptions, options) {
   
   const { dc: dcInstance, vars: inputVars, options: inputOpts } = validateArgsWithOptions(connectorConfig, dcOrOptions, options, undefined,false, false);
-  return executeQuery(listBloodBanksRef(dcInstance, inputVars), inputOpts && { fetchPolicy: inputOpts.fetchPolicy });
+  return executeQuery(listBloodBanksRef(dcInstance, inputVars), inputOpts && inputOpts.fetchPolicy);
 }
 ;
 
@@ -371,7 +385,7 @@ exports.getBloodBankRef = getBloodBankRef;
 exports.getBloodBank = function getBloodBank(dcOrVars, varsOrOptions, options) {
   
   const { dc: dcInstance, vars: inputVars, options: inputOpts } = validateArgsWithOptions(connectorConfig, dcOrVars, varsOrOptions, options, true, true);
-  return executeQuery(getBloodBankRef(dcInstance, inputVars), inputOpts && { fetchPolicy: inputOpts.fetchPolicy });
+  return executeQuery(getBloodBankRef(dcInstance, inputVars), inputOpts && inputOpts.fetchPolicy);
 }
 ;
 
@@ -386,7 +400,7 @@ exports.getActiveDonorStatsRef = getActiveDonorStatsRef;
 exports.getActiveDonorStats = function getActiveDonorStats(dcOrOptions, options) {
   
   const { dc: dcInstance, vars: inputVars, options: inputOpts } = validateArgsWithOptions(connectorConfig, dcOrOptions, options, undefined,false, false);
-  return executeQuery(getActiveDonorStatsRef(dcInstance, inputVars), inputOpts && { fetchPolicy: inputOpts.fetchPolicy });
+  return executeQuery(getActiveDonorStatsRef(dcInstance, inputVars), inputOpts && inputOpts.fetchPolicy);
 }
 ;
 
@@ -401,7 +415,7 @@ exports.getEmergencyRequestRef = getEmergencyRequestRef;
 exports.getEmergencyRequest = function getEmergencyRequest(dcOrVars, varsOrOptions, options) {
   
   const { dc: dcInstance, vars: inputVars, options: inputOpts } = validateArgsWithOptions(connectorConfig, dcOrVars, varsOrOptions, options, true, true);
-  return executeQuery(getEmergencyRequestRef(dcInstance, inputVars), inputOpts && { fetchPolicy: inputOpts.fetchPolicy });
+  return executeQuery(getEmergencyRequestRef(dcInstance, inputVars), inputOpts && inputOpts.fetchPolicy);
 }
 ;
 
@@ -416,7 +430,7 @@ exports.listMyRequestsRef = listMyRequestsRef;
 exports.listMyRequests = function listMyRequests(dcOrOptions, options) {
   
   const { dc: dcInstance, vars: inputVars, options: inputOpts } = validateArgsWithOptions(connectorConfig, dcOrOptions, options, undefined,false, false);
-  return executeQuery(listMyRequestsRef(dcInstance, inputVars), inputOpts && { fetchPolicy: inputOpts.fetchPolicy });
+  return executeQuery(listMyRequestsRef(dcInstance, inputVars), inputOpts && inputOpts.fetchPolicy);
 }
 ;
 
@@ -431,7 +445,7 @@ exports.listDonorFeedRef = listDonorFeedRef;
 exports.listDonorFeed = function listDonorFeed(dcOrOptions, options) {
   
   const { dc: dcInstance, vars: inputVars, options: inputOpts } = validateArgsWithOptions(connectorConfig, dcOrOptions, options, undefined,false, false);
-  return executeQuery(listDonorFeedRef(dcInstance, inputVars), inputOpts && { fetchPolicy: inputOpts.fetchPolicy });
+  return executeQuery(listDonorFeedRef(dcInstance, inputVars), inputOpts && inputOpts.fetchPolicy);
 }
 ;
 
@@ -446,7 +460,7 @@ exports.listTriageQueueRef = listTriageQueueRef;
 exports.listTriageQueue = function listTriageQueue(dcOrOptions, options) {
   
   const { dc: dcInstance, vars: inputVars, options: inputOpts } = validateArgsWithOptions(connectorConfig, dcOrOptions, options, undefined,false, false);
-  return executeQuery(listTriageQueueRef(dcInstance, inputVars), inputOpts && { fetchPolicy: inputOpts.fetchPolicy });
+  return executeQuery(listTriageQueueRef(dcInstance, inputVars), inputOpts && inputOpts.fetchPolicy);
 }
 ;
 
@@ -461,7 +475,7 @@ exports.listDonorCommitmentsRef = listDonorCommitmentsRef;
 exports.listDonorCommitments = function listDonorCommitments(dcOrOptions, options) {
   
   const { dc: dcInstance, vars: inputVars, options: inputOpts } = validateArgsWithOptions(connectorConfig, dcOrOptions, options, undefined,false, false);
-  return executeQuery(listDonorCommitmentsRef(dcInstance, inputVars), inputOpts && { fetchPolicy: inputOpts.fetchPolicy });
+  return executeQuery(listDonorCommitmentsRef(dcInstance, inputVars), inputOpts && inputOpts.fetchPolicy);
 }
 ;
 
@@ -476,7 +490,7 @@ exports.listDonorResponsesRef = listDonorResponsesRef;
 exports.listDonorResponses = function listDonorResponses(dcOrOptions, options) {
   
   const { dc: dcInstance, vars: inputVars, options: inputOpts } = validateArgsWithOptions(connectorConfig, dcOrOptions, options, undefined,false, false);
-  return executeQuery(listDonorResponsesRef(dcInstance, inputVars), inputOpts && { fetchPolicy: inputOpts.fetchPolicy });
+  return executeQuery(listDonorResponsesRef(dcInstance, inputVars), inputOpts && inputOpts.fetchPolicy);
 }
 ;
 
@@ -491,7 +505,7 @@ exports.getDonorAvailabilityRef = getDonorAvailabilityRef;
 exports.getDonorAvailability = function getDonorAvailability(dcOrOptions, options) {
   
   const { dc: dcInstance, vars: inputVars, options: inputOpts } = validateArgsWithOptions(connectorConfig, dcOrOptions, options, undefined,false, false);
-  return executeQuery(getDonorAvailabilityRef(dcInstance, inputVars), inputOpts && { fetchPolicy: inputOpts.fetchPolicy });
+  return executeQuery(getDonorAvailabilityRef(dcInstance, inputVars), inputOpts && inputOpts.fetchPolicy);
 }
 ;
 
@@ -506,7 +520,7 @@ exports.searchDonorDirectoryRef = searchDonorDirectoryRef;
 exports.searchDonorDirectory = function searchDonorDirectory(dcOrVars, varsOrOptions, options) {
   
   const { dc: dcInstance, vars: inputVars, options: inputOpts } = validateArgsWithOptions(connectorConfig, dcOrVars, varsOrOptions, options, true, false);
-  return executeQuery(searchDonorDirectoryRef(dcInstance, inputVars), inputOpts && { fetchPolicy: inputOpts.fetchPolicy });
+  return executeQuery(searchDonorDirectoryRef(dcInstance, inputVars), inputOpts && inputOpts.fetchPolicy);
 }
 ;
 
@@ -521,7 +535,7 @@ exports.getHospitalInventoryRef = getHospitalInventoryRef;
 exports.getHospitalInventory = function getHospitalInventory(dcOrOptions, options) {
   
   const { dc: dcInstance, vars: inputVars, options: inputOpts } = validateArgsWithOptions(connectorConfig, dcOrOptions, options, undefined,false, false);
-  return executeQuery(getHospitalInventoryRef(dcInstance, inputVars), inputOpts && { fetchPolicy: inputOpts.fetchPolicy });
+  return executeQuery(getHospitalInventoryRef(dcInstance, inputVars), inputOpts && inputOpts.fetchPolicy);
 }
 ;
 
@@ -536,7 +550,7 @@ exports.getRequestCandidatesRef = getRequestCandidatesRef;
 exports.getRequestCandidates = function getRequestCandidates(dcOrVars, varsOrOptions, options) {
   
   const { dc: dcInstance, vars: inputVars, options: inputOpts } = validateArgsWithOptions(connectorConfig, dcOrVars, varsOrOptions, options, true, true);
-  return executeQuery(getRequestCandidatesRef(dcInstance, inputVars), inputOpts && { fetchPolicy: inputOpts.fetchPolicy });
+  return executeQuery(getRequestCandidatesRef(dcInstance, inputVars), inputOpts && inputOpts.fetchPolicy);
 }
 ;
 
@@ -551,7 +565,7 @@ exports.getRequestWorkflowRef = getRequestWorkflowRef;
 exports.getRequestWorkflow = function getRequestWorkflow(dcOrVars, varsOrOptions, options) {
   
   const { dc: dcInstance, vars: inputVars, options: inputOpts } = validateArgsWithOptions(connectorConfig, dcOrVars, varsOrOptions, options, true, true);
-  return executeQuery(getRequestWorkflowRef(dcInstance, inputVars), inputOpts && { fetchPolicy: inputOpts.fetchPolicy });
+  return executeQuery(getRequestWorkflowRef(dcInstance, inputVars), inputOpts && inputOpts.fetchPolicy);
 }
 ;
 
@@ -566,7 +580,7 @@ exports.getDonorCommitmentRef = getDonorCommitmentRef;
 exports.getDonorCommitment = function getDonorCommitment(dcOrVars, varsOrOptions, options) {
   
   const { dc: dcInstance, vars: inputVars, options: inputOpts } = validateArgsWithOptions(connectorConfig, dcOrVars, varsOrOptions, options, true, true);
-  return executeQuery(getDonorCommitmentRef(dcInstance, inputVars), inputOpts && { fetchPolicy: inputOpts.fetchPolicy });
+  return executeQuery(getDonorCommitmentRef(dcInstance, inputVars), inputOpts && inputOpts.fetchPolicy);
 }
 ;
 
@@ -581,7 +595,7 @@ exports.listAlertsRef = listAlertsRef;
 exports.listAlerts = function listAlerts(dcOrOptions, options) {
   
   const { dc: dcInstance, vars: inputVars, options: inputOpts } = validateArgsWithOptions(connectorConfig, dcOrOptions, options, undefined,false, false);
-  return executeQuery(listAlertsRef(dcInstance, inputVars), inputOpts && { fetchPolicy: inputOpts.fetchPolicy });
+  return executeQuery(listAlertsRef(dcInstance, inputVars), inputOpts && inputOpts.fetchPolicy);
 }
 ;
 
@@ -596,6 +610,6 @@ exports.getDashboardSummaryRef = getDashboardSummaryRef;
 exports.getDashboardSummary = function getDashboardSummary(dcOrOptions, options) {
   
   const { dc: dcInstance, vars: inputVars, options: inputOpts } = validateArgsWithOptions(connectorConfig, dcOrOptions, options, undefined,false, false);
-  return executeQuery(getDashboardSummaryRef(dcInstance, inputVars), inputOpts && { fetchPolicy: inputOpts.fetchPolicy });
+  return executeQuery(getDashboardSummaryRef(dcInstance, inputVars), inputOpts && inputOpts.fetchPolicy);
 }
 ;

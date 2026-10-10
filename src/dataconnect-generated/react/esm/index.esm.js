@@ -1,4 +1,4 @@
-import { createEmergencyRequestRef, createEmergencyRequestAsUserRef, updateRequestStatusRef, registerUserRef, updateDonorProfileRef, updateRecipientDistrictRef, respondToRequestRef, updateDonorResponseRef, deleteDonorResponseRef, setDonorAvailabilityRef, deleteDonorAvailabilityRef, startDonorTransitRef, createDonorCheckInTicketRef, verifyDonorCheckInRef, submitScreeningRef, startExtractionRef, completeExtractionRef, completeDonationCaseRef, updateInventoryItemRef, markAlertsReadRef, getMeRef, listBloodBanksRef, getBloodBankRef, getActiveDonorStatsRef, getEmergencyRequestRef, listMyRequestsRef, listDonorFeedRef, listTriageQueueRef, listDonorCommitmentsRef, listDonorResponsesRef, getDonorAvailabilityRef, searchDonorDirectoryRef, getHospitalInventoryRef, getRequestCandidatesRef, getRequestWorkflowRef, getDonorCommitmentRef, listAlertsRef, getDashboardSummaryRef, connectorConfig } from '../../esm/index.esm.js';
+import { createEmergencyRequestRef, createEmergencyRequestAsUserRef, updateRequestStatusRef, registerUserRef, updateDonorProfileRef, updateRecipientDistrictRef, respondToRequestRef, updateDonorResponseRef, deleteDonorResponseRef, setDonorAvailabilityRef, deleteDonorAvailabilityRef, startDonorTransitRef, createDonorCheckInTicketRef, verifyDonorCheckInRef, submitScreeningRef, startExtractionRef, completeExtractionRef, completeDonationCaseRef, updateInventoryItemRef, updatePushTokenRef, markAlertsReadRef, getMeRef, listBloodBanksRef, getBloodBankRef, getActiveDonorStatsRef, getEmergencyRequestRef, listMyRequestsRef, listDonorFeedRef, listTriageQueueRef, listDonorCommitmentsRef, listDonorResponsesRef, getDonorAvailabilityRef, searchDonorDirectoryRef, getHospitalInventoryRef, getRequestCandidatesRef, getRequestWorkflowRef, getDonorCommitmentRef, listAlertsRef, getDashboardSummaryRef, connectorConfig } from '../../esm/index.esm.js';
 import { validateArgs, CallerSdkTypeEnum } from 'firebase/data-connect';
 import { useDataConnectQuery, useDataConnectMutation, validateReactArgs } from '@tanstack-query-firebase/react/data-connect';
 
@@ -150,6 +150,14 @@ export function useUpdateInventoryItem(dcOrOptions, options) {
   const { dc: dcInstance, vars: inputOpts } = validateArgs(connectorConfig, dcOrOptions, options);
   function refFactory(vars) {
     return updateInventoryItemRef(dcInstance, vars);
+  }
+  return useDataConnectMutation(refFactory, inputOpts, CallerSdkTypeEnum.GeneratedReact);
+}
+
+export function useUpdatePushToken(dcOrOptions, options) {
+  const { dc: dcInstance, vars: inputOpts } = validateArgs(connectorConfig, dcOrOptions, options);
+  function refFactory(vars) {
+    return updatePushTokenRef(dcInstance, vars);
   }
   return useDataConnectMutation(refFactory, inputOpts, CallerSdkTypeEnum.GeneratedReact);
 }

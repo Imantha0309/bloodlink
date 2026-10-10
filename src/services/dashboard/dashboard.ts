@@ -10,7 +10,7 @@ import { ApiError } from "@/services/api/errors";
 import { loadSession } from "@/services/auth/session";
 import type { UserRole } from "@/services/auth/types";
 import { toApiError } from "@/services/dataconnect/errors";
-import { app } from "@/services/firebase";
+import { app, USE_EMULATORS } from "@/services/firebase";
 import {
     listEmergencyRequests,
     type EmergencyRequest,
@@ -154,16 +154,19 @@ export async function setDonorAvailability(isAvailable: boolean): Promise<DonorA
     }
 
     // Sync availability to Firestore push_tokens so the notifyDonors function
-    // respects paused donors — non-blocking
-    void (async () => {
-      try {
-        const fns = getFunctions(app);
-        const update = httpsCallable(fns, "updateTokenAvailability");
-        await update({ isAvailable });
-      } catch {
-        // Best-effort; Data Connect is the source of truth for availability
-      }
-    })();
+    // respects paused donors — non-blocking, and skipped entirely in emulator
+    // mode where that function cannot exist.
+    if (!USE_EMULATORS) {
+      void (async () => {
+        try {
+          const fns = getFunctions(app);
+          const update = httpsCallable(fns, "updateTokenAvailability");
+          await update({ isAvailable });
+        } catch {
+          // Best-effort; Data Connect is the source of truth for availability
+        }
+      })();
+    }
 
     return {
       isAvailable,

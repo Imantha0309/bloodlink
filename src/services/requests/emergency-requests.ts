@@ -14,7 +14,7 @@ import { ApiError } from "@/services/api/errors";
 import { loadSession } from "@/services/auth/session";
 import type { UserRole } from "@/services/auth/types";
 import { toApiError } from "@/services/dataconnect/errors";
-import { app } from "@/services/firebase";
+import { app, USE_EMULATORS } from "@/services/firebase";
 import {
   createEmergencyRequestAsUser,
   createEmergencyRequest as createRequestPublic,
@@ -215,9 +215,16 @@ export async function createEmergencyRequest(input: EmergencyRequestInput): Prom
 /**
  * Calls the `notifyDonors` Cloud Function to fan-out FCM push notifications
  * to all compatible available donors. Non-blocking fire-and-forget.
+ *
+ * A no-op in emulator mode — the function is not deployed there and FCM cannot
+ * deliver locally. Matching donors still receive an in-app alert, because that
+ * row is written by SQL inside the Data Connect mutation itself.
  */
 async function notifyDonorsViaPush(request: EmergencyRequest): Promise<void> {
   try {
+    if (USE_EMULATORS) {
+      return;
+    }
     const fns = getFunctions(app);
     const notify = httpsCallable(fns, "notifyDonors");
     await notify({

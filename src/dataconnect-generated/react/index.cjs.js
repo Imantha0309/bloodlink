@@ -1,4 +1,4 @@
-const { createEmergencyRequestRef, createEmergencyRequestAsUserRef, updateRequestStatusRef, registerUserRef, updateDonorProfileRef, updateRecipientDistrictRef, respondToRequestRef, updateDonorResponseRef, deleteDonorResponseRef, setDonorAvailabilityRef, deleteDonorAvailabilityRef, startDonorTransitRef, createDonorCheckInTicketRef, verifyDonorCheckInRef, submitScreeningRef, startExtractionRef, completeExtractionRef, completeDonationCaseRef, updateInventoryItemRef, markAlertsReadRef, getMeRef, listBloodBanksRef, getBloodBankRef, getActiveDonorStatsRef, getEmergencyRequestRef, listMyRequestsRef, listDonorFeedRef, listTriageQueueRef, listDonorCommitmentsRef, listDonorResponsesRef, getDonorAvailabilityRef, searchDonorDirectoryRef, getHospitalInventoryRef, getRequestCandidatesRef, getRequestWorkflowRef, getDonorCommitmentRef, listAlertsRef, getDashboardSummaryRef, connectorConfig } = require('../index.cjs.js');
+const { createEmergencyRequestRef, createEmergencyRequestAsUserRef, updateRequestStatusRef, registerUserRef, updateDonorProfileRef, updateRecipientDistrictRef, respondToRequestRef, updateDonorResponseRef, deleteDonorResponseRef, setDonorAvailabilityRef, deleteDonorAvailabilityRef, startDonorTransitRef, createDonorCheckInTicketRef, verifyDonorCheckInRef, submitScreeningRef, startExtractionRef, completeExtractionRef, completeDonationCaseRef, updateInventoryItemRef, updatePushTokenRef, markAlertsReadRef, getMeRef, listBloodBanksRef, getBloodBankRef, getActiveDonorStatsRef, getEmergencyRequestRef, listMyRequestsRef, listDonorFeedRef, listTriageQueueRef, listDonorCommitmentsRef, listDonorResponsesRef, getDonorAvailabilityRef, searchDonorDirectoryRef, getHospitalInventoryRef, getRequestCandidatesRef, getRequestWorkflowRef, getDonorCommitmentRef, listAlertsRef, getDashboardSummaryRef, connectorConfig } = require('../index.cjs.js');
 const { validateArgs, CallerSdkTypeEnum } = require('firebase/data-connect');
 const { useDataConnectQuery, useDataConnectMutation, validateReactArgs } = require('@tanstack-query-firebase/react/data-connect');
 
@@ -150,6 +150,14 @@ exports.useUpdateInventoryItem = function useUpdateInventoryItem(dcOrOptions, op
   const { dc: dcInstance, vars: inputOpts } = validateArgs(connectorConfig, dcOrOptions, options);
   function refFactory(vars) {
     return updateInventoryItemRef(dcInstance, vars);
+  }
+  return useDataConnectMutation(refFactory, inputOpts, CallerSdkTypeEnum.GeneratedReact);
+}
+
+exports.useUpdatePushToken = function useUpdatePushToken(dcOrOptions, options) {
+  const { dc: dcInstance, vars: inputOpts } = validateArgs(connectorConfig, dcOrOptions, options);
+  function refFactory(vars) {
+    return updatePushTokenRef(dcInstance, vars);
   }
   return useDataConnectMutation(refFactory, inputOpts, CallerSdkTypeEnum.GeneratedReact);
 }

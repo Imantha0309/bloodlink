@@ -343,7 +343,7 @@ export interface UpdateDonorProfileData {
       uid: string;
     } & User_Key)[];
   };
-  updated?: unknown | null;
+    updated?: unknown | null;
 }
 
 export interface UpdateDonorProfileVariables {
@@ -372,6 +372,14 @@ export interface UpdateInventoryItemVariables {
   bloodGroup: string;
   component: BloodComponent;
   units: number;
+}
+
+export interface UpdatePushTokenData {
+  updated?: number | null;
+}
+
+export interface UpdatePushTokenVariables {
+  token: string;
 }
 
 export interface UpdateRecipientDistrictData {
@@ -635,6 +643,18 @@ export const updateInventoryItemRef: UpdateInventoryItemRef;
 
 export function updateInventoryItem(vars: UpdateInventoryItemVariables): MutationPromise<UpdateInventoryItemData, UpdateInventoryItemVariables>;
 export function updateInventoryItem(dc: DataConnect, vars: UpdateInventoryItemVariables): MutationPromise<UpdateInventoryItemData, UpdateInventoryItemVariables>;
+
+interface UpdatePushTokenRef {
+  /* Allow users to create refs without passing in DataConnect */
+  (vars: UpdatePushTokenVariables): MutationRef<UpdatePushTokenData, UpdatePushTokenVariables>;
+  /* Allow users to pass in custom DataConnect instances */
+  (dc: DataConnect, vars: UpdatePushTokenVariables): MutationRef<UpdatePushTokenData, UpdatePushTokenVariables>;
+  operationName: string;
+}
+export const updatePushTokenRef: UpdatePushTokenRef;
+
+export function updatePushToken(vars: UpdatePushTokenVariables): MutationPromise<UpdatePushTokenData, UpdatePushTokenVariables>;
+export function updatePushToken(dc: DataConnect, vars: UpdatePushTokenVariables): MutationPromise<UpdatePushTokenData, UpdatePushTokenVariables>;
 
 interface MarkAlertsReadRef {
   /* Allow users to create refs without passing in DataConnect */

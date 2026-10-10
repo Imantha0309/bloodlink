@@ -219,29 +219,37 @@ notifications — Firebase console → Project Settings → Cloud Messaging.
 Only non-secret values belong in this file: anything prefixed `EXPO_PUBLIC_` is
 compiled into the shipped bundle and is readable by anyone with the app.
 
-### 3. Deploy the backend (only if it is not already up)
+### 3. Start the local emulators
 
-The app talks to the **deployed** Firebase project — it has no emulator wiring,
-so nothing in this step is needed when the backend is already published. For
-`bloodlink-c75d7` the Data Connect schema and the `default` connector are
-already deployed.
-
-Cloud Functions are **not** deployed yet, so push notifications stay inert
-until you publish them:
+The app runs entirely on the Firebase emulator suite, so **no Blaze plan is
+required**:
 
 ```bash
-cd functions && npm ci
-cd .. && firebase deploy --only functions
+npm run emulators
 ```
 
-After changing anything under `dataconnect/`, publish the schema as well:
+That serves:
+
+| Service | Port | Provides |
+|---|---|---|
+| Authentication | 9099 | local sign-in — no real Firebase Auth users needed |
+| Data Connect | 9399 | Postgres in PGlite, schema applied automatically |
+
+The schema is compiled from `dataconnect/` on every start and **persisted** to
+`dataconnect/.dataconnect/`. To wipe it, delete that directory.
+
+Seed the reference data (blood banks and inventory) once:
 
 ```bash
-firebase deploy --only dataconnect
+npm install --no-save pg
+npm run seed
 ```
 
-Deploying needs Blaze billing. This project already has it — it is backed by a
-Cloud SQL instance.
+`pg` is not a project dependency — `npm run seed` needs it only to talk to the
+emulator's Postgres directly, and `--no-save` keeps it out of `package.json`.
+
+The seed is safe to rerun; every statement upserts by primary key. It does not
+create Auth identities or user profiles — registering in the app does that.
 
 ### 4. Start the app
 
@@ -251,8 +259,7 @@ From the repository root:
 npm start -- --clear
 ```
 
-Then press `a` to launch the Android emulator, or scan the QR code with Expo
-Go.
+Then press `a` to launch the Android emulator, or scan the QR with Expo Go.
 
 Metro uses port `8082` so Expo Go does not accidentally connect to another
 service occupying the default port `8081`.
@@ -262,14 +269,19 @@ service occupying the default port `8081`.
 
 ## Everyday start
 
-One command, from the repository root:
+Two commands, two terminals:
 
 ```bash
+# terminal 1 — emulators
+npm run emulators
+```
+
+```bash
+# terminal 2 — app
 npm start
 ```
 
-Metro serves on port `8082`. Nothing else needs to be running — the app reads
-the deployed Firebase project, not a local server.
+Re-run `npm run seed` only when you want to reset the reference data.
 
 ## Signing in
 
@@ -297,26 +309,54 @@ step, which makes a new account fully self-provisioning.
 
 ## Talking to Firebase
 
-The app reaches Firebase over the public internet, so the same build works on an
-emulator, a simulator and a physical device with no per-target configuration.
-There is no LAN IP to discover and no host firewall to open.
+Two modes, switched by one flag. Everything else — project, connector, config —
+comes from `.env` (see [Setup step 2](#2-create-the-environment-file)).
 
-Everything comes from `.env` (see [Setup step 2](#2-create-the-environment-file)).
-`.firebaserc` selects the project — currently `bloodlink-c75d7`. Run
-`firebase use` to switch.
+| `EXPO_PUBLIC_USE_EMULATORS` | Talks to | Needs Blaze |
+|---|---|---|
+| `true` (default) | Local emulator suite | No |
+| `false` | Deployed project `bloodlink-c75d7` | Yes |
 
-**The app does not talk to the Firebase emulators.** There are no
-`connectAuthEmulator`, `useEmulator` or `*_EMULATOR_HOST` calls anywhere in
-`src/`, so the bundle always targets the deployed project even while the
-emulator suite is running. `firebase.json` configures emulators for functions,
-firestore and dataconnect — but no auth emulator at all, so there would be no
-local users to sign in as either. Pointing the app at the emulators is a code
-change in `src/services/firebase.ts`, not a configuration flag.
+The wiring lives in one place, `src/services/firebase.ts`:
 
-Cloud Functions are **not** deployed yet, so `savePushToken` and the donor
-fan-out will not resolve. Push registration is wrapped in a non-blocking
-`try/catch`, so sign-in still succeeds — you just get no notifications. See
-[Setup step 3](#3-deploy-the-backend-only-if-it-is-not-already-up).
+```ts
+if (USE_EMULATORS) {
+  FirebaseAuth.connectAuthEmulator(auth, `http://${host}:9099`, ...);
+  connectDataConnectEmulator(getDataConnect(connectorConfig), host, 9399);
+}
+```
+
+One `connectDataConnectEmulator` call redirects the whole connector: every
+generated operation resolves its instance through
+`validateArgs(connectorConfig, ...)`, which falls back to that same cached
+singleton. No service module knows the emulators exist.
+
+`EXPO_PUBLIC_EMULATOR_HOST` depends on where the app runs:
+
+| Target | Value |
+|---|---|
+| Android emulator | `10.0.2.2` |
+| iOS simulator / web | `localhost` |
+| Physical device | your machine's LAN IPv4 (`ipconfig`) |
+
+### Push notifications do not work locally
+
+`savePushToken`, `notifyDonors` and `updateTokenAvailability` are Cloud
+Functions, and this project is on the Spark plan, so they cannot be deployed.
+FCM is also a deliberate no-op in the emulator. The app detects emulator mode
+and skips all three call sites rather than attempting doomed round-trips.
+
+Nothing is lost: the alert row is written by SQL *inside* the Data Connect
+mutation (`INSERT INTO alerts ... 'new_match'` in
+`dataconnect/default/mutations.gql`), so matching donors still get an in-app
+alert. Push only adds delivery while the app is closed.
+
+To deploy the functions later, upgrade to Blaze and run:
+
+```bash
+cd functions && npm ci
+cd .. && firebase deploy --only functions
+```
 
 ## What works
 
@@ -374,38 +414,46 @@ cd functions && npm run typecheck
 
 ## Troubleshooting
 
-**Reads fail immediately after the app starts** — the backend is unreachable, or
-`.env` is incomplete. The app always hits the deployed project, so check that
-`.firebaserc` selects the project you think and that all six
-`EXPO_PUBLIC_FIREBASE_*` values in `.env` are populated. The emulator suite is
-irrelevant here — the app never connects to it.
+**Reads fail immediately after the app starts** — the emulator suite is not
+running. In emulator mode every read goes through it. Check `npm run emulators`
+reports both services ready, and that `EXPO_PUBLIC_EMULATOR_HOST` matches where
+the app is running (`10.0.2.2` on an Android emulator, not `localhost`).
 
-**Sign-in fails with "This account has no profile yet"** — the Firebase Auth
-user exists but has no matching Data Connect `users` row. Registering through
-the app creates both; if you created the user by hand in the Firebase console
-you will also need to insert the profile row yourself.
+**`npm run seed` fails with `Cannot find package 'pg'`** — the seed helper needs
+a Postgres client that is deliberately not a project dependency:
+`npm install --no-save pg`.
 
-**Dev credentials panel fills the form but sign-in fails** — those four
-accounts are fixtures, not real Auth identities. See
-[Signing in](#signing-in).
+**`npm run seed` fails with `connection refused`** — the emulator is not running.
+Start `npm run emulators` first.
 
-**`users.push_token` is missing from the deployed database** — the live Postgres
-is behind `dataconnect/schema/schema.gql`, which declares `pushToken: String`.
-`firebase dataconnect:sql:diff` reports the pending delta as a single
-`ALTER TABLE "public"."users" ADD COLUMN "push_token" text NULL`.
+**Blood bank screens are empty** — the seed has not been applied. Run
+`npm run seed` once after the first emulator start.
 
-This is dormant rather than broken: no query in `queries.gql` selects the
-column and the `UpdatePushToken` mutation is not called from app code, so
-sign-in and every read are unaffected. Close the drift whenever you like with
-`firebase deploy --only dataconnect` (Blaze already active on this project).
+**Sign-in fails with "This account has no profile yet"** — the Auth user exists
+but has no matching Data Connect `users` row. Registering through the app creates
+both; if you created the user by hand you will also need to insert the profile
+row yourself.
+
+**Dev credentials panel fills the form but sign-in fails** — those four accounts
+are fixtures with no Auth identity behind them. Register instead; the Auth
+emulator accepts any new signup. See [Signing in](#signing-in).
+
+**Alert counts are zero after seeding** — expected. The seed's alert rows are
+`SELECT ... FROM users WHERE mobile = ...`, so they attach to nothing until a
+matching account exists. Re-run `npm run seed` after registering.
+
+**`users.push_token` missing from the *deployed* database** — only affects
+deployed mode. The local PGlite database is built from `schema.gql` and always
+has the column. Close the deployed drift with `firebase deploy --only dataconnect`
+if you ever move off the Spark plan.
 
 **Changed `.env` and nothing happened** — Metro inlines `EXPO_PUBLIC_*` at build
 time. Restart with `npm start -- --clear`.
 
 **`Cannot query field "..." on type "..._KeyOutput"`** — a Data Connect schema and
-connector have drifted apart. Publish the schema with
-`firebase deploy --only dataconnect`, then regenerate the SDK with
-`npx firebase-tools dataconnect:sdk:generate`.
+connector have drifted apart. Regenerate the SDK with
+`npx firebase-tools dataconnect:sdk:generate` and restart the emulator so the
+schema recompiles.
 
 **Data Connect queries fail at runtime with a type error** — `src/dataconnect-generated/`
 is stale. Regenerate it rather than hand-editing; it is build output.
@@ -419,6 +467,9 @@ packages have independent lockfiles.
 
 ## Before deploying anything
 
+- [ ] `EXPO_PUBLIC_USE_EMULATORS` must be `false` in any build you ship. A
+      production bundle pointed at the emulator would register users in a local
+      database that nobody else can reach
 - [ ] Regenerate `src/dataconnect-generated/` and confirm it is committed in
       step with `dataconnect/`, or a fresh clone will not typecheck
 - [ ] `src/services/auth/demo-accounts.ts` ships four accounts with public
@@ -429,10 +480,9 @@ packages have independent lockfiles.
 - [ ] Review `firestore.rules` and `firestore.indexes.json`. The composite index
       on `push_tokens` is required by the `notifyDonors` fan-out query and will
       only fail at runtime in production, not in the emulator
-- [ ] The emulator suite is configured in `firebase.json` but the app is not
-      wired to it, so nothing you test against the emulators reflects what the
-      app actually does. Treat deployed behaviour as the only source of truth
-      until that wiring exists
+- [ ] Push is untested end to end. Functions cannot be deployed on the Spark
+      plan and FCM is a no-op in the emulator, so no notification has ever been
+      delivered. Treat it as unproven until both are fixed
 - [ ] Nothing in `firebase.json` should be deployed without a deliberate review
       of `dataconnect.yaml` and the connector permissions in
       `dataconnect/default/`

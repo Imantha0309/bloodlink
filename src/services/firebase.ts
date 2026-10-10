@@ -11,7 +11,10 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { initializeApp, type FirebaseApp } from "firebase/app";
 import * as FirebaseAuth from "firebase/auth";
 import { getAuth, initializeAuth, type Auth, type Persistence } from "firebase/auth";
+import { connectDataConnectEmulator, getDataConnect } from "firebase/data-connect";
 import { Platform } from "react-native";
+
+import { connectorConfig } from "@dataconnect/generated";
 
 const firebaseConfig = {
   apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY ?? "",
@@ -43,3 +46,31 @@ export const auth: Auth =
   Platform.OS === "web"
     ? getAuth(app)
     : initializeAuth(app, { persistence: getReactNativePersistence(AsyncStorage) });
+
+/**
+ * Emulator wiring.
+ *
+ * Off by default: with no flag the bundle talks to the deployed project. Turn it
+ * on with `EXPO_PUBLIC_USE_EMULATORS=true` to run entirely on the local
+ * emulator suite, which needs no Blaze plan.
+ *
+ * `connectAuthEmulator` throws if called twice, which is why this lives at module
+ * scope right after `auth` is built rather than behind a helper.
+ *
+ * One `connectDataConnectEmulator` call redirects the whole connector: every
+ * generated operation resolves its DataConnect instance through
+ * `validateArgs(connectorConfig, ...)`, which falls back to this same cached
+ * singleton. No service module needs to know the emulators exist.
+ */
+export const USE_EMULATORS = process.env.EXPO_PUBLIC_USE_EMULATORS === "true";
+
+if (USE_EMULATORS) {
+  // Android emulators reach the host loopback as 10.0.2.2; simulators and web
+  // use localhost; a physical device needs the machine's LAN IPv4.
+  const host = process.env.EXPO_PUBLIC_EMULATOR_HOST ?? "localhost";
+
+  FirebaseAuth.connectAuthEmulator(auth, `http://${host}:9099`, {
+    disableWarnings: true,
+  });
+  connectDataConnectEmulator(getDataConnect(connectorConfig), host, 9399);
+}

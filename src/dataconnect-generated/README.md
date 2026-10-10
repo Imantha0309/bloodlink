@@ -48,6 +48,7 @@ This README will guide you through the process of using the generated JavaScript
   - [*CompleteExtraction*](#completeextraction)
   - [*CompleteDonationCase*](#completedonationcase)
   - [*UpdateInventoryItem*](#updateinventoryitem)
+  - [*UpdatePushToken*](#updatepushtoken)
   - [*MarkAlertsRead*](#markalertsread)
 
 # Accessing the connector
@@ -2458,7 +2459,7 @@ export interface UpdateDonorProfileData {
       uid: string;
     } & User_Key)[];
   };
-  updated?: unknown | null;
+    updated?: unknown | null;
 }
 ```
 ### Using `UpdateDonorProfile`'s action shortcut function
@@ -4106,6 +4107,115 @@ console.log(data.inventory);
 executeMutation(ref).then((response) => {
   const data = response.data;
   console.log(data.inventory);
+});
+```
+
+## UpdatePushToken
+You can execute the `UpdatePushToken` mutation using the following action shortcut function, or by calling `executeMutation()` after calling the following `MutationRef` function, both of which are defined in [dataconnect-generated/index.d.ts](./index.d.ts):
+```typescript
+updatePushToken(vars: UpdatePushTokenVariables): MutationPromise<UpdatePushTokenData, UpdatePushTokenVariables>;
+
+interface UpdatePushTokenRef {
+  ...
+  /* Allow users to create refs without passing in DataConnect */
+  (vars: UpdatePushTokenVariables): MutationRef<UpdatePushTokenData, UpdatePushTokenVariables>;
+}
+export const updatePushTokenRef: UpdatePushTokenRef;
+```
+You can also pass in a `DataConnect` instance to the action shortcut function or `MutationRef` function.
+```typescript
+updatePushToken(dc: DataConnect, vars: UpdatePushTokenVariables): MutationPromise<UpdatePushTokenData, UpdatePushTokenVariables>;
+
+interface UpdatePushTokenRef {
+  ...
+  (dc: DataConnect, vars: UpdatePushTokenVariables): MutationRef<UpdatePushTokenData, UpdatePushTokenVariables>;
+}
+export const updatePushTokenRef: UpdatePushTokenRef;
+```
+
+If you need the name of the operation without creating a ref, you can retrieve the operation name by calling the `operationName` property on the updatePushTokenRef:
+```typescript
+const name = updatePushTokenRef.operationName;
+console.log(name);
+```
+
+### Variables
+The `UpdatePushToken` mutation requires an argument of type `UpdatePushTokenVariables`, which is defined in [dataconnect-generated/index.d.ts](./index.d.ts). It has the following fields:
+
+```typescript
+export interface UpdatePushTokenVariables {
+  token: string;
+}
+```
+### Return Type
+Recall that executing the `UpdatePushToken` mutation returns a `MutationPromise` that resolves to an object with a `data` property.
+
+The `data` property is an object of type `UpdatePushTokenData`, which is defined in [dataconnect-generated/index.d.ts](./index.d.ts). It has the following fields:
+```typescript
+export interface UpdatePushTokenData {
+  updated?: number | null;
+}
+```
+### Using `UpdatePushToken`'s action shortcut function
+
+```typescript
+import { getDataConnect } from 'firebase/data-connect';
+import { connectorConfig, updatePushToken, UpdatePushTokenVariables } from '@dataconnect/generated';
+
+// The `UpdatePushToken` mutation requires an argument of type `UpdatePushTokenVariables`:
+const updatePushTokenVars: UpdatePushTokenVariables = {
+  token: ..., 
+};
+
+// Call the `updatePushToken()` function to execute the mutation.
+// You can use the `await` keyword to wait for the promise to resolve.
+const { data } = await updatePushToken(updatePushTokenVars);
+// Variables can be defined inline as well.
+const { data } = await updatePushToken({ token: ..., });
+
+// You can also pass in a `DataConnect` instance to the action shortcut function.
+const dataConnect = getDataConnect(connectorConfig);
+const { data } = await updatePushToken(dataConnect, updatePushTokenVars);
+
+console.log(data.updated);
+
+// Or, you can use the `Promise` API.
+updatePushToken(updatePushTokenVars).then((response) => {
+  const data = response.data;
+  console.log(data.updated);
+});
+```
+
+### Using `UpdatePushToken`'s `MutationRef` function
+
+```typescript
+import { getDataConnect, executeMutation } from 'firebase/data-connect';
+import { connectorConfig, updatePushTokenRef, UpdatePushTokenVariables } from '@dataconnect/generated';
+
+// The `UpdatePushToken` mutation requires an argument of type `UpdatePushTokenVariables`:
+const updatePushTokenVars: UpdatePushTokenVariables = {
+  token: ..., 
+};
+
+// Call the `updatePushTokenRef()` function to get a reference to the mutation.
+const ref = updatePushTokenRef(updatePushTokenVars);
+// Variables can be defined inline as well.
+const ref = updatePushTokenRef({ token: ..., });
+
+// You can also pass in a `DataConnect` instance to the `MutationRef` function.
+const dataConnect = getDataConnect(connectorConfig);
+const ref = updatePushTokenRef(dataConnect, updatePushTokenVars);
+
+// Call `executeMutation()` on the reference to execute the mutation.
+// You can use the `await` keyword to wait for the promise to resolve.
+const { data } = await executeMutation(ref);
+
+console.log(data.updated);
+
+// Or, you can use the `Promise` API.
+executeMutation(ref).then((response) => {
+  const data = response.data;
+  console.log(data.updated);
 });
 ```
 

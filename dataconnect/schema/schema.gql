@@ -1,6 +1,6 @@
 # BloodLink — Firebase SQL Connect schema.
 #
-# Ported from the retired Express + SQLite backend (`server/src/db.ts`).
+# Ported from the retired Express + SQLite backend.
 # The `sessions` and `password_resets` tables are intentionally absent —
 # Firebase Auth owns those concerns now.
 #

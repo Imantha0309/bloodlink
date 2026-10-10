@@ -1,6 +1,6 @@
 /**
  * Contact-identity helpers shared by the login form, validation rules and the
- * mock auth adapter.
+ * auth adapter.
  *
  * Sri Lanka only: a valid mobile is `07XXXXXXXX` locally or `+947XXXXXXXX`
  * internationally. Everything is normalised to the local `07XXXXXXXX` form so

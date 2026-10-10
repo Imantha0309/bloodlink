@@ -19,21 +19,6 @@ export type ApiErrorCode =
   | "unauthorized"
   | "unknown";
 
-const API_ERROR_CODES: readonly string[] = [
-  "invalid_credentials",
-  "network",
-  "account_locked",
-  "validation",
-  "not_found",
-  "conflict",
-  "unauthorized",
-  "unknown",
-];
-
-export function isApiErrorCode(value: unknown): value is ApiErrorCode {
-  return typeof value === "string" && API_ERROR_CODES.includes(value);
-}
-
 export class ApiError extends Error {
   readonly code: ApiErrorCode;
 

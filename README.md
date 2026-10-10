@@ -116,35 +116,46 @@ All 25 districts mapped to their 9 provinces, local mobile formats
 |---|---|---|
 | [Expo](https://expo.dev) | SDK 57 | Build tooling, native modules, dev server |
 | [React Native](https://reactnative.dev) | 0.86.3 | The UI runtime |
-| [React](https://react.dev) | 19.2.3 | Components. React Compiler is **on** |
+| [React](https://react.dev) | 19.2.3 | Components |
 | [TypeScript](https://www.typescriptlang.org) | 6.0 | Types, `strict` |
 | [expo-router](https://docs.expo.dev/router/introduction/) | 57 | File-based routing + typed routes |
 | [expo-router `Stack.Protected`](https://docs.expo.dev/router/advanced/protected/) | — | Route guards that make a signed-out user's dashboard unreachable, not merely hidden |
 | [AsyncStorage](https://react-native-async-storage.github.io/async-storage/) | 2.2 | Session persistence across launches |
 | [@expo/vector-icons](https://icons.expo.fyi) | 15 | Feather icon set throughout |
-| [ESLint](https://eslint.org) + `eslint-config-expo` | 9 | Lint, including the React Compiler rules |
+| [ESLint](https://eslint.org) + `eslint-config-expo` | 9 | Lint |
 
-### Server — [`server/`](server/README.md)
+### Backend — Firebase
 
-| Technology | Version | Role |
-|---|---|---|
-| [Node.js](https://nodejs.org) | 22.5+ | Runtime |
-| [Express](https://expressjs.com) | 4 | HTTP layer |
-| [SQLite](https://sqlite.org) via `better-sqlite3` | 12 | Storage — a single file, no database server to run |
-| [Zod](https://zod.dev) | 3 | Request validation, one schema per endpoint |
-| [`node:crypto`](https://nodejs.org/api/crypto.html) | — | `scrypt` password hashing, SHA-256 token hashing |
-| [tsx](https://tsx.is) | 4 | Runs TypeScript directly — **no build step** |
+| Technology | Role |
+|---|---|
+| [Firebase JS SDK](https://firebase.google.com/docs/web/setup) 13 | Client SDK — Auth and callable Functions |
+| [Firebase Authentication](https://firebase.google.com/docs/auth) | Sign-in, registration, password reset, token lifecycle |
+| [Data Connect](https://firebase.google.com/docs/data-connect) | All domain data — donors, requests, donations, inventory, alerts — through generated GraphQL types |
+| [Cloud Functions](https://firebase.google.com/docs/functions) (Node 20) | FCM fan-out: `savePushToken`, `notifyDonors`, `updateTokenAvailability` |
+| [Cloud Firestore](https://firebase.google.com/docs/firestore) | Server-side-only `push_tokens` registry that the fan-out queries |
+| Postgres via Cloud SQL, `us-east4` | The database behind Data Connect |
+
+`src/dataconnect-generated/` is generated from `dataconnect/`. After changing the
+schema or a connector, regenerate it:
+
+```bash
+npx firebase-tools dataconnect:sdk:generate
+```
 
 ### Design decisions worth knowing
 
-- **Two interchangeable auth adapters.** `AuthService` has an HTTP implementation
-  and an in-memory mock, and `EXPO_PUBLIC_API_URL` decides which one is built.
-  With it unset the app still runs end to end against fixtures, which is why
-  swapping backends touched no screen code.
+- **Auth belongs to Firebase, not the app.** `AuthService` wraps Firebase Auth
+  behind an interface, so screens never touch the SDK directly and Firebase owns
+  credentials, token refresh and revocation.
+- **Domain data goes through Data Connect, not Firestore.** Firestore appears
+  exactly once and only server-side, for `push_tokens` — see
+  [`firestore.rules`](firestore.rules) and the composite index in
+  [`firestore.indexes.json`](firestore.indexes.json) that the fan-out query
+  depends on.
 - **No hardcoded data in screens.** Everything goes through `src/services`;
   components never call `fetch`.
-- **Sessions over JWTs.** Opaque tokens need no dependency and can be revoked
-  on sign-out, which matters more than statelessness for medical data.
+- **No API base URL.** The app talks to Firebase services directly, so there is
+  nothing to point at a LAN address.
 
 ---
 
@@ -154,28 +165,24 @@ Install these before anything else:
 
 | Tool | Version | Needed for |
 |---|---|---|
-| [Node.js](https://nodejs.org) | **22.5 or newer** (24.x tested) | both the app and the server. The server uses a SQLite driver that will not install on older Node |
+| [Node.js](https://nodejs.org) | **22.13 or newer** | the app and the Cloud Functions toolchain |
 | npm | bundled with Node | |
+| [Firebase CLI](https://firebase.google.com/docs/cli) | latest | Data Connect, the emulator suite, deploys |
 | [Android Studio](https://developer.android.com/studio) + an AVD | any recent | the default run target (emulator) |
 | JDK 17 | | required by the Android build tooling |
-
-No Java SDK is needed for the **server** — it is plain Node.
 
 Verify before you start:
 
 ```bash
-node -v      # must be v22.5.0 or higher
+node -v          # must be v22.13.0 or higher
 npm -v
+firebase --version
 ```
-
-If `node -v` reports anything below 22.5, upgrade before continuing;
-`npm install` inside `server/` will fail on a native module with a confusing
-node-gyp error rather than telling you the version is the problem.
 
 ## Setup
 
 Everything below is first-time setup. Once it is done, day-to-day running is
-just the two `dev` / `start` commands — see [Everyday start](#everyday-start).
+just `npm start` — see [Everyday start](#everyday-start).
 
 ### 1. Install the app's dependencies
 
@@ -185,79 +192,75 @@ From the repository root:
 npm install
 ```
 
+The Cloud Functions package installs separately:
+
+```bash
+cd functions && npm ci
+```
+
 ### 2. Create the environment file
 
-The app reads its API location from `.env`, which is gitignored, so it does not
-exist on a fresh clone. Copy the template:
+The app reads its Firebase config from `.env`, which is gitignored, so it does
+not exist on a fresh clone. Copy the template:
 
 ```bash
 cp .env.example .env        # PowerShell: Copy-Item .env.example .env
 ```
 
-The default works as-is for the Android emulator. See
-[Pointing the app at the API](#pointing-the-app-at-the-api) for the other
-targets.
-
-### 3. Install and seed the backend
-
-`server/` is a separate package with its own dependencies. The API must be
-seeded at least once or there will be no accounts to sign in with:
+Fill in the Firebase Web App values. Get them with:
 
 ```bash
-cd server
-npm install
-npm run seed
+firebase apps:sdkconfig WEB <appId>
 ```
 
-### 4. Start the backend
+The `EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID` value is required for push
+notifications — Firebase console → Project Settings → Cloud Messaging.
+
+Only non-secret values belong in this file: anything prefixed `EXPO_PUBLIC_` is
+compiled into the shipped bundle and is readable by anyone with the app.
+
+### 3. Start the emulators
+
+From the repository root:
 
 ```bash
-npm run dev
+firebase emulators:start --only "functions firestore dataconnect"
 ```
 
-Leave this running. It should print:
-
-```
-  BloodLink API listening on http://localhost:4000
-  Android emulator reaches it at http://10.0.2.2:4000
-  Health check: http://localhost:4000/health
-```
-
-Confirm it is actually serving, from a second terminal:
+The Data Connect emulator runs the schema in a local PGlite database. It starts
+empty, so seed it once:
 
 ```bash
-curl http://localhost:4000/health     # -> {"ok":true}
+firebase emulators:exec --only dataconnect "psql \"postgresql://postgres@localhost:5432/postgres\" -f scripts/seed.sql"
 ```
 
-Do this before starting the app. If it fails here, the app cannot work either.
+Leave the emulator running in its own terminal.
 
-### 5. Start the app
+### 4. Start the app
 
-In a **second** terminal, from the repository root:
+From the repository root:
 
 ```bash
 npm start -- --clear
 ```
 
-Then press `a` to launch the Android emulator.
+Then press `a` to launch the Android emulator, or scan the QR code with Expo
+Go.
 
 Metro uses port `8082` so Expo Go does not accidentally connect to another
 service occupying the default port `8081`.
 
 > `--clear` matters: `EXPO_PUBLIC_*` values are inlined by Metro at build time,
-> so a change to `.env` is invisible until the cache is reset. Without it you
-> can end up running a bundle built before `.env` existed, which silently falls
-> back to the mock backend.
+> so a change to `.env` is invisible until the cache is reset.
 
 ## Everyday start
 
 After setup, running the project is two commands in two terminals. The
-directory matters — `npm run dev` only exists inside `server/`:
+emulator has to come up first, otherwise every read fails:
 
 ```bash
 # terminal 1 — from the repository root
-cd server
-npm run dev
+firebase emulators:start --only "functions firestore dataconnect"
 ```
 
 ```bash
@@ -265,19 +268,15 @@ npm run dev
 npm start
 ```
 
-Running `npm run dev` from the repository root fails with
-`Missing script: "dev"`, because the root `package.json` is the Expo app. The
-one in `server/` is a separate package.
-
-`npm run seed` is only needed once, or when you want to reset the database back
-to the demo state — it clears every table.
+Re-seeding is only needed when you want to reset the database back to the demo
+state.
 
 ## Signing in
 
-`npm run seed` creates four accounts that also exist as fixtures in the app's
-mock adapter, so the same credentials work either way. On a development build
-the sign-in screen has a **Dev credentials** panel — tap an account to fill the
-form.
+The emulator seed creates four accounts, and the app ships the same four as
+fixtures in `src/services/auth/demo-accounts.ts`, so the credentials match
+whichever backend is running. On a development build the sign-in screen has a
+**Dev credentials** panel — tap an account to fill the form.
 
 | Identifier | Password | Lands on |
 |---|---|---|
@@ -286,56 +285,39 @@ form.
 | `0775551234` | `Recipient@123` | Recipient dashboard |
 | `admin@bloodlink.lk` | `Admin@123` | Admin dashboard |
 
-## Pointing the app at the API
+## Talking to Firebase
 
-`.env` holds one value:
+The app reaches Firebase over the public internet, so the same build works on an
+emulator, a simulator and a physical device with no per-target configuration.
+There is no LAN IP to discover and no host firewall to open.
 
-```
-EXPO_PUBLIC_API_URL=http://10.0.2.2:4000
-```
+Everything comes from `.env` (see [Setup step 2](#2-create-the-environment-file)).
+Two different backends are possible:
 
-`10.0.2.2` is the **Android emulator's** alias for the host machine's loopback.
-Change it depending on where the app runs:
+| Mode | Set the emulator host to | Where data lives |
+|---|---|---|
+| Emulator suite | `localhost` (the SDK default) | Local PGlite + local Firestore, seeded from `scripts/seed.sql` |
+| Real project | Leave unset / point at the live project | Deployed Cloud SQL and Firestore |
 
-| Where the app runs | Use |
-|---|---|
-| Android emulator | `http://10.0.2.2:4000` |
-| iOS simulator / web | `http://localhost:4000` |
-| Physical device (Expo Go) | `http://<your-machine-lan-ip>:4000` |
+`.firebaserc` selects the project — currently `bloodlink-c75d7`. Run
+`firebase use` to switch.
 
-To find the LAN IP for a physical device:
-
-```bash
-ipconfig          # Windows — read the IPv4 Address of the active adapter
-ifconfig | grep inet      # macOS / Linux
-```
-
-The phone must be on the same Wi-Fi network, and the host firewall must allow
-port 4000 — `curl http://<that-ip>:4000/health` from another machine is the
-quickest way to tell whether the problem is the address or the firewall.
-
-Edit `.env` with the value for your target, then restart the app with
-`npm start -- --clear`.
-
-If `EXPO_PUBLIC_API_URL` is unset the app falls back to an in-memory mock
-adapter, so it still navigates and demos — but nothing persists and the
-dashboards show fixture data. To confirm the app is really talking to the
-backend, stop the server and try to sign in: you should get
-*"Unable to connect. Please try again."*
+If the emulators are not running and you are pointed at them, reads fail
+immediately rather than hanging, which is the fastest way to tell a config
+problem from a code problem.
 
 ## What works
 
-- **Auth** — sign-in, multi-step registration, sign-out, and a session that is
-  validated against `GET /auth/me` on launch (an expired or revoked token no
-  longer survives)
-- **Password recovery** — request a code, verify it, set a new password. The
-  code is shown on screen because the local backend has no SMS provider
+- **Auth** — sign-in, multi-step registration, sign-out, and a session restored
+  on launch without re-authenticating
+- **Password recovery** — request a reset, set a new password. On the emulator
+  the code is shown on screen because there is no SMS provider wired up
 - **Emergency requests** — the zero-login form itself, plus a confirmation with
   a reference number
 - **Donor CRUD** — create/read/update/remove availability, create/read/update/
   withdraw emergency responses, and see response status history
-- **Four role dashboards** — fed by `GET /dashboard/me`, with donor availability
-  and emergency-response controls
+- **Four role dashboards** — each backed by a Data Connect query, with donor
+  availability and emergency-response controls
 
 ## Layout
 
@@ -345,61 +327,74 @@ src/
   components/
     auth/         sign-in flow pieces
     dashboard/    shell, stat grid, request list, availability toggle
+    emergency/    multi-step emergency request flow
+    hospital/     hospital-facing screens
+    motion/       shared entrance animations
     ui/           text field, option chips, select, async states
   constants/      colours, type scale, blood groups, districts, routes
   providers/      auth provider (session + sign-in/sign-up/sign-out)
   services/
-    api/          the single HTTP client
-    auth/         AuthService interface + HTTP and mock adapters
-    dashboard/    dashboard aggregate
-    donors/       active-donor stats
+    api/          the shared ApiError contract
+    auth/         AuthService interface + the Firebase Auth adapter
+    dataconnect/  DataConnectError to ApiError mapping
+    donors/       active-donor stats, directory, donor workflow
+    hospital/     blood bank, inventory, transmission
     requests/     emergency requests
+    dashboard/    dashboard aggregate
+    alerts/       alert feed and unread counts
   utils/          validators and contact normalisation
-server/           the backend — see server/README.md
+dataconnect/      schema, connector queries/mutations, seed data
+functions/        Cloud Functions (FCM fan-out)
 ```
 
-Data access goes through `src/services`; screens never call `fetch`. The
-`AuthService` interface has two implementations and `EXPO_PUBLIC_API_URL`
-decides which one is constructed, so swapping backends touches no call site.
+Data access goes through `src/services`; screens never call `fetch` and never
+import the Firebase SDK directly. `src/services/firebase.ts` is the single place
+the Firebase app is constructed and exported.
 
 ## Checks
 
 ```bash
 npx tsc --noEmit          # app
 npm run lint              # app
-cd server && npm run typecheck
+cd functions && npm run typecheck
 ```
 
 ## Troubleshooting
 
-**"Unable to connect" on every request** — the server is not running, or
-`EXPO_PUBLIC_API_URL` is wrong for your target. Check `/health` from the same
-machine, then confirm the host alias for your target (`10.0.2.2` only works on
-the Android emulator).
+**Reads fail immediately after the app starts** — the emulator suite is not
+running, or `.env` points somewhere else. Check `firebase emulators:start`
+reports no port conflicts, and that `.firebaserc` selects the project you think.
 
 **Changed `.env` and nothing happened** — Metro inlines `EXPO_PUBLIC_*` at build
 time. Restart with `npm start -- --clear`.
 
-**`npm install` fails in `server/`** on `better-sqlite3` — it is a native
-module. Confirm you are on Node 22.5+ (`node -v`); on Node 24 the prebuild is
-used and no toolchain is needed. If you cannot upgrade Node, `server/src/db.ts`
-is the only file that would change to use the built-in `node:sqlite` instead.
+**`Cannot query field "..." on type "..._KeyOutput"`** — a Data Connect schema and
+connector have drifted apart. Deploy or restart the emulator so the schema
+recompiles, and regenerate the SDK with
+`npx firebase-tools dataconnect:sdk:generate`.
 
-**Port 4000 already in use** — `PORT=4001 npm run dev`, and update `.env` to
-match.
+**Data Connect queries fail at runtime with a type error** — `src/dataconnect-generated/`
+is stale. Regenerate it rather than hand-editing; it is build output.
 
-**Physical device cannot reach the server** — the server binds `0.0.0.0` by
-default, so this is usually the host firewall rather than the bind address.
-Confirm with `curl http://<lan-ip>:4000/health` from another machine.
+**Expo Go will not load the bundle** — check that Expo Go is on SDK 57. It only
+supports the current SDK. `npx eas go` fetches a matching build if the store
+version lags.
+
+**Type errors after `npm install` in `functions/`** — run `npm ci` there; the two
+packages have independent lockfiles.
 
 ## Before deploying anything
 
-- [ ] `server/` has no authentication on its admin surface, no rate limiting and
-      no HTTPS — it is a local development server, not a production one
-- [ ] `POST /auth/forgot-password` returns the reset code in the response and
-      reveals whether an account exists. Both are deliberate local-only
-      shortcuts (see `server/README.md`) and must be removed
-- [ ] The seeded passwords are public. Do not run `npm run seed` against
-      anything real
-- [ ] Replace the SQLite file with a real database; `server/src/db.ts` is the
-      only module that would need to change
+- [ ] Regenerate `src/dataconnect-generated/` and confirm it is committed in
+      step with `dataconnect/`, or a fresh clone will not typecheck
+- [ ] The four seeded demo accounts have public passwords. Never seed a real
+      project, and remove `src/services/auth/demo-accounts.ts` plus the
+      **Dev credentials** panel before shipping
+- [ ] Password reset has no SMS provider wired up. Wire one, or leave recovery
+      disabled in production — do not ship a reset flow that reveals codes
+- [ ] Review `firestore.rules` and `firestore.indexes.json`. The composite index
+      on `push_tokens` is required by the `notifyDonors` fan-out query and will
+      only fail at runtime in production, not in the emulator
+- [ ] The emulators are a development tool. Nothing in `firebase.json` should be
+      deployed without a deliberate review of `dataconnect.yaml` and the
+      connector permissions in `dataconnect/default/`

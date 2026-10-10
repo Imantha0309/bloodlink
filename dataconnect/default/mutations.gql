@@ -1,5 +1,4 @@
-﻿# BloodLink write operations (ported from `server/src/routes/**` and
-# `server/src/lib/{alerts,users}.ts`).
+﻿# BloodLink write operations.
 #
 # Conventions:
 #   - Role, ownership, compatibility and lifecycle checks all live inside the

@@ -2,7 +2,7 @@
  * Authentication domain types.
  *
  * Screens and components depend only on the `AuthService` interface, never on
- * a concrete adapter. Swapping the mock for the real backend therefore does not
+ * a concrete adapter. Swapping the backend implementation therefore does not
  * touch any UI code.
  */
 
@@ -64,15 +64,6 @@ export type DonorProfileInput = {
   district: string;
   bloodGroup: string;
 };
-
-/**
- * Machine-readable failure reasons.
- *
- * Re-exported from the shared API layer — kept as `AuthError` here because
- * every existing auth call site refers to it by that name.
- */
-export { ApiError, ApiError as AuthError } from "@/services/api/errors";
-export type { ApiErrorCode, ApiErrorCode as AuthErrorCode } from "@/services/api/errors";
 
 export interface AuthService {
   /**

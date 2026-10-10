@@ -1,9 +1,8 @@
 /**
  * Sri Lankan districts and their provinces.
  *
- * Mirrors `server/src/lib/geo.ts`. Kept as a flat list for pickers plus a
- * province lookup so coverage can be summarised ("Western & Central Provinces")
- * rather than listing districts.
+ * Kept as a flat list for pickers plus a province lookup so coverage can be
+ * summarised ("Western & Central Provinces") rather than listing districts.
  */
 
 export const DISTRICTS = [

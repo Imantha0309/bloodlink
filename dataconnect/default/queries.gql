@@ -1,4 +1,4 @@
-﻿# BloodLink read operations (ported from `server/src/routes/**`).
+﻿# BloodLink read operations.
 #
 # Conventions:
 #   - Complex reads use raw `_select` / `_selectFirst` so the server SQL ports

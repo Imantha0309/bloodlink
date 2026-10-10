@@ -219,22 +219,29 @@ notifications — Firebase console → Project Settings → Cloud Messaging.
 Only non-secret values belong in this file: anything prefixed `EXPO_PUBLIC_` is
 compiled into the shipped bundle and is readable by anyone with the app.
 
-### 3. Start the emulators
+### 3. Deploy the backend (only if it is not already up)
 
-From the repository root:
+The app talks to the **deployed** Firebase project — it has no emulator wiring,
+so nothing in this step is needed when the backend is already published. For
+`bloodlink-c75d7` the Data Connect schema and the `default` connector are
+already deployed.
+
+Cloud Functions are **not** deployed yet, so push notifications stay inert
+until you publish them:
 
 ```bash
-firebase emulators:start --only "functions firestore dataconnect"
+cd functions && npm ci
+cd .. && firebase deploy --only functions
 ```
 
-The Data Connect emulator runs the schema in a local PGlite database. It starts
-empty, so seed it once:
+After changing anything under `dataconnect/`, publish the schema as well:
 
 ```bash
-firebase emulators:exec --only dataconnect "psql \"postgresql://postgres@localhost:5432/postgres\" -f scripts/seed.sql"
+firebase deploy --only dataconnect
 ```
 
-Leave the emulator running in its own terminal.
+Deploying needs Blaze billing. This project already has it — it is backed by a
+Cloud SQL instance.
 
 ### 4. Start the app
 
@@ -255,28 +262,20 @@ service occupying the default port `8081`.
 
 ## Everyday start
 
-After setup, running the project is two commands in two terminals. The
-emulator has to come up first, otherwise every read fails:
+One command, from the repository root:
 
 ```bash
-# terminal 1 — from the repository root
-firebase emulators:start --only "functions firestore dataconnect"
-```
-
-```bash
-# terminal 2 — from the repository root
 npm start
 ```
 
-Re-seeding is only needed when you want to reset the database back to the demo
-state.
+Metro serves on port `8082`. Nothing else needs to be running — the app reads
+the deployed Firebase project, not a local server.
 
 ## Signing in
 
-The emulator seed creates four accounts, and the app ships the same four as
-fixtures in `src/services/auth/demo-accounts.ts`, so the credentials match
-whichever backend is running. On a development build the sign-in screen has a
-**Dev credentials** panel — tap an account to fill the form.
+The app ships four demo accounts as fixtures in
+`src/services/auth/demo-accounts.ts`, and the sign-in screen has a **Dev
+credentials** panel — tap an account to fill the form.
 
 | Identifier | Password | Lands on |
 |---|---|---|
@@ -285,6 +284,17 @@ whichever backend is running. On a development build the sign-in screen has a
 | `0775551234` | `Recipient@123` | Recipient dashboard |
 | `admin@bloodlink.lk` | `Admin@123` | Admin dashboard |
 
+**These accounts do not exist yet.** They are fixtures, not seeded identities:
+`scripts/seed.sql` states outright that it never creates Firebase Auth
+identities or user profiles. The phone numbers are also mapped to derived
+emails by the app — `0771234567` signs in as `71234567@bloodlink.lk`
+(`resolveEmail` in `src/services/auth/firebase-auth-service.ts`).
+
+So the **Dev credentials** panel fills the form but sign-in will fail until you
+create those users. Use **Register** instead on a fresh project — `signUp`
+creates the Firebase Auth identity *and* the Data Connect profile row in one
+step, which makes a new account fully self-provisioning.
+
 ## Talking to Firebase
 
 The app reaches Firebase over the public internet, so the same build works on an
@@ -292,26 +302,29 @@ emulator, a simulator and a physical device with no per-target configuration.
 There is no LAN IP to discover and no host firewall to open.
 
 Everything comes from `.env` (see [Setup step 2](#2-create-the-environment-file)).
-Two different backends are possible:
-
-| Mode | Set the emulator host to | Where data lives |
-|---|---|---|
-| Emulator suite | `localhost` (the SDK default) | Local PGlite + local Firestore, seeded from `scripts/seed.sql` |
-| Real project | Leave unset / point at the live project | Deployed Cloud SQL and Firestore |
-
 `.firebaserc` selects the project — currently `bloodlink-c75d7`. Run
 `firebase use` to switch.
 
-If the emulators are not running and you are pointed at them, reads fail
-immediately rather than hanging, which is the fastest way to tell a config
-problem from a code problem.
+**The app does not talk to the Firebase emulators.** There are no
+`connectAuthEmulator`, `useEmulator` or `*_EMULATOR_HOST` calls anywhere in
+`src/`, so the bundle always targets the deployed project even while the
+emulator suite is running. `firebase.json` configures emulators for functions,
+firestore and dataconnect — but no auth emulator at all, so there would be no
+local users to sign in as either. Pointing the app at the emulators is a code
+change in `src/services/firebase.ts`, not a configuration flag.
+
+Cloud Functions are **not** deployed yet, so `savePushToken` and the donor
+fan-out will not resolve. Push registration is wrapped in a non-blocking
+`try/catch`, so sign-in still succeeds — you just get no notifications. See
+[Setup step 3](#3-deploy-the-backend-only-if-it-is-not-already-up).
 
 ## What works
 
 - **Auth** — sign-in, multi-step registration, sign-out, and a session restored
   on launch without re-authenticating
-- **Password recovery** — request a reset, set a new password. On the emulator
-  the code is shown on screen because there is no SMS provider wired up
+- **Password recovery** — request a reset by identifier. Firebase Auth emails the
+  link; the client never sees a code, and delivery depends on SMTP being
+  configured for the project
 - **Emergency requests** — the zero-login form itself, plus a confirmation with
   a reference number
 - **Donor CRUD** — create/read/update/remove availability, create/read/update/
@@ -361,16 +374,37 @@ cd functions && npm run typecheck
 
 ## Troubleshooting
 
-**Reads fail immediately after the app starts** — the emulator suite is not
-running, or `.env` points somewhere else. Check `firebase emulators:start`
-reports no port conflicts, and that `.firebaserc` selects the project you think.
+**Reads fail immediately after the app starts** — the backend is unreachable, or
+`.env` is incomplete. The app always hits the deployed project, so check that
+`.firebaserc` selects the project you think and that all six
+`EXPO_PUBLIC_FIREBASE_*` values in `.env` are populated. The emulator suite is
+irrelevant here — the app never connects to it.
+
+**Sign-in fails with "This account has no profile yet"** — the Firebase Auth
+user exists but has no matching Data Connect `users` row. Registering through
+the app creates both; if you created the user by hand in the Firebase console
+you will also need to insert the profile row yourself.
+
+**Dev credentials panel fills the form but sign-in fails** — those four
+accounts are fixtures, not real Auth identities. See
+[Signing in](#signing-in).
+
+**`users.push_token` is missing from the deployed database** — the live Postgres
+is behind `dataconnect/schema/schema.gql`, which declares `pushToken: String`.
+`firebase dataconnect:sql:diff` reports the pending delta as a single
+`ALTER TABLE "public"."users" ADD COLUMN "push_token" text NULL`.
+
+This is dormant rather than broken: no query in `queries.gql` selects the
+column and the `UpdatePushToken` mutation is not called from app code, so
+sign-in and every read are unaffected. Close the drift whenever you like with
+`firebase deploy --only dataconnect` (Blaze already active on this project).
 
 **Changed `.env` and nothing happened** — Metro inlines `EXPO_PUBLIC_*` at build
 time. Restart with `npm start -- --clear`.
 
 **`Cannot query field "..." on type "..._KeyOutput"`** — a Data Connect schema and
-connector have drifted apart. Deploy or restart the emulator so the schema
-recompiles, and regenerate the SDK with
+connector have drifted apart. Publish the schema with
+`firebase deploy --only dataconnect`, then regenerate the SDK with
 `npx firebase-tools dataconnect:sdk:generate`.
 
 **Data Connect queries fail at runtime with a type error** — `src/dataconnect-generated/`
@@ -387,14 +421,18 @@ packages have independent lockfiles.
 
 - [ ] Regenerate `src/dataconnect-generated/` and confirm it is committed in
       step with `dataconnect/`, or a fresh clone will not typecheck
-- [ ] The four seeded demo accounts have public passwords. Never seed a real
-      project, and remove `src/services/auth/demo-accounts.ts` plus the
-      **Dev credentials** panel before shipping
+- [ ] `src/services/auth/demo-accounts.ts` ships four accounts with public
+      passwords and a tap-to-fill panel on the sign-in screen. If you ever create
+      those Auth identities, remove both before shipping
 - [ ] Password reset has no SMS provider wired up. Wire one, or leave recovery
       disabled in production — do not ship a reset flow that reveals codes
 - [ ] Review `firestore.rules` and `firestore.indexes.json`. The composite index
       on `push_tokens` is required by the `notifyDonors` fan-out query and will
       only fail at runtime in production, not in the emulator
-- [ ] The emulators are a development tool. Nothing in `firebase.json` should be
-      deployed without a deliberate review of `dataconnect.yaml` and the
-      connector permissions in `dataconnect/default/`
+- [ ] The emulator suite is configured in `firebase.json` but the app is not
+      wired to it, so nothing you test against the emulators reflects what the
+      app actually does. Treat deployed behaviour as the only source of truth
+      until that wiring exists
+- [ ] Nothing in `firebase.json` should be deployed without a deliberate review
+      of `dataconnect.yaml` and the connector permissions in
+      `dataconnect/default/`

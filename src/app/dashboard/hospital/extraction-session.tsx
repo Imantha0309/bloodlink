@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Animated,
   Easing,
@@ -101,7 +101,9 @@ function CollectionRing({
   const isComplete = percent >= 100;
 
   // Ambient motion for the pump: an opacity beat that stops with the draw.
-  const dropPulse = useRef(new Animated.Value(0.45)).current;
+  // Held in state rather than a ref, the same way the loading screen keeps
+  // its animated values.
+  const [dropPulse] = useState(() => new Animated.Value(0.45));
 
   useEffect(() => {
     if (isComplete) {

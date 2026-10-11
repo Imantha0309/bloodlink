@@ -16,6 +16,8 @@ export const ROUTES = {
   register: "/register",
   forgotPassword: "/forgot-password",
   emergencyRequest: "/emergency-request",
+  /** Edit form for a recipient's own emergency request; takes an `id` param. */
+  manageRequest: "/manage-request",
   /** Blood bank storage monitor, pushed from the hospital Home tab. */
   hospitalStorage: "/dashboard/hospital/storage",
   /** Requisition form, pushed from the hospital Home and storage screens. */

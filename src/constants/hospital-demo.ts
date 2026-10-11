@@ -78,54 +78,11 @@ export type Requisition = {
   createdAt: string;
 };
 
-/**
- * Rendered newest first. Home shows the first two and reports the full count,
- * so `REQUISITION_TOTAL` matches the length of this list.
+/*
+ * The board's cards are no longer fed from a fixture list: they render the live
+ * emergency-request queue through `use-hospital-requisitions`, which maps each
+ * request onto the `Requisition` shape above.
  */
-export const REQUISITIONS: readonly Requisition[] = [
-  {
-    reference: "#REQ-2094",
-    ward: "ICU Ward 14",
-    bloodGroup: "B+",
-    units: 2,
-    subtitle: "Reported by Dr. K. Wickramasinghe",
-    status: "in-transit",
-    statusTitle: "2 Donors In Transit",
-    statusDetail: "Estimated arrival in 10 mins",
-    donorInitials: ["MR", "SP", "AK"],
-    urgency: null,
-    createdAt: "Created 18 mins ago",
-  },
-  {
-    reference: "#REQ-2091",
-    ward: "Pediatric Ward",
-    bloodGroup: "O-",
-    units: 1,
-    subtitle: "Emergency Trauma - Room 04",
-    status: "broadcast",
-    statusTitle: "Broadcasted to Donors",
-    statusDetail: "6 Compatible donors alerted nearby",
-    donorInitials: [],
-    urgency: "High Urgency",
-    createdAt: "Created 34 mins ago",
-  },
-  {
-    reference: "#REQ-2087",
-    ward: "Maternity Ward",
-    bloodGroup: "B-",
-    units: 1,
-    subtitle: "Scheduled Procedure - Room 12",
-    status: "broadcast",
-    statusTitle: "Broadcasted to Donors",
-    statusDetail: "3 Compatible donors alerted nearby",
-    donorInitials: [],
-    urgency: null,
-    createdAt: "Created 1 hr ago",
-  },
-];
-
-/** Total open requisitions the station is tracking. */
-export const REQUISITION_TOTAL = REQUISITIONS.length;
 
 export const STORAGE_CARD = {
   label: "Whole Blood Storage",
@@ -171,7 +128,11 @@ export const CRITICAL_RESERVE = {
   group: "O-" as BloodGroup,
   label: "O Negative Reserve",
   tag: "Critical Low",
-  detail: "Current: 24 Units • Daily Burn: 18 Units • Est.",
+  /**
+   * Assumed daily draw-down. The live "Current: N Units" line is composed
+   * from the running stock, so only the burn rate is fixture state.
+   */
+  burnPerDay: 18,
 } as const;
 
 export type StorageFraction = {
@@ -190,7 +151,10 @@ export type VaultCompartment = {
   name: string;
   temperature: string;
   capacityPct: number;
-  detail: string;
+  /** Units held — the live counter, bumped as units are banked. */
+  units: number;
+  /** What the units are; rendered after the count in the detail line. */
+  stockLabel: string;
   status: string;
   tone: "optimal" | "alert";
   icon: FeatherName;
@@ -202,7 +166,8 @@ export const VAULT_COMPARTMENTS: readonly VaultCompartment[] = [
     name: "Refrigerated Vault A",
     temperature: "+4°C",
     capacityPct: 58,
-    detail: "820 Units • Packed Red Cell Cryo",
+    units: 820,
+    stockLabel: "Packed Red Cell Cryo",
     status: "Optimal",
     tone: "optimal",
     icon: "archive",
@@ -212,7 +177,8 @@ export const VAULT_COMPARTMENTS: readonly VaultCompartment[] = [
     name: "Ultra-Cold Freezer B",
     temperature: "−30°C",
     capacityPct: 27,
-    detail: "380 Bags • Fresh Plasma (FFP)",
+    units: 380,
+    stockLabel: "Fresh Plasma (FFP)",
     status: "Optimal",
     tone: "optimal",
     icon: "thermometer",
@@ -222,7 +188,8 @@ export const VAULT_COMPARTMENTS: readonly VaultCompartment[] = [
     name: "Platelet Agitator Rack",
     temperature: "+22°C",
     capacityPct: 15,
-    detail: "220 Units • Live Platelets [5-D]",
+    units: 220,
+    stockLabel: "Live Platelets [5-D]",
     status: "5-D Active Shake",
     tone: "alert",
     icon: "activity",
@@ -242,11 +209,17 @@ export const CREATE_REQUEST = {
   /** Units above this trip the single-ward allocation alert. */
   unitsAlertThreshold: 2,
   unitsAlert: "Critical Depletion Alert: Exceeds standard single-ward allocation",
+  patientTitle: "Patient & Requisition Contact",
+  patientLabel: "Patient Name",
+  contactLabel: "Contact Person",
+  mobileLabel: "Contact Mobile",
+  urgencyLabel: "Urgency",
   verificationTitle: "Verification & Cross-Match",
   complianceHeadline: "SL-NBS Medical Authority Act 2024 compliance.",
   complianceNote: "Registration logged with immutable audit hash.",
   complianceReference: "#NBTS-4921-A7",
   ctaLabel: "Broadcast Emergency Requisition Now",
+  ctaBusyLabel: "Broadcasting Requisition…",
 } as const;
 
 export const REQUEST_COMPONENTS = [
@@ -470,7 +443,18 @@ export const EXTRACTION = {
   bloodGroup: "B+",
   collectedMl: 320,
   totalMl: 450,
-  eta: "~2m 45s left",
+  /**
+   * Clock the collection dial runs on.
+   *
+   * The draw is played back rather than wall-clocked: `nominalSeconds` is how
+   * long a real 130 mL draw takes, `speedFactor` is how much faster the demo
+   * plays it so the ring visibly fills during a walkthrough. The ETA pill is
+   * computed from both, so it always agrees with the fill.
+   */
+  collection: {
+    nominalSeconds: 165,
+    speedFactor: 8,
+  },
   rfidCode: "NBTS-BPLUS-9042",
   rfidDetail: "RFID Verified • Tri-pack Bag",
   caseLabel: "Linked Recipient Case",

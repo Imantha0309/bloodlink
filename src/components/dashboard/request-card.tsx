@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import type { ComponentProps } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Blood, Surface } from "@/constants/colors";
 import {
@@ -11,6 +11,7 @@ import {
 import { Radius } from "@/constants/radius";
 import { Typography } from "@/constants/typography";
 import type { EmergencyRequest, RequestStatus } from "@/services/requests/emergency-requests";
+import { timeAgo } from "@/utils/relative-time";
 
 // Keyed lookup so the card can colour itself from the same catalogue the form
 // renders, rather than keeping a second copy of the palette.
@@ -58,44 +59,58 @@ const STATUS_META: Record<
   },
 };
 
-/** Coarse relative time — enough for a triage list, no date library needed. */
-function timeAgo(iso: string): string {
-  const then = new Date(iso).getTime();
-
-  if (Number.isNaN(then)) {
-    return "";
-  }
-
-  const minutes = Math.max(0, Math.round((Date.now() - then) / 60_000));
-
-  if (minutes < 1) {
-    return "just now";
-  }
-
-  if (minutes < 60) {
-    return `${minutes}m ago`;
-  }
-
-  const hours = Math.round(minutes / 60);
-
-  if (hours < 24) {
-    return `${hours}h ago`;
-  }
-
-  return `${Math.round(hours / 24)}d ago`;
-}
-
 type RequestCardProps = {
   request: EmergencyRequest;
   /** Adds the shared "compatible with you" treatment on the donor dashboard. */
   matchesDonor?: boolean;
+  /**
+   * Shows the Manage / Cancel actions. Set only for a recipient's own requests
+   * that are still open — the server refuses edits to anything closed, and a
+   * donor or admin only reads the queue.
+   */
+  isManageable?: boolean;
+  /** Opens the edit form for this request. */
+  onEdit?: (request: EmergencyRequest) => void;
+  /** Cancels the request after a confirmation; receives the live request. */
+  onCancel?: (request: EmergencyRequest) => Promise<void>;
 };
 
 /** One emergency request, as it appears in every dashboard's triage list. */
-export function RequestCard({ request, matchesDonor = false }: RequestCardProps) {
+export function RequestCard({
+  request,
+  matchesDonor = false,
+  isManageable = false,
+  onEdit,
+  onCancel,
+}: RequestCardProps) {
   const urgency = URGENCY_BY_LEVEL[request.urgency];
   const status = STATUS_META[request.status];
   const posted = timeAgo(request.createdAt);
+
+  function confirmCancel() {
+    if (onCancel === undefined) {
+      return;
+    }
+
+    // Cancelling stops donors being matched to this request, so it takes an
+    // explicit confirmation — an accidental tap must not close a live case.
+    Alert.alert(
+      "Cancel this request?",
+      `The ${request.bloodGroup} request for ${request.units} ${
+        request.units === 1 ? "unit" : "units"
+      } will be withdrawn and donors will no longer be alerted.`,
+      [
+        { text: "Keep Request", style: "cancel" },
+        {
+          text: "Cancel Request",
+          style: "destructive",
+          onPress: () => {
+            void onCancel(request);
+          },
+        },
+      ],
+    );
+  }
 
   return (
     <View style={[styles.card, matchesDonor && styles.cardMatching]}>
@@ -165,6 +180,32 @@ export function RequestCard({ request, matchesDonor = false }: RequestCardProps)
           <Text style={styles.anonymous}>Zero-login request</Text>
         ) : null}
       </View>
+
+      {isManageable ? (
+        <View style={styles.actions}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Manage request for ${request.bloodGroup}`}
+            onPress={() => onEdit?.(request)}
+            hitSlop={6}
+            style={({ pressed }) => [styles.actionButton, pressed && styles.actionPressed]}
+          >
+            <Feather name="edit-2" size={13} color={Blood.primary} />
+            <Text style={styles.actionText}>Manage</Text>
+          </Pressable>
+
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Cancel request for ${request.bloodGroup}`}
+            onPress={confirmCancel}
+            hitSlop={6}
+            style={({ pressed }) => [styles.actionButton, pressed && styles.actionPressed]}
+          >
+            <Feather name="x-circle" size={13} color={Surface.textMuted} />
+            <Text style={[styles.actionText, styles.actionTextMuted]}>Cancel</Text>
+          </Pressable>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -307,5 +348,40 @@ const styles = StyleSheet.create({
     ...Typography.micro,
     fontSize: 9.5,
     color: Surface.textMuted,
+  },
+
+  actions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingTop: 2,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Surface.border,
+  },
+
+  actionButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    minHeight: 36,
+    borderRadius: Radius.sm,
+    borderWidth: 1,
+    borderColor: Surface.border,
+    backgroundColor: Surface.background,
+  },
+
+  actionPressed: {
+    opacity: 0.6,
+  },
+
+  actionText: {
+    ...Typography.label,
+    color: Blood.primary,
+  },
+
+  actionTextMuted: {
+    color: Surface.textSecondary,
   },
 });

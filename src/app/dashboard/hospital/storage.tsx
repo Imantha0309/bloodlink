@@ -7,10 +7,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Blood, Elevation, Surface } from "@/constants/colors";
 import {
   BLOOD_STORAGE,
-  CRITICAL_RESERVE,
-  RESERVE_GAUGES,
-  STORAGE_FRACTIONS,
-  VAULT_COMPARTMENTS,
   type ReserveGauge,
   type VaultCompartment,
 } from "@/constants/hospital-demo";
@@ -18,6 +14,7 @@ import { Radius } from "@/constants/radius";
 import { ROLE_HOME, ROUTES } from "@/constants/routes";
 import { Typography } from "@/constants/typography";
 import { useAuth } from "@/providers/auth-provider";
+import { useBloodStock } from "@/services/storage/blood-stock";
 import { initialsOf } from "@/utils/initials";
 
 /** Shared pill palette for the reserve tags. */
@@ -36,14 +33,16 @@ const STATUS_COLOR = {
 /**
  * Blood bank storage monitor.
  *
- * Reached from the Home tab's storage card. Content is the approved design,
- * fed from `@/constants/hospital-demo` until a storage API exists — the screen
- * reads only the shapes in that file.
+ * Reached from the Home tab's storage card. The copy and layout are the
+ * approved design; the stock figures are live — a unit sealed on the
+ * collection telemetry lands here through `@/services/storage/blood-stock`,
+ * which seeds from `@/constants/hospital-demo` and then owns the totals.
  */
 export default function HospitalStorageScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { session } = useAuth();
+  const stock = useBloodStock();
 
   function handleBack() {
     if (router.canGoBack()) {
@@ -141,17 +140,32 @@ export default function HospitalStorageScreen() {
               <Feather name="droplet" size={13} color={Blood.primary} />
 
               <Text style={styles.stockText} numberOfLines={1}>
-                Total Bank Stock: {BLOOD_STORAGE.totalUnits.toLocaleString("en-US")} Units
+                Total Bank Stock: {stock.totalUnits.toLocaleString("en-US")} Units
               </Text>
 
-              <Text style={styles.stockPct}>{BLOOD_STORAGE.capacityPct}% of Capacity</Text>
+              <Text style={styles.stockPct}>{stock.capacityPct}% of Capacity</Text>
             </View>
 
             <View style={styles.stockTrack}>
-              <View style={[styles.stockFill, { width: `${BLOOD_STORAGE.capacityPct}%` }]} />
+              <View style={[styles.stockFill, { width: `${stock.capacityPct}%` }]} />
             </View>
           </View>
         </View>
+
+        {/* ================= FRESH INTAKE ================= */}
+
+        {stock.lastIntake !== null ? (
+          <View style={styles.intake}>
+            <View style={styles.intakeIcon}>
+              <Feather name="droplet" size={14} color={Surface.online} />
+            </View>
+
+            <Text style={styles.intakeText}>
+              <Text style={styles.intakeLead}>{`Fresh Unit Banked (${stock.lastIntake.group})`}</Text>
+              {` — ${stock.lastIntake.units} unit sealed into ${BLOOD_STORAGE.vaultName} and counted in the reserve below.`}
+            </Text>
+          </View>
+        ) : null}
 
         {/* ================= CYLINDER GAUGES ================= */}
 
@@ -167,22 +181,22 @@ export default function HospitalStorageScreen() {
 
         <View style={styles.criticalCard}>
           <View style={styles.criticalBadge}>
-            <Text style={styles.criticalBadgeText}>{CRITICAL_RESERVE.group}</Text>
+            <Text style={styles.criticalBadgeText}>{stock.critical.group}</Text>
           </View>
 
           <View style={styles.criticalText}>
             <View style={styles.criticalHead}>
               <Text style={styles.criticalLabel} numberOfLines={1}>
-                {CRITICAL_RESERVE.label}
+                {stock.critical.label}
               </Text>
 
               <View style={styles.criticalTag}>
-                <Text style={styles.criticalTagText}>{CRITICAL_RESERVE.tag}</Text>
+                <Text style={styles.criticalTagText}>{stock.critical.tag}</Text>
               </View>
             </View>
 
             <Text style={styles.criticalDetail} numberOfLines={1}>
-              {CRITICAL_RESERVE.detail}
+              {stock.critical.detail}
             </Text>
           </View>
 
@@ -190,7 +204,7 @@ export default function HospitalStorageScreen() {
         </View>
 
         <View style={styles.gaugeRow}>
-          {RESERVE_GAUGES.map((gauge) => (
+          {stock.gauges.map((gauge) => (
             <ReserveGaugeCard key={gauge.group} gauge={gauge} />
           ))}
         </View>
@@ -208,7 +222,7 @@ export default function HospitalStorageScreen() {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.chips}
         >
-          {STORAGE_FRACTIONS.map((fraction) => (
+          {stock.fractions.map((fraction) => (
             <View
               key={fraction.label}
               style={[styles.chip, fraction.active && styles.chipActive]}
@@ -221,7 +235,7 @@ export default function HospitalStorageScreen() {
         </ScrollView>
 
         <View style={styles.list}>
-          {VAULT_COMPARTMENTS.map((item) => (
+          {stock.compartments.map((item) => (
             <VaultCompartmentCard key={item.id} item={item} />
           ))}
         </View>
@@ -326,7 +340,7 @@ function VaultCompartmentCard({ item }: { item: VaultCompartment }) {
         </View>
 
         <Text style={styles.compartmentDetail} numberOfLines={1}>
-          {item.detail}
+          {`${item.units} Units • ${item.stockLabel}`}
         </Text>
 
         <Text style={[styles.compartmentStatus, { color: STATUS_COLOR[item.tone] }]}>
@@ -541,6 +555,40 @@ const styles = StyleSheet.create({
     height: "100%",
     borderRadius: Radius.full,
     backgroundColor: Blood.primary,
+  },
+
+  /* ================= FRESH INTAKE ================= */
+
+  intake: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    padding: 12,
+    borderRadius: Radius.field,
+    borderWidth: 1,
+    borderColor: Surface.softGreenBorder,
+    backgroundColor: Surface.softGreen,
+  },
+
+  intakeIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: Radius.sm - 4,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Surface.card,
+  },
+
+  intakeText: {
+    flex: 1,
+    ...Typography.small,
+    lineHeight: 17,
+    color: Surface.textSecondary,
+  },
+
+  intakeLead: {
+    fontWeight: "700",
+    color: Surface.text,
   },
 
   /* ================= SECTIONS ================= */

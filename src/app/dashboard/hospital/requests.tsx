@@ -1,20 +1,31 @@
+import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { HospitalHeader } from "@/components/hospital/hospital-header";
 import { RequisitionCard } from "@/components/hospital/requisition-card";
+import { AsyncState } from "@/components/ui/async-state";
 import { Blood, Surface } from "@/constants/colors";
-import { HOSPITAL_CENTER, REQUISITIONS, REQUISITION_TOTAL } from "@/constants/hospital-demo";
+import { HOSPITAL_CENTER } from "@/constants/hospital-demo";
 import { Radius } from "@/constants/radius";
+import { ROUTES } from "@/constants/routes";
 import { Typography } from "@/constants/typography";
+import { useHospitalRequisitions, toRequisition } from "@/hooks/use-hospital-requisitions";
 import { useAuth } from "@/providers/auth-provider";
 import { initialsOf } from "@/utils/initials";
 
-/** Full requisition board — everything Home summarises. */
+/**
+ * Full requisition board — everything Home summarises.
+ *
+ * Fed by the live open queue rather than the fixtures, so every card here is a
+ * real request the station can correct or withdraw through "Manage Requisition".
+ */
 export default function HospitalRequestsScreen() {
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const { session } = useAuth();
+  const { requests, isLoading, error } = useHospitalRequisitions();
 
   return (
     <View style={styles.root}>
@@ -43,15 +54,32 @@ export default function HospitalRequestsScreen() {
           </View>
 
           <View style={styles.countPill}>
-            <Text style={styles.countText}>{REQUISITION_TOTAL}</Text>
+            <Text style={styles.countText}>{requests.length}</Text>
           </View>
         </View>
 
-        <View style={styles.list}>
-          {REQUISITIONS.map((item) => (
-            <RequisitionCard key={item.reference} item={item} />
-          ))}
-        </View>
+        <AsyncState
+          isLoading={isLoading}
+          error={error}
+          isEmpty={requests.length === 0}
+          emptyTitle="No open requisitions"
+          emptyMessage="Requests raised on the zero-login path land here for triage."
+        >
+          <View style={styles.list}>
+            {requests.map((request, index) => (
+              <RequisitionCard
+                key={request.id}
+                item={toRequisition(request, index)}
+                onManage={() => {
+                  router.push({
+                    pathname: ROUTES.manageRequest,
+                    params: { id: request.id },
+                  });
+                }}
+              />
+            ))}
+          </View>
+        </AsyncState>
       </ScrollView>
     </View>
   );

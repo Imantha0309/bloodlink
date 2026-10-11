@@ -97,6 +97,13 @@ export const emergencyRequestSchema = z.object({
 });
 
 /**
+ * Edits to an existing emergency request. Everything is optional so the client
+ * can send just the fields it wants to change; the routes still guard status
+ * transitions and ownership separately.
+ */
+export const emergencyRequestUpdateSchema = emergencyRequestSchema.partial();
+
+/**
  * Parses `body` against `schema`, converting a zod failure into an `ApiError`
  * carrying one message per invalid field.
  */

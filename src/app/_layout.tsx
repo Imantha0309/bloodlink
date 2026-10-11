@@ -62,6 +62,13 @@ function AppNavigator() {
           options={{ contentStyle: screenBackground }}
         />
         <Stack.Screen name="dashboard/admin" options={{ contentStyle: screenBackground }} />
+
+        {/* Edit form for a recipient's own emergency request — only reachable
+            while signed in, since it loads and updates the caller's record. */}
+        <Stack.Screen
+          name="manage-request"
+          options={{ contentStyle: screenBackground }}
+        />
       </Stack.Protected>
 
       <Stack.Protected guard={status === "unauthenticated"}>

@@ -5,8 +5,17 @@ import { useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { FormAlert } from "@/components/auth/form-alert";
+import { OptionChips } from "@/components/ui/option-chips";
+import { TextField } from "@/components/ui/text-field";
 import { Blood, Elevation, Surface } from "@/constants/colors";
 import { BLOOD_GROUPS, type BloodGroup } from "@/constants/blood-groups";
+import {
+  URGENCY_LABEL,
+  URGENCY_LEVELS,
+  URGENCY_OPTIONS,
+  type UrgencyLevel,
+} from "@/constants/emergency";
 import {
   CREATE_REQUEST,
   DEFAULT_REQUEST,
@@ -19,7 +28,14 @@ import { Radius } from "@/constants/radius";
 import { ROLE_HOME, ROUTES } from "@/constants/routes";
 import { Typography } from "@/constants/typography";
 import { useAuth } from "@/providers/auth-provider";
+import { apiErrorMessage } from "@/services/auth";
+import { createEmergencyRequest } from "@/services/requests/emergency-requests";
 import { initialsOf } from "@/utils/initials";
+import {
+  ValidationMessages,
+  validateContact,
+  validateFullName,
+} from "@/utils/validation";
 
 /** The ABO/Rh picker renders two rows of four, in the catalogue's order. */
 const GROUP_ROWS = [BLOOD_GROUPS.slice(0, 4), BLOOD_GROUPS.slice(4, 8)];
@@ -29,14 +45,28 @@ const VERIFICATION_TONE = {
   neutral: Surface.textMuted,
 } as const;
 
+/** Errors raised before the requisition is handed to the API. */
+type PatientContactErrors = {
+  patientName: string | null;
+  contactName: string | null;
+  contactMobile: string | null;
+};
+
+const NO_ERRORS: PatientContactErrors = {
+  patientName: null,
+  contactName: null,
+  contactMobile: null,
+};
+
 /**
  * Hospital requisition form.
  *
  * Controls are live (group, component, units, sign-off checkboxes) and the
- * broadcast action pushes the transmission progress screen — the requisition
- * itself is not sent to an API yet, because the fields the server expects live
- * on the public zero-login form, so submitting here is a decision about the
- * payload that has not been made.
+ * broadcast action creates the requisition through `createEmergencyRequest`
+ * before handing off to the transmission progress screen, so the record lands
+ * on the Home and Requests boards. Hospital, district and the contact person
+ * default to the signed-in station's own details, which is what the server
+ * requires but the operator should never have to retype.
  */
 export default function HospitalCreateRequestScreen() {
   const router = useRouter();
@@ -50,6 +80,15 @@ export default function HospitalCreateRequestScreen() {
     Object.fromEntries(VERIFICATION_ITEMS.map((item) => [item.id, item.confirmed])),
   );
 
+  const [patientName, setPatientName] = useState("");
+  const [contactName, setContactName] = useState(session?.user.fullName ?? "");
+  const [contactMobile, setContactMobile] = useState(session?.user.mobile ?? "");
+  const [urgency, setUrgency] = useState<UrgencyLevel>("critical");
+
+  const [errors, setErrors] = useState<PatientContactErrors>(NO_ERRORS);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   const volume = units * CREATE_REQUEST.mlPerUnit;
   const showAlert = units > CREATE_REQUEST.unitsAlertThreshold;
 
@@ -59,6 +98,11 @@ export default function HospitalCreateRequestScreen() {
 
   function toggleCheck(id: string) {
     setChecks((current) => ({ ...current, [id]: !current[id] }));
+  }
+
+  function clearError(field: keyof PatientContactErrors) {
+    setFormError(null);
+    setErrors((current) => (current[field] === null ? current : { ...current, [field]: null }));
   }
 
   function handleBack() {
@@ -72,19 +116,62 @@ export default function HospitalCreateRequestScreen() {
   }
 
   /**
-   * Hands the payload off to the progress screen, which owns the broadcast
-   * animation until the requisition lands on the Requests board.
+   * Creates the requisition, then hands the payload to the progress screen,
+   * which owns the broadcast animation until it lands on the Requests board.
    */
-  function handleBroadcast() {
-    router.push({
-      pathname: ROUTES.hospitalTransmission,
-      params: {
+  async function handleBroadcast() {
+    if (isSubmitting) {
+      return;
+    }
+
+    const nextErrors: PatientContactErrors = {
+      patientName:
+        validateFullName(patientName) === null
+          ? null
+          : ValidationMessages.patientNameRequired,
+      contactName:
+        validateFullName(contactName) === null ? null : ValidationMessages.contactNameRequired,
+      contactMobile: validateContact(contactMobile),
+    };
+
+    setErrors(nextErrors);
+    setFormError(null);
+
+    if (Object.values(nextErrors).some((message) => message !== null)) {
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      await createEmergencyRequest({
+        patientName: patientName.trim(),
         bloodGroup,
-        component,
-        units: String(units),
-        volume: String(volume),
-      },
-    });
+        units,
+        hospital: session?.user.fullName ?? "Hospital",
+        district: session?.user.district ?? null,
+        contactName: contactName.trim(),
+        contactMobile: contactMobile.trim(),
+        urgency,
+        // The API has no component column, so it travels in the notes the
+        // board renders as the card's subtitle.
+        notes: `Component: ${component}`,
+      });
+
+      router.push({
+        pathname: ROUTES.hospitalTransmission,
+        params: {
+          bloodGroup,
+          component,
+          units: String(units),
+          volume: String(volume),
+        },
+      });
+    } catch (error) {
+      setFormError(apiErrorMessage(error));
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -266,6 +353,70 @@ export default function HospitalCreateRequestScreen() {
           ) : null}
         </View>
 
+        {/* ================= PATIENT & CONTACT ================= */}
+
+        <View style={styles.card}>
+          <View style={styles.verificationHead}>
+            <Feather name="user" size={16} color={Blood.primary} />
+
+            <Text style={styles.verificationTitle}>{CREATE_REQUEST.patientTitle}</Text>
+          </View>
+
+          <TextField
+            label={CREATE_REQUEST.patientLabel}
+            value={patientName}
+            onChangeText={(value) => {
+              setPatientName(value);
+              clearError("patientName");
+            }}
+            placeholder="Name as it appears on records"
+            error={errors.patientName}
+            autoComplete="name"
+            icon="user"
+            returnKeyType="next"
+          />
+
+          <TextField
+            label={CREATE_REQUEST.contactLabel}
+            value={contactName}
+            onChangeText={(value) => {
+              setContactName(value);
+              clearError("contactName");
+            }}
+            placeholder="Who should we call?"
+            error={errors.contactName}
+            autoComplete="name"
+            icon="phone-call"
+            returnKeyType="next"
+          />
+
+          <TextField
+            label={CREATE_REQUEST.mobileLabel}
+            value={contactMobile}
+            onChangeText={(value) => {
+              setContactMobile(value);
+              clearError("contactMobile");
+            }}
+            placeholder="077 123 4567"
+            error={errors.contactMobile}
+            keyboardType="phone-pad"
+            autoCapitalize="none"
+            icon="smartphone"
+            returnKeyType="done"
+          />
+
+          <OptionChips
+            label={CREATE_REQUEST.urgencyLabel}
+            options={URGENCY_LEVELS}
+            value={urgency}
+            onChange={setUrgency}
+            labelFor={(value) => URGENCY_LABEL[value]}
+            captionFor={(value) =>
+              URGENCY_OPTIONS.find((option) => option.level === value)?.description
+            }
+          />
+        </View>
+
         {/* ================= VERIFICATION ================= */}
 
         <View style={styles.card}>
@@ -325,17 +476,31 @@ export default function HospitalCreateRequestScreen() {
 
         {/* ================= SUBMIT ================= */}
 
+        <FormAlert message={formError} />
+
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={CREATE_REQUEST.ctaLabel}
-          accessibilityHint="Opens the broadcast transmission progress"
-          onPress={handleBroadcast}
-          style={({ pressed }) => [styles.cta, pressed && styles.pressed]}
+          accessibilityHint="Creates the requisition and opens the broadcast transmission progress"
+          accessibilityState={{ disabled: isSubmitting, busy: isSubmitting }}
+          disabled={isSubmitting}
+          onPress={() => {
+            void handleBroadcast();
+          }}
+          style={({ pressed }) => [
+            styles.cta,
+            pressed && styles.pressed,
+            isSubmitting && styles.ctaBusy,
+          ]}
         >
-          <Feather name="radio" size={17} color={Surface.onPrimary} />
+          <Feather
+            name={isSubmitting ? "loader" : "radio"}
+            size={17}
+            color={Surface.onPrimary}
+          />
 
           <Text style={styles.ctaText} numberOfLines={1}>
-            {CREATE_REQUEST.ctaLabel}
+            {isSubmitting ? CREATE_REQUEST.ctaBusyLabel : CREATE_REQUEST.ctaLabel}
           </Text>
 
           <Feather name="arrow-right" size={16} color={Surface.onPrimary} />
@@ -712,5 +877,9 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     ...Typography.button,
     color: Surface.onPrimary,
+  },
+
+  ctaBusy: {
+    opacity: 0.8,
   },
 });

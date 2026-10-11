@@ -1,15 +1,65 @@
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import {
+  Animated,
+  Easing,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Blood, Elevation, Surface } from "@/constants/colors";
 import { EXTRACTION } from "@/constants/hospital-demo";
 import { Radius } from "@/constants/radius";
-import { ROLE_HOME } from "@/constants/routes";
+import { ROLE_HOME, ROUTES } from "@/constants/routes";
 import { Typography } from "@/constants/typography";
+import { recordDonatedUnit } from "@/services/storage/blood-stock";
 import { initialsOf } from "@/utils/initials";
+
+/* ================= COLLECTION CLOCK ================= */
+
+/** Cadence of the pump readout — also how often the ring repaints. */
+const TICK_MS = 250;
+
+/** Millilitres still to draw when the telemetry opens. */
+const REMAINING_ML = EXTRACTION.totalMl - EXTRACTION.collectedMl;
+
+/** How long the remaining draw takes on the demo clock. */
+const DEMO_SECONDS = EXTRACTION.collection.nominalSeconds / EXTRACTION.collection.speedFactor;
+
+/** Millilitres per second of that demo clock. */
+const ML_PER_SECOND = REMAINING_ML / DEMO_SECONDS;
+
+/** Millilitres added per tick, so the dial advances on ticks, not on renders. */
+const ML_PER_TICK = (ML_PER_SECOND * TICK_MS) / 1000;
+
+/**
+ * The ETA pill's copy: "~1m 05s left", "~18s left", then "Unit complete".
+ *
+ * Driven by the same clock as the fill, so the countdown can never disagree
+ * with how far the ring has actually got.
+ */
+function formatEta(secondsRemaining: number): string {
+  const total = Math.max(0, Math.ceil(secondsRemaining));
+
+  if (total === 0) {
+    return "Unit complete";
+  }
+
+  if (total < 60) {
+    return `~${total}s left`;
+  }
+
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+
+  return `~${minutes}m ${String(seconds).padStart(2, "0")}s left`;
+}
 
 /* ================= COLLECTION RING ================= */
 
@@ -32,7 +82,8 @@ const SEGMENT_RADIUS = Math.min(SEGMENT_LENGTH, RING_THICKNESS) / 2;
  * Live collection dial for the phlebotomy session.
  *
  * `fraction` is the share of the unit already drawn; the remainder is the
- * light track. Everything else on the screen is fixture state.
+ * light track. The droplet badge beats while the pump is running and holds
+ * still once the unit is full.
  */
 function CollectionRing({
   fraction,
@@ -47,6 +98,41 @@ function CollectionRing({
 }) {
   const filled = Math.round(fraction * RING_SEGMENTS);
   const percent = Math.round(fraction * 100);
+  const isComplete = percent >= 100;
+
+  // Ambient motion for the pump: an opacity beat that stops with the draw.
+  const dropPulse = useRef(new Animated.Value(0.45)).current;
+
+  useEffect(() => {
+    if (isComplete) {
+      dropPulse.stopAnimation();
+      dropPulse.setValue(1);
+      return;
+    }
+
+    const beat = Animated.loop(
+      Animated.sequence([
+        Animated.timing(dropPulse, {
+          toValue: 1,
+          duration: 620,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(dropPulse, {
+          toValue: 0.45,
+          duration: 620,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+
+    beat.start();
+
+    return () => {
+      beat.stop();
+    };
+  }, [dropPulse, isComplete]);
 
   return (
     <View
@@ -80,7 +166,9 @@ function CollectionRing({
 
       <View style={styles.ringCenter} pointerEvents="none">
         <View style={styles.dropBadge}>
-          <Feather name="droplet" size={15} color={Blood.primary} />
+          <Animated.View style={{ opacity: dropPulse }}>
+            <Feather name="droplet" size={15} color={Blood.primary} />
+          </Animated.View>
         </View>
 
         <View style={styles.amountRow}>
@@ -90,7 +178,7 @@ function CollectionRing({
 
         <Text style={styles.amountPercent}>{`${percent}% Collected`}</Text>
 
-        <View style={styles.etaPill}>
+        <View style={[styles.etaPill, isComplete && styles.etaPillComplete]}>
           <Text style={styles.etaText}>{eta}</Text>
         </View>
       </View>
@@ -103,15 +191,38 @@ function CollectionRing({
 /**
  * Collection telemetry for the unit being drawn.
  *
- * The dial, the RFID line and the linked case are all fixture values — the
- * dashboard API reports none of it yet — and the two decisions at the bottom
- * are laid out but not submitted anywhere.
+ * The dial is live: it opens on the fixture's partial draw and keeps filling
+ * until the unit is complete, with the millilitre readout, the percentage and
+ * the ETA pill all advancing off the same clock. The RFID line and the linked
+ * case are still fixture values — the dashboard API reports neither yet.
  */
 export default function HospitalExtractionSessionScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
-  const fraction = EXTRACTION.collectedMl / EXTRACTION.totalMl;
+  // The pump does not restart from zero when the screen opens — it picks up
+  // where the fixture's draw already is.
+  const [collectedMl, setCollectedMl] = useState<number>(EXTRACTION.collectedMl);
+
+  const fraction = collectedMl / EXTRACTION.totalMl;
+  const isComplete = collectedMl >= EXTRACTION.totalMl;
+  const eta = formatEta((EXTRACTION.totalMl - collectedMl) / ML_PER_SECOND);
+
+  // Advance the draw on ticks so the ring, the readout and the countdown all
+  // move together; the interval is torn down the moment the unit is full.
+  useEffect(() => {
+    if (isComplete) {
+      return;
+    }
+
+    const timer = setInterval(() => {
+      setCollectedMl((current) => Math.min(EXTRACTION.totalMl, current + ML_PER_TICK));
+    }, TICK_MS);
+
+    return () => {
+      clearInterval(timer);
+    };
+  }, [isComplete]);
 
   function handleBack() {
     if (router.canGoBack()) {
@@ -181,9 +292,9 @@ export default function HospitalExtractionSessionScreen() {
           <View style={styles.ringWrap}>
             <CollectionRing
               fraction={fraction}
-              collectedMl={EXTRACTION.collectedMl}
+              collectedMl={Math.round(collectedMl)}
               totalMl={EXTRACTION.totalMl}
-              eta={EXTRACTION.eta}
+              eta={eta}
             />
           </View>
 
@@ -281,6 +392,14 @@ export default function HospitalExtractionSessionScreen() {
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={EXTRACTION.sealCta}
+          accessibilityHint="Banks the unit and opens the storage monitor"
+          onPress={() => {
+            // Sealing is what makes the unit real: the bank stock, the group's
+            // reserve gauge and the cold vault all move with it, and the
+            // storage monitor reads those same running totals.
+            recordDonatedUnit(EXTRACTION.bloodGroup);
+            router.replace(ROUTES.hospitalStorage);
+          }}
           style={({ pressed }) => [styles.seal, pressed && styles.pressed]}
         >
           <Feather name="lock" size={16} color={Surface.onPrimary} />
@@ -502,6 +621,12 @@ const styles = StyleSheet.create({
     backgroundColor: Surface.softBlue,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: Surface.softBlueBorder,
+  },
+
+  /** Full unit — the countdown gives way to a completed state. */
+  etaPillComplete: {
+    backgroundColor: Surface.softGreen,
+    borderColor: Surface.softGreenBorder,
   },
 
   etaText: {

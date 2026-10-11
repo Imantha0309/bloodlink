@@ -43,6 +43,12 @@ export type EmergencyRequestInput = {
   notes?: string | null;
 };
 
+/**
+ * Fields a requester may change on an existing request. All optional so the
+ * caller sends only what it wants to update.
+ */
+export type EmergencyRequestUpdate = Partial<EmergencyRequestInput>;
+
 /** Offline stand-in so the screens have something to render without a server. */
 const MOCK_REQUESTS: EmergencyRequest[] = [
   {
@@ -58,6 +64,8 @@ const MOCK_REQUESTS: EmergencyRequest[] = [
     notes: "Road traffic accident. Theatre scheduled within the hour.",
     status: "pending",
     createdAt: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
+    // Account-free urgent path — no requester to edit or cancel it, so the
+    // dashboard hides the Manage / Cancel actions (see `isAnonymous`).
     isAnonymous: true,
   },
   {
@@ -73,6 +81,8 @@ const MOCK_REQUESTS: EmergencyRequest[] = [
     notes: "Post-operative transfusion.",
     status: "verified",
     createdAt: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(),
+    // Raised by the signed-in mock recipient (`usr_mock_recipient`), whose
+    // mobile is 0775551234 — so this is the one they can manage or cancel.
     isAnonymous: false,
   },
 ];
@@ -195,4 +205,81 @@ export async function getEmergencyRequest(id: string): Promise<EmergencyRequestD
       ? (body.compatibleDonorGroups as BloodGroup[])
       : [],
   };
+}
+
+/**
+ * Applies an edit to a request the signed-in user raised.
+ *
+ * In mock mode the change is written into the module array the list functions
+ * read from, so the demo flow behaves like the real endpoint: only a request
+ * still open can be changed, and a closed one raises a `conflict`.
+ */
+export async function updateEmergencyRequest(
+  id: string,
+  update: EmergencyRequestUpdate,
+): Promise<EmergencyRequest> {
+  if (!hasRemoteApi) {
+    const found = MOCK_REQUESTS.find((item) => item.id === id);
+
+    if (found === undefined) {
+      throw new ApiError("not_found", "That request could not be found.");
+    }
+
+    if (found.status === "fulfilled" || found.status === "cancelled") {
+      throw new ApiError("conflict", "This request is already closed and can no longer be changed.");
+    }
+
+    Object.assign(found, update, { updatedAt: new Date().toISOString() });
+
+    return found;
+  }
+
+  const body = await request<{ request?: unknown }>(
+    `/emergency-requests/${encodeURIComponent(id)}`,
+    { method: "PATCH", body: update },
+  );
+
+  const updated = readRequestBody(body);
+
+  if (updated === null) {
+    throw new ApiError("unknown", "The server returned an unexpected response.");
+  }
+
+  return updated;
+}
+
+/**
+ * Cancels a request. A cancel is a status flip, never a delete — the triage
+ * trail is kept — so this maps to `DELETE /emergency-requests/:id`, which the
+ * server treats as "mark cancelled".
+ */
+export async function cancelEmergencyRequest(id: string): Promise<EmergencyRequest> {
+  if (!hasRemoteApi) {
+    const found = MOCK_REQUESTS.find((item) => item.id === id);
+
+    if (found === undefined) {
+      throw new ApiError("not_found", "That request could not be found.");
+    }
+
+    if (found.status === "fulfilled") {
+      throw new ApiError("conflict", "This request has already been fulfilled.");
+    }
+
+    found.status = "cancelled";
+
+    return found;
+  }
+
+  const body = await request<{ request?: unknown }>(
+    `/emergency-requests/${encodeURIComponent(id)}`,
+    { method: "DELETE" },
+  );
+
+  const cancelled = readRequestBody(body);
+
+  if (cancelled === null) {
+    throw new ApiError("unknown", "The server returned an unexpected response.");
+  }
+
+  return cancelled;
 }

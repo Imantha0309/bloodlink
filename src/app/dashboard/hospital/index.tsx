@@ -6,11 +6,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { HospitalHeader } from "@/components/hospital/hospital-header";
 import { RequisitionCard } from "@/components/hospital/requisition-card";
+import { AsyncState } from "@/components/ui/async-state";
 import { Blood, Elevation, Surface } from "@/constants/colors";
 import {
   HOSPITAL_CENTER,
-  REQUISITIONS,
-  REQUISITION_TOTAL,
   STORAGE_CARD,
   TRIAGE_STATS,
   type TriageStat,
@@ -18,22 +17,27 @@ import {
 import { Radius } from "@/constants/radius";
 import { ROUTES } from "@/constants/routes";
 import { Typography } from "@/constants/typography";
+import { useHospitalRequisitions, toRequisition } from "@/hooks/use-hospital-requisitions";
 import { useAuth } from "@/providers/auth-provider";
 import { initialsOf } from "@/utils/initials";
 
 /** Requisitions surfaced on Home; the rest live in the Requests tab. */
-const HOME_REQUISITIONS = REQUISITIONS.slice(0, 2);
+const HOME_REQUISITION_LIMIT = 2;
 
 /**
  * Hospital staff landing tab.
  *
- * Content is the approved station-monitor design, fed from the fixtures in
- * `@/constants/hospital-demo` until the dashboard API carries these fields.
+ * The station-monitor blocks are the approved design fed from fixtures; the
+ * requisition list is live, reading the same open queue as the Requests tab so
+ * a request corrected or withdrawn there is consistent with what Home shows.
  */
 export default function HospitalHomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { session } = useAuth();
+  const { requests, isLoading, error } = useHospitalRequisitions();
+
+  const homeRequests = requests.slice(0, HOME_REQUISITION_LIMIT);
 
   return (
     <View style={styles.root}>
@@ -104,15 +108,32 @@ export default function HospitalHomeScreen() {
           </View>
 
           <Text style={styles.sectionCount}>
-            Showing {HOME_REQUISITIONS.length} of {REQUISITION_TOTAL}
+            Showing {homeRequests.length} of {requests.length}
           </Text>
         </View>
 
-        <View style={styles.list}>
-          {HOME_REQUISITIONS.map((item) => (
-            <RequisitionCard key={item.reference} item={item} />
-          ))}
-        </View>
+        <AsyncState
+          isLoading={isLoading}
+          error={error}
+          isEmpty={homeRequests.length === 0}
+          emptyTitle="No open requisitions"
+          emptyMessage="Requests raised on the zero-login path land here for triage."
+        >
+          <View style={styles.list}>
+            {homeRequests.map((request, index) => (
+              <RequisitionCard
+                key={request.id}
+                item={toRequisition(request, index)}
+                onManage={() => {
+                  router.push({
+                    pathname: ROUTES.manageRequest,
+                    params: { id: request.id },
+                  });
+                }}
+              />
+            ))}
+          </View>
+        </AsyncState>
 
         <Pressable
           accessibilityRole="button"

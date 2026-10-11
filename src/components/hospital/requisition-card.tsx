@@ -16,8 +16,19 @@ const AVATAR_SIZE = 26;
  * The two states differ only in what sits on the right of the status panel —
  * overlapping donor avatars while donors are moving, an urgency flag while the
  * broadcast is still unanswered — so both share one card.
+ *
+ * "Manage Requisition" is owned by the caller: the board opens the manage
+ * screen for that request. It falls back to the donor arrival desk so the card
+ * still works anywhere it is not wired to the live queue.
  */
-export function RequisitionCard({ item }: { item: Requisition }) {
+export function RequisitionCard({
+  item,
+  onManage,
+}: {
+  item: Requisition;
+  /** Opens the manage screen for this request. */
+  onManage?: () => void;
+}) {
   const router = useRouter();
   const isTransit = item.status === "in-transit";
 
@@ -87,8 +98,13 @@ export function RequisitionCard({ item }: { item: Requisition }) {
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={`Manage requisition ${item.reference}`}
-          accessibilityHint="Opens the donor arrival desk"
+          accessibilityHint="Opens the requisition to update or delete it"
           onPress={() => {
+            if (onManage !== undefined) {
+              onManage();
+              return;
+            }
+
             router.push(ROUTES.hospitalVerifyDonor);
           }}
           hitSlop={8}

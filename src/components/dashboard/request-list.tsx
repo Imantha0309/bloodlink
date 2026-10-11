@@ -16,6 +16,15 @@ type RequestListProps = {
    * treatment. Presentation only — the server already decided what to return.
    */
   donorGroup?: BloodGroup | null;
+  /**
+   * Enables the Manage / Cancel actions on each card, for a recipient's own
+   * requests. Left off for donor and admin lists, which only read the queue.
+   */
+  isManageable?: boolean;
+  /** Opens the edit form for a request. */
+  onEdit?: (request: EmergencyRequest) => void;
+  /** Cancels a request after confirmation; the list reports the outcome. */
+  onCancel?: (request: EmergencyRequest) => Promise<void>;
 };
 
 /** A triage list, or the "nothing here" note when it is empty. */
@@ -24,6 +33,9 @@ export function RequestList({
   emptyTitle = "Nothing to show",
   emptyMessage = "There are no requests here right now.",
   donorGroup = null,
+  isManageable = false,
+  onEdit,
+  onCancel,
 }: RequestListProps) {
   if (requests.length === 0) {
     return <EmptyNote title={emptyTitle} message={emptyMessage} />;
@@ -38,6 +50,9 @@ export function RequestList({
           key={request.id}
           request={request}
           matchesDonor={servable?.includes(request.bloodGroup) ?? false}
+          isManageable={isManageable}
+          onEdit={onEdit}
+          onCancel={onCancel}
         />
       ))}
     </View>

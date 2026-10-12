@@ -5,17 +5,11 @@ import { useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { FormAlert } from "@/components/auth/form-alert";
-import { OptionChips } from "@/components/ui/option-chips";
+import { ContactCard } from "@/components/emergency/contact-card";
 import { TextField } from "@/components/ui/text-field";
 import { Blood, Elevation, Surface } from "@/constants/colors";
 import { BLOOD_GROUPS, type BloodGroup } from "@/constants/blood-groups";
-import {
-  URGENCY_LABEL,
-  URGENCY_LEVELS,
-  URGENCY_OPTIONS,
-  type UrgencyLevel,
-} from "@/constants/emergency";
+import { URGENCY_OPTIONS, type UrgencyLevel } from "@/constants/emergency";
 import {
   CREATE_REQUEST,
   DEFAULT_REQUEST,
@@ -28,14 +22,10 @@ import { Radius } from "@/constants/radius";
 import { ROLE_HOME, ROUTES } from "@/constants/routes";
 import { Typography } from "@/constants/typography";
 import { useAuth } from "@/providers/auth-provider";
-import { apiErrorMessage } from "@/services/auth";
+import { apiErrorMessage } from "@/services/api/errors";
 import { createEmergencyRequest } from "@/services/requests/emergency-requests";
+import { haptics } from "@/utils/haptics";
 import { initialsOf } from "@/utils/initials";
-import {
-  ValidationMessages,
-  validateContact,
-  validateFullName,
-} from "@/utils/validation";
 
 /** The ABO/Rh picker renders two rows of four, in the catalogue's order. */
 const GROUP_ROWS = [BLOOD_GROUPS.slice(0, 4), BLOOD_GROUPS.slice(4, 8)];
@@ -45,28 +35,16 @@ const VERIFICATION_TONE = {
   neutral: Surface.textMuted,
 } as const;
 
-/** Errors raised before the requisition is handed to the API. */
-type PatientContactErrors = {
-  patientName: string | null;
-  contactName: string | null;
-  contactMobile: string | null;
-};
-
-const NO_ERRORS: PatientContactErrors = {
-  patientName: null,
-  contactName: null,
-  contactMobile: null,
-};
-
 /**
  * Hospital requisition form.
  *
  * Controls are live (group, component, units, sign-off checkboxes) and the
- * broadcast action creates the requisition through `createEmergencyRequest`
- * before handing off to the transmission progress screen, so the record lands
- * on the Home and Requests boards. Hospital, district and the contact person
- * default to the signed-in station's own details, which is what the server
- * requires but the operator should never have to retype.
+ * broadcast action submits through `createEmergencyRequest` — the same
+ * zero-login endpoint the public form uses — then hands the created id to the
+ * transmission progress screen, which tracks the real candidates. Hospital,
+ * district and the contact person default to the signed-in station's own
+ * details, which is what the server requires but the operator should never
+ * have to retype.
  */
 export default function HospitalCreateRequestScreen() {
   const router = useRouter();
@@ -76,33 +54,29 @@ export default function HospitalCreateRequestScreen() {
   const [bloodGroup, setBloodGroup] = useState<BloodGroup>(DEFAULT_REQUEST.bloodGroup);
   const [component, setComponent] = useState<RequestComponent>(DEFAULT_REQUEST.component);
   const [units, setUnits] = useState<number>(DEFAULT_REQUEST.units);
-  const [checks, setChecks] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(VERIFICATION_ITEMS.map((item) => [item.id, item.confirmed])),
-  );
-
   const [patientName, setPatientName] = useState("");
   const [contactName, setContactName] = useState(session?.user.fullName ?? "");
   const [contactMobile, setContactMobile] = useState(session?.user.mobile ?? "");
   const [urgency, setUrgency] = useState<UrgencyLevel>("critical");
-
-  const [errors, setErrors] = useState<PatientContactErrors>(NO_ERRORS);
-  const [formError, setFormError] = useState<string | null>(null);
+  const [patientError, setPatientError] = useState<string | null>(null);
+  const [contactNameError, setContactNameError] = useState<string | null>(null);
+  const [contactMobileError, setContactMobileError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [checks, setChecks] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(VERIFICATION_ITEMS.map((item) => [item.id, item.confirmed])),
+  );
 
   const volume = units * CREATE_REQUEST.mlPerUnit;
   const showAlert = units > CREATE_REQUEST.unitsAlertThreshold;
 
   function adjustUnits(delta: number) {
+    haptics.light();
     setUnits((current) => Math.min(20, Math.max(1, current + delta)));
   }
 
   function toggleCheck(id: string) {
     setChecks((current) => ({ ...current, [id]: !current[id] }));
-  }
-
-  function clearError(field: keyof PatientContactErrors) {
-    setFormError(null);
-    setErrors((current) => (current[field] === null ? current : { ...current, [field]: null }));
   }
 
   function handleBack() {
@@ -116,59 +90,66 @@ export default function HospitalCreateRequestScreen() {
   }
 
   /**
-   * Creates the requisition, then hands the payload to the progress screen,
-   * which owns the broadcast animation until it lands on the Requests board.
+   * Submits the requisition, then hands the payload and the created id to the
+   * progress screen, which owns the broadcast animation.
    */
   async function handleBroadcast() {
-    if (isSubmitting) {
+    const trimmedPatient = patientName.trim();
+    const trimmedName = contactName.trim();
+    const trimmedMobile = contactMobile.trim();
+
+    setPatientError(null);
+    setContactNameError(null);
+    setContactMobileError(null);
+    setSubmitError(null);
+
+    if (trimmedPatient === "") {
+      setPatientError("Enter the patient or ward this requisition is for.");
       return;
     }
 
-    const nextErrors: PatientContactErrors = {
-      patientName:
-        validateFullName(patientName) === null
-          ? null
-          : ValidationMessages.patientNameRequired,
-      contactName:
-        validateFullName(contactName) === null ? null : ValidationMessages.contactNameRequired,
-      contactMobile: validateContact(contactMobile),
-    };
+    if (trimmedName === "") {
+      setContactNameError("Who should donors call back?");
+      return;
+    }
 
-    setErrors(nextErrors);
-    setFormError(null);
-
-    if (Object.values(nextErrors).some((message) => message !== null)) {
+    if (trimmedMobile === "") {
+      setContactMobileError("A callback number is required.");
       return;
     }
 
     setIsSubmitting(true);
 
     try {
-      await createEmergencyRequest({
-        patientName: patientName.trim(),
+      const created = await createEmergencyRequest({
+        patientName: trimmedPatient,
         bloodGroup,
         units,
         hospital: session?.user.fullName ?? "Hospital",
         district: session?.user.district ?? null,
-        contactName: contactName.trim(),
-        contactMobile: contactMobile.trim(),
+        contactName: trimmedName,
+        contactMobile: trimmedMobile,
         urgency,
         // The API has no component column, so it travels in the notes the
         // board renders as the card's subtitle.
         notes: `Component: ${component}`,
       });
 
+      haptics.success();
+
       router.push({
         pathname: ROUTES.hospitalTransmission,
         params: {
+          requestId: created.id,
           bloodGroup,
           component,
           units: String(units),
           volume: String(volume),
         },
       });
-    } catch (error) {
-      setFormError(apiErrorMessage(error));
+    } catch (caught) {
+      haptics.error();
+      setSubmitError(apiErrorMessage(caught));
     } finally {
       setIsSubmitting(false);
     }
@@ -239,6 +220,7 @@ export default function HospitalCreateRequestScreen() {
                   <Pressable
                     key={group}
                     onPress={() => {
+                      haptics.light();
                       setBloodGroup(group);
                     }}
                     accessibilityRole="radio"
@@ -275,6 +257,7 @@ export default function HospitalCreateRequestScreen() {
                 <Pressable
                   key={item}
                   onPress={() => {
+                    haptics.light();
                     setComponent(item);
                   }}
                   accessibilityRole="radio"
@@ -297,6 +280,79 @@ export default function HospitalCreateRequestScreen() {
               );
             })}
           </View>
+        </View>
+
+        {/* ================= PATIENT & URGENCY ================= */}
+
+        <View style={styles.card}>
+          <TextField
+            label="Patient or ward reference"
+            value={patientName}
+            onChangeText={(value) => {
+              setPatientName(value);
+              setPatientError(null);
+            }}
+            placeholder="e.g. ICU Ward 14 — R. M. Silva"
+            icon="user"
+            error={patientError}
+            size="dense"
+            autoCapitalize="words"
+          />
+
+          <Text style={styles.fieldLabel}>Urgency</Text>
+
+          <View style={styles.componentWrap}>
+            {URGENCY_OPTIONS.map((option) => {
+              const selected = option.level === urgency;
+
+              return (
+                <Pressable
+                  key={option.level}
+                  onPress={() => {
+                    haptics.light();
+                    setUrgency(option.level);
+                  }}
+                  accessibilityRole="radio"
+                  accessibilityLabel={option.label}
+                  accessibilityState={{ selected }}
+                  style={({ pressed }) => [
+                    styles.componentChip,
+                    pressed && styles.pressed,
+                    selected && styles.componentChipActive,
+                  ]}
+                >
+                  <Feather
+                    name={option.icon}
+                    size={12}
+                    color={selected ? Surface.onPrimary : Surface.textSecondary}
+                  />
+                  <Text
+                    style={[styles.componentChipText, selected && styles.componentChipTextActive]}
+                  >
+                    {option.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <Text style={styles.fieldLabel}>Reporting contact</Text>
+
+          <ContactCard
+            name={contactName}
+            onChangeName={(value) => {
+              setContactName(value);
+              setContactNameError(null);
+            }}
+            mobile={contactMobile}
+            onChangeMobile={(value) => {
+              setContactMobile(value);
+              setContactMobileError(null);
+            }}
+            nameError={contactNameError}
+            mobileError={contactMobileError}
+            caption="Called back if donors need to confirm details before arriving."
+          />
         </View>
 
         {/* ================= UNITS ================= */}
@@ -351,70 +407,6 @@ export default function HospitalCreateRequestScreen() {
               <Text style={styles.alertText}>{CREATE_REQUEST.unitsAlert}</Text>
             </View>
           ) : null}
-        </View>
-
-        {/* ================= PATIENT & CONTACT ================= */}
-
-        <View style={styles.card}>
-          <View style={styles.verificationHead}>
-            <Feather name="user" size={16} color={Blood.primary} />
-
-            <Text style={styles.verificationTitle}>{CREATE_REQUEST.patientTitle}</Text>
-          </View>
-
-          <TextField
-            label={CREATE_REQUEST.patientLabel}
-            value={patientName}
-            onChangeText={(value) => {
-              setPatientName(value);
-              clearError("patientName");
-            }}
-            placeholder="Name as it appears on records"
-            error={errors.patientName}
-            autoComplete="name"
-            icon="user"
-            returnKeyType="next"
-          />
-
-          <TextField
-            label={CREATE_REQUEST.contactLabel}
-            value={contactName}
-            onChangeText={(value) => {
-              setContactName(value);
-              clearError("contactName");
-            }}
-            placeholder="Who should we call?"
-            error={errors.contactName}
-            autoComplete="name"
-            icon="phone-call"
-            returnKeyType="next"
-          />
-
-          <TextField
-            label={CREATE_REQUEST.mobileLabel}
-            value={contactMobile}
-            onChangeText={(value) => {
-              setContactMobile(value);
-              clearError("contactMobile");
-            }}
-            placeholder="077 123 4567"
-            error={errors.contactMobile}
-            keyboardType="phone-pad"
-            autoCapitalize="none"
-            icon="smartphone"
-            returnKeyType="done"
-          />
-
-          <OptionChips
-            label={CREATE_REQUEST.urgencyLabel}
-            options={URGENCY_LEVELS}
-            value={urgency}
-            onChange={setUrgency}
-            labelFor={(value) => URGENCY_LABEL[value]}
-            captionFor={(value) =>
-              URGENCY_OPTIONS.find((option) => option.level === value)?.description
-            }
-          />
         </View>
 
         {/* ================= VERIFICATION ================= */}
@@ -476,7 +468,12 @@ export default function HospitalCreateRequestScreen() {
 
         {/* ================= SUBMIT ================= */}
 
-        <FormAlert message={formError} />
+        {submitError !== null ? (
+          <View style={styles.submitError}>
+            <Feather name="alert-circle" size={14} color={Blood.primary} />
+            <Text style={styles.submitErrorText}>{submitError}</Text>
+          </View>
+        ) : null}
 
         <Pressable
           accessibilityRole="button"
@@ -503,7 +500,9 @@ export default function HospitalCreateRequestScreen() {
             {isSubmitting ? CREATE_REQUEST.ctaBusyLabel : CREATE_REQUEST.ctaLabel}
           </Text>
 
-          <Feather name="arrow-right" size={16} color={Surface.onPrimary} />
+          {!isSubmitting ? (
+            <Feather name="arrow-right" size={16} color={Surface.onPrimary} />
+          ) : null}
         </Pressable>
       </ScrollView>
     </View>
@@ -860,6 +859,24 @@ const styles = StyleSheet.create({
   },
 
   /* ================= SUBMIT ================= */
+
+  submitError: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    padding: 10,
+    borderRadius: Radius.sm,
+    borderWidth: 1,
+    borderColor: Surface.softRedBorder,
+    backgroundColor: Surface.softRed,
+  },
+
+  submitErrorText: {
+    flex: 1,
+    ...Typography.small,
+    fontWeight: "600",
+    color: Blood.primary,
+  },
 
   cta: {
     flexDirection: "row",

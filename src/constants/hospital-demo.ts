@@ -1,10 +1,12 @@
 /**
- * Static content for the hospital staff dashboard.
+ * Static copy for the hospital staff dashboard.
  *
- * The approved design shows ward numbers, transit ETAs, alerted-donor counts
- * and storage levels, none of which `GET /dashboard/me` returns yet. These
- * fixtures stand in until the API carries them — the screens read only the
- * shapes below, so wiring the real data is a change to this file alone.
+ * Everything dynamic — the request board, donor screening results, stock
+ * levels, transmission progress and profile stats — is served by the API (see
+ * the hospital screens). This file only holds the physical-plant telemetry and
+ * staff-facing labels the backend deliberately does not carry: the cold-storage
+ * temperature, duty/shift copy, clinical roles and the decorative ID-card
+ * artwork. Removing or wiring it later is a presentation-level change only.
  */
 
 import type { ComponentProps } from "react";
@@ -100,11 +102,6 @@ export const BLOOD_STORAGE = {
   powerValue: "UPS-Dual Grid Active",
   auditLabel: "Last Cycle Audit",
   auditValue: "12 mins ago (Auto)",
-  totalUnits: 1420,
-  capacityPct: 84,
-  gaugeNote: "Calibrated physical level in Cryo-Vats",
-  bloodTypeCount: 8,
-  compartmentNote: "Active Cryo-Zones",
 } as const;
 
 export type ReserveTone = "surplus" | "critical" | "safe";
@@ -332,12 +329,6 @@ export type TransmissionMetric = {
   tone: "positive" | "neutral";
 };
 
-export const TRANSMISSION_METRICS: readonly TransmissionMetric[] = [
-  { key: "alerted", label: "Donors Alerted", value: "6", icon: "bell", tone: "positive" },
-  { key: "ack", label: "Acknowledged", value: "2", icon: "check-circle", tone: "positive" },
-  { key: "eta", label: "Avg ETA", value: "14m", icon: "clock", tone: "neutral" },
-];
-
 /* ================= Verify arrived donor ================= */
 
 export const VERIFY_DONOR = {
@@ -365,51 +356,6 @@ export const VERIFY_DONOR = {
   approveCta: "Approve for Phlebotomy / Extraction",
   deferCta: "Flag Health Deferral",
 } as const;
-
-export type ScreeningTone = "positive" | "neutral" | "pill";
-
-export type ScreeningRow = {
-  id: string;
-  title: string;
-  /** Grey line under the title — the reading, or "Cleared". */
-  detail: string;
-  /** Right-hand result; rendered as a pill when `tone` is `pill`. */
-  value: string;
-  tone: ScreeningTone;
-  icon: FeatherName;
-  /** Extra footnote shown under the row copy; `null` when there is none. */
-  note: string | null;
-};
-
-export const SCREENING_ROWS: readonly ScreeningRow[] = [
-  {
-    id: "vitals",
-    title: "Vitals Clearance",
-    detail: "Temperature 36.6°C & Blood Pressure 118/78 mmHg",
-    value: "Normal",
-    tone: "positive",
-    icon: "activity",
-    note: null,
-  },
-  {
-    id: "hemoglobin",
-    title: "Hemoglobin Rapid Test",
-    detail: "Cleared",
-    value: "14.2 g/dL",
-    tone: "neutral",
-    icon: "droplet",
-    note: null,
-  },
-  {
-    id: "consent",
-    title: "Identity & Consent Form",
-    detail: "Cleared",
-    value: "Signed Digitally",
-    tone: "pill",
-    icon: "file-text",
-    note: "NBTS Donor Declaration v4 confirmed via e-Sign",
-  },
-];
 
 export type BedState = "occupied" | "sanitizing" | "ready" | "free";
 
@@ -490,62 +436,9 @@ export const HOSPITAL_PROFILE = {
   footer: "Transfusion Medicine Information System v4.8 • Station COL-NHSL-01",
 } as const;
 
-/** Credential strip along the bottom of the dark identifier card. */
-export const ID_CARD_FIELDS: readonly { label: string; value: string }[] = [
-  { label: "Kell Factor", value: "K+ K+" },
-  { label: "CMV Status", value: "Negative" },
-  { label: "Valid Thru", value: "12 / 27" },
-];
-
 /** Barcode bar widths, in points — the pattern is decorative and static. */
 export const BARCODE_BARS: readonly number[] = [
   2, 1, 3, 1, 2, 4, 1, 2, 1, 3, 2, 1, 4, 1, 2, 3, 1, 2, 2, 1, 3, 1, 2, 4, 1, 3,
-];
-
-export type ProfileStatTone = "positive" | "critical";
-
-export type ProfileStat = {
-  key: string;
-  icon: FeatherName;
-  value: string;
-  label: string;
-  note: string;
-  noteTone: ProfileStatTone;
-  /** The figure itself is coloured red on the alert card only. */
-  valueCritical?: boolean;
-  /** Tint of the icon badge; the alert card uses the red wash. */
-  badgeTone: "red" | "blue";
-};
-
-export const PROFILE_STATS: readonly ProfileStat[] = [
-  {
-    key: "ingested",
-    icon: "user-check",
-    value: "18",
-    label: "Donors Ingested",
-    note: "+4 vs target",
-    noteTone: "positive",
-    badgeTone: "blue",
-  },
-  {
-    key: "alerts",
-    icon: "sun",
-    value: "3",
-    label: "Active Alerts",
-    note: "Priority 1 Red",
-    noteTone: "critical",
-    valueCritical: true,
-    badgeTone: "red",
-  },
-  {
-    key: "crossmatch",
-    icon: "droplet",
-    value: "99.4%",
-    label: "Cross-Match",
-    note: "Zero incidents",
-    noteTone: "positive",
-    badgeTone: "blue",
-  },
 ];
 
 export const COLD_STORAGE = {

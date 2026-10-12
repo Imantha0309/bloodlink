@@ -8,18 +8,30 @@ import { Typography } from "@/constants/typography";
 type FieldErrorProps = {
   /** Null renders nothing — the reserved space keeps the layout from jumping. */
   message: string | null;
+  /**
+   * Whether to hold the row open when there is no message.
+   *
+   * Defaults to `true`, so a form does not reflow as errors clear. Dense screens
+   * pass `false`: with five fields each reserving a row, the reserved gaps cost
+   * more vertical space than the shifting is worth.
+   */
+  reserveSpace?: boolean;
 };
 
 /**
- * Inline validation message. Always renders its row so showing or clearing an
- * error never reflows the form, and is announced by screen readers when it
- * appears.
+ * Inline validation message. By default always renders its row so showing or
+ * clearing an error never reflows the form, and is announced by screen readers
+ * when it appears.
  */
-export function FieldError({ message }: FieldErrorProps) {
+export function FieldError({ message, reserveSpace = true }: FieldErrorProps) {
   const hasError = message !== null;
+  const placeholder = reserveSpace && !hasError;
 
   return (
-    <View style={styles.container} accessibilityLiveRegion="polite">
+    <View
+      style={[styles.container, placeholder && styles.containerPlaceholder]}
+      accessibilityLiveRegion="polite"
+    >
       {hasError ? (
         <>
           <Feather name="alert-circle" size={13} color={Surface.danger} />
@@ -40,6 +52,12 @@ const styles = StyleSheet.create({
     gap: 6,
     marginTop: 7,
     minHeight: 16,
+  },
+
+  /** Collapsed: no top margin and no reserved height. */
+  containerPlaceholder: {
+    marginTop: 0,
+    minHeight: 0,
   },
 
   text: {

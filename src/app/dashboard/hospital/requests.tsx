@@ -1,31 +1,97 @@
 import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import { useEffect, useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { HospitalHeader } from "@/components/hospital/hospital-header";
 import { RequisitionCard } from "@/components/hospital/requisition-card";
 import { AsyncState } from "@/components/ui/async-state";
+import { SkeletonCard } from "@/components/ui/skeleton";
 import { Blood, Surface } from "@/constants/colors";
-import { HOSPITAL_CENTER } from "@/constants/hospital-demo";
 import { Radius } from "@/constants/radius";
 import { ROUTES } from "@/constants/routes";
 import { Typography } from "@/constants/typography";
-import { useHospitalRequisitions, toRequisition } from "@/hooks/use-hospital-requisitions";
 import { useAuth } from "@/providers/auth-provider";
+import { apiErrorMessage } from "@/services/api/errors";
+import {
+  listEmergencyRequests,
+  type EmergencyRequest,
+} from "@/services/requests/emergency-requests";
 import { initialsOf } from "@/utils/initials";
+import { toRequisition } from "@/utils/requisition";
+
+/** Loading placeholder for the requisition board. */
+function BoardSkeleton() {
+  return (
+    <View style={styles.list}>
+      <SkeletonCard lines={3} />
+      <SkeletonCard lines={3} />
+      <SkeletonCard lines={3} />
+    </View>
+  );
+}
 
 /**
- * Full requisition board — everything Home summarises.
+ * Full requisition board — everything Home summarises, straight from the API.
  *
- * Fed by the live open queue rather than the fixtures, so every card here is a
- * real request the station can correct or withdraw through "Manage Requisition".
+ * Every card here is a real request the station can correct or withdraw
+ * through "Manage Requisition".
  */
 export default function HospitalRequestsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { session } = useAuth();
-  const { requests, isLoading, error } = useHospitalRequisitions();
+
+  const [requests, setRequests] = useState<EmergencyRequest[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Initial load: state only changes inside the promise callbacks, so the
+  // effect body itself never triggers a cascading render.
+  useEffect(() => {
+    let cancelled = false;
+
+    listEmergencyRequests()
+      .then((data) => {
+        if (!cancelled) {
+          setRequests(data);
+          setError(null);
+        }
+      })
+      .catch((caught) => {
+        if (!cancelled) {
+          setError(apiErrorMessage(caught));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /** Retry — invoked from event handlers only. */
+  async function load() {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      setRequests(await listEmergencyRequests());
+    } catch (caught) {
+      setError(apiErrorMessage(caught));
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  const center = session?.user.district
+    ? `${session.user.district} District`
+    : "Your station";
 
   return (
     <View style={styles.root}>
@@ -50,7 +116,7 @@ export default function HospitalRequestsScreen() {
               Emergency Requisitions
             </Text>
 
-            <Text style={styles.subtitle}>Active board at {HOSPITAL_CENTER}</Text>
+            <Text style={styles.subtitle}>Active board at {center}</Text>
           </View>
 
           <View style={styles.countPill}>
@@ -62,14 +128,22 @@ export default function HospitalRequestsScreen() {
           isLoading={isLoading}
           error={error}
           isEmpty={requests.length === 0}
-          emptyTitle="No open requisitions"
-          emptyMessage="Requests raised on the zero-login path land here for triage."
+          emptyTitle="Board is clear"
+          emptyMessage="No emergency requisitions yet — issue one from Home to start the board."
+          emptyAction={{
+            label: "Issue a requisition",
+            onPress: () => router.push(ROUTES.hospitalCreateRequest),
+          }}
+          skeleton={<BoardSkeleton />}
+          onRetry={() => {
+            void load();
+          }}
         >
           <View style={styles.list}>
-            {requests.map((request, index) => (
+            {requests.map((request) => (
               <RequisitionCard
                 key={request.id}
-                item={toRequisition(request, index)}
+                item={toRequisition(request)}
                 onManage={() => {
                   router.push({
                     pathname: ROUTES.manageRequest,

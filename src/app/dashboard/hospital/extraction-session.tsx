@@ -1,5 +1,5 @@
 import { Feather } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
 import {
@@ -13,30 +13,31 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { AsyncState } from "@/components/ui/async-state";
+import { SkeletonCard } from "@/components/ui/skeleton";
+import { TextField } from "@/components/ui/text-field";
 import { Blood, Elevation, Surface } from "@/constants/colors";
 import { EXTRACTION } from "@/constants/hospital-demo";
 import { Radius } from "@/constants/radius";
 import { ROLE_HOME, ROUTES } from "@/constants/routes";
 import { Typography } from "@/constants/typography";
+import { useAuth } from "@/providers/auth-provider";
+import { apiErrorMessage } from "@/services/api/errors";
+import {
+  completeExtraction,
+  getRequestWorkflow,
+  startExtraction,
+  type RequestWorkflow,
+} from "@/services/hospital";
 import { recordDonatedUnit } from "@/services/storage/blood-stock";
+import { haptics } from "@/utils/haptics";
 import { initialsOf } from "@/utils/initials";
+import { referenceFor } from "@/utils/reference";
 
 /* ================= COLLECTION CLOCK ================= */
 
-/** Cadence of the pump readout — also how often the ring repaints. */
+/** Cadence of the pump readout â€” also how often the ring repaints. */
 const TICK_MS = 250;
-
-/** Millilitres still to draw when the telemetry opens. */
-const REMAINING_ML = EXTRACTION.totalMl - EXTRACTION.collectedMl;
-
-/** How long the remaining draw takes on the demo clock. */
-const DEMO_SECONDS = EXTRACTION.collection.nominalSeconds / EXTRACTION.collection.speedFactor;
-
-/** Millilitres per second of that demo clock. */
-const ML_PER_SECOND = REMAINING_ML / DEMO_SECONDS;
-
-/** Millilitres added per tick, so the dial advances on ticks, not on renders. */
-const ML_PER_TICK = (ML_PER_SECOND * TICK_MS) / 1000;
 
 /**
  * The ETA pill's copy: "~1m 05s left", "~18s left", then "Unit complete".
@@ -66,9 +67,12 @@ function formatEta(secondsRemaining: number): string {
 const RING_SIZE = 172;
 const RING_THICKNESS = 16;
 
+/** Seconds of wall clock the dial treats as one full 450 mL unit. */
+const FULL_DRAW_SECONDS = 90;
+
 /**
  * The arc is drawn as tangential bars laid around the circle rather than one
- * stroke — React Native has no vector canvas, and overlapping bars keep the
+ * stroke â€” React Native has no vector canvas, and overlapping bars keep the
  * ring smooth while staying in plain views.
  */
 const RING_SEGMENTS = 90;
@@ -190,41 +194,169 @@ function CollectionRing({
 
 /* ================= SCREEN ================= */
 
+/** Loading placeholder for the collection screen. */
+function SessionSkeleton() {
+  return (
+    <View style={styles.skeletonBlock}>
+      <SkeletonCard lines={3} />
+      <SkeletonCard lines={2} />
+      <SkeletonCard lines={2} />
+    </View>
+  );
+}
+
 /**
  * Collection telemetry for the unit being drawn.
  *
- * The dial is live: it opens on the fixture's partial draw and keeps filling
- * until the unit is complete, with the millilitre readout, the percentage and
- * the ETA pill all advancing off the same clock. The RFID line and the linked
- * case are still fixture values — the dashboard API reports neither yet.
+ * Loads the real workflow: the dial tracks elapsed time while the extraction
+ * session runs â€” millilitre readout, percentage and ETA pill all advancing off
+ * the same clock, with the droplet badge beating until the unit is full â€” and
+ * sealing submits the drawn volume through `completeExtraction`, banks the
+ * unit into the station's stock, and unlocks the donor's case completion.
  */
 export default function HospitalExtractionSessionScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { session } = useAuth();
 
-  // The pump does not restart from zero when the screen opens — it picks up
-  // where the fixture's draw already is.
-  const [collectedMl, setCollectedMl] = useState<number>(EXTRACTION.collectedMl);
+  const params = useLocalSearchParams<{ requestId?: string }>();
+  const requestId = params.requestId ?? null;
 
-  const fraction = collectedMl / EXTRACTION.totalMl;
-  const isComplete = collectedMl >= EXTRACTION.totalMl;
-  const eta = formatEta((EXTRACTION.totalMl - collectedMl) / ML_PER_SECOND);
+  const [workflow, setWorkflow] = useState<RequestWorkflow | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [volumeText, setVolumeText] = useState("450");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [tick, setTick] = useState(() => Date.now());
 
-  // Advance the draw on ticks so the ring, the readout and the countdown all
-  // move together; the interval is torn down the moment the unit is full.
+  // Derived (not stored): a cold open without a request id shows the error
+  // banner without a setState round-trip inside the effect.
+  const paramError =
+    requestId === null ? "This session needs a requisition â€” open it from the board." : null;
+
+  // Initial load: state only changes inside the promise callbacks, so the
+  // effect body itself never triggers a cascading render.
   useEffect(() => {
-    if (isComplete) {
+    if (requestId === null) {
+      return;
+    }
+
+    let cancelled = false;
+
+    getRequestWorkflow(requestId)
+      .then((next) => {
+        if (!cancelled) {
+          setWorkflow(next);
+          setError(null);
+        }
+      })
+      .catch((caught) => {
+        if (!cancelled) {
+          setError(apiErrorMessage(caught));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [requestId]);
+
+  const extraction = workflow?.extraction ?? null;
+  const isInProgress = extraction?.status === "in_progress";
+
+  // A running session repaints on a short tick so the dial creeps forward.
+  useEffect(() => {
+    if (!isInProgress) {
       return;
     }
 
     const timer = setInterval(() => {
-      setCollectedMl((current) => Math.min(EXTRACTION.totalMl, current + ML_PER_TICK));
+      setTick(Date.now());
     }, TICK_MS);
 
-    return () => {
-      clearInterval(timer);
-    };
-  }, [isComplete]);
+    return () => clearInterval(timer);
+  }, [isInProgress]);
+
+  /** Retry â€” invoked from event handlers only. */
+  async function load() {
+    if (requestId === null) {
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      setWorkflow(await getRequestWorkflow(requestId));
+    } catch (caught) {
+      setError(apiErrorMessage(caught));
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function beginCollection() {
+    if (requestId === null || workflow === null) {
+      return;
+    }
+
+    setIsSubmitting(true);
+    setSubmitError(null);
+
+    try {
+      const started = await startExtraction(requestId);
+      haptics.medium();
+      setTick(Date.now());
+      setWorkflow({ ...workflow, extraction: started });
+    } catch (caught) {
+      haptics.error();
+      setSubmitError(apiErrorMessage(caught));
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function sealUnit() {
+    if (requestId === null || workflow === null) {
+      return;
+    }
+
+    const volumeMl = Number.parseInt(volumeText, 10);
+
+    if (!Number.isFinite(volumeMl) || volumeMl < 1 || volumeMl > 1000) {
+      setSubmitError("Enter the drawn volume in mL (1â€“1000).");
+      return;
+    }
+
+    setIsSubmitting(true);
+    setSubmitError(null);
+
+    try {
+      await completeExtraction(requestId, {
+        volumeMl,
+        phlebotomistName: session?.user.fullName ?? undefined,
+      });
+
+      // Sealing is what makes the unit real on this device too: the bank
+      // stock, the group's reserve gauge and the cold vault all move with it,
+      // and the storage monitor's fresh-intake strip reads those totals.
+      recordDonatedUnit(workflow.request.bloodGroup);
+
+      haptics.success();
+      router.replace(ROUTES.hospitalStorage);
+    } catch (caught) {
+      haptics.error();
+      setSubmitError(apiErrorMessage(caught));
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
 
   function handleBack() {
     if (router.canGoBack()) {
@@ -234,6 +366,29 @@ export default function HospitalExtractionSessionScreen() {
 
     router.replace(ROLE_HOME.hospital);
   }
+
+  const request = workflow?.request ?? null;
+
+  // The dial reads elapsed wall clock while drawing; a finished session shows
+  // the sealed volume.
+  const elapsedSeconds =
+    extraction !== null ? Math.max(0, (tick - Date.parse(extraction.startedAt)) / 1000) : 0;
+  const estimatedMl =
+    extraction === null
+      ? 0
+      : extraction.status === "completed"
+        ? (extraction.volumeMl ?? 450)
+        : Math.min(450, Math.round(elapsedSeconds * (450 / FULL_DRAW_SECONDS)));
+  const fraction = Math.max(0, Math.min(1, estimatedMl / 450));
+  const remaining = Math.max(0, Math.ceil(FULL_DRAW_SECONDS - elapsedSeconds));
+  const eta =
+    extraction === null
+      ? "Session not started"
+      : extraction.status === "completed"
+        ? "Unit sealed"
+        : remaining > 0
+          ? formatEta(remaining)
+          : "Ready to seal";
 
   return (
     <View style={styles.root}>
@@ -259,169 +414,303 @@ export default function HospitalExtractionSessionScreen() {
           <Feather name="arrow-left" size={22} color={Surface.text} />
         </Pressable>
 
-        {/* ================= SUITE ================= */}
-
-        <View style={styles.suiteRow}>
-          <Text style={styles.suiteText}>{EXTRACTION.suite}</Text>
-
-          <View style={styles.protocolPill}>
-            <Feather name="sun" size={11} color={Blood.primary} />
-            <Text style={styles.protocolText}>{EXTRACTION.livePill}</Text>
-          </View>
-        </View>
-
-        {/* ================= TELEMETRY ================= */}
-
-        <View style={styles.card}>
-          <View style={styles.telemetryHead}>
-            <View style={styles.telemetryText}>
-              <Text style={styles.eyebrow}>{EXTRACTION.telemetryLabel}</Text>
-
-              <Text style={styles.unitTitle} accessibilityRole="header">
-                {EXTRACTION.unitTitle}
-              </Text>
-            </View>
-
-            <View style={styles.isoGroup}>
-              <View style={styles.groupPill}>
-                <Text style={styles.groupText}>{EXTRACTION.bloodGroup}</Text>
-              </View>
-
-              <Text style={styles.isoLabel}>{EXTRACTION.isoLabel}</Text>
-            </View>
-          </View>
-
-          <View style={styles.ringWrap}>
-            <CollectionRing
-              fraction={fraction}
-              collectedMl={Math.round(collectedMl)}
-              totalMl={EXTRACTION.totalMl}
-              eta={eta}
-            />
-          </View>
-
-          <View style={styles.rfidRow}>
-            <Feather name="grid" size={16} color={Surface.textSecondary} />
-
-            <View style={styles.rfidText}>
-              <Text style={styles.rfidCode} numberOfLines={1}>
-                {EXTRACTION.rfidCode}
-              </Text>
-
-              <Text style={styles.rfidDetail}>{EXTRACTION.rfidDetail}</Text>
-            </View>
-
-            <Feather name="check-circle" size={18} color={Surface.online} />
-          </View>
-        </View>
-
-        {/* ================= LINKED CASE ================= */}
-
-        <View style={styles.card}>
-          <View style={styles.cardHead}>
-            <Text style={[styles.eyebrow, styles.eyebrowUpper]}>
-              {EXTRACTION.caseLabel}
-            </Text>
-
-            <View style={styles.statPill}>
-              <Text style={styles.statText}>{EXTRACTION.caseStat}</Text>
-            </View>
-          </View>
-
-          <View style={styles.personRow}>
-            <View style={styles.personAvatar}>
-              <Text style={styles.personInitials}>
-                {initialsOf(EXTRACTION.patientName, "AP")}
-              </Text>
-            </View>
-
-            <View style={styles.personText}>
-              <View style={styles.nameRow}>
-                <Text style={styles.personName} numberOfLines={1}>
-                  {EXTRACTION.patientName}
-                </Text>
-
-                <Text style={styles.personMeta}>{EXTRACTION.patientMeta}</Text>
-              </View>
-
-              <Text style={styles.personWard}>{EXTRACTION.patientWard}</Text>
-            </View>
-          </View>
-
-          <View style={styles.noteRow}>
-            <Feather name="shuffle" size={13} color={Blood.primary} />
-
-            <Text style={styles.noteText}>{EXTRACTION.patientNote}</Text>
-          </View>
-        </View>
-
-        {/* ================= PHLEBOTOMIST ================= */}
-
-        <View style={styles.card}>
-          <View style={styles.personRow}>
-            <View style={styles.personAvatar}>
-              <Text style={styles.personInitials}>
-                {initialsOf(EXTRACTION.phlebotomistName, "SP")}
-              </Text>
-            </View>
-
-            <View style={styles.personText}>
-              <View style={styles.nameRow}>
-                <Text style={styles.personName} numberOfLines={1}>
-                  {EXTRACTION.phlebotomistName}
-                </Text>
-
-                <Feather name="check-circle" size={14} color={Surface.online} />
-              </View>
-
-              <Text style={styles.personWard}>{EXTRACTION.phlebotomistMeta}</Text>
-            </View>
-
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Ring the ${EXTRACTION.buzzerLabel}`}
-              hitSlop={4}
-              style={({ pressed }) => [styles.buzzer, pressed && styles.pressed]}
-            >
-              <Feather name="bell" size={14} color={Blood.primary} />
-              <Text style={styles.buzzerText}>{EXTRACTION.buzzerLabel}</Text>
-            </Pressable>
-          </View>
-        </View>
-
-        {/* ================= DECISIONS ================= */}
-
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={EXTRACTION.sealCta}
-          accessibilityHint="Banks the unit and opens the storage monitor"
-          onPress={() => {
-            // Sealing is what makes the unit real: the bank stock, the group's
-            // reserve gauge and the cold vault all move with it, and the
-            // storage monitor reads those same running totals.
-            recordDonatedUnit(EXTRACTION.bloodGroup);
-            router.replace(ROUTES.hospitalStorage);
+        <AsyncState
+          isLoading={paramError === null && isLoading}
+          error={paramError ?? error}
+          skeleton={<SessionSkeleton />}
+          onRetry={() => {
+            void load();
           }}
-          style={({ pressed }) => [styles.seal, pressed && styles.pressed]}
         >
-          <Feather name="lock" size={16} color={Surface.onPrimary} />
+          {workflow === null || request === null ? null : (
+            <>
+              {/* ================= SUITE ================= */}
 
-          <Text style={styles.sealText} numberOfLines={1}>
-            {EXTRACTION.sealCta}
-          </Text>
-        </Pressable>
+              <View style={styles.suiteRow}>
+                <Text style={styles.suiteText}>{EXTRACTION.suite}</Text>
 
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={EXTRACTION.haltCta}
-          style={({ pressed }) => [styles.halt, pressed && styles.pressed]}
-        >
-          <Feather name="alert-circle" size={16} color={Blood.primary} />
+                <View
+                  style={[
+                    styles.protocolPill,
+                    !isInProgress && styles.protocolPillStandby,
+                  ]}
+                >
+                  <Feather
+                    name={isInProgress ? "sun" : "clock"}
+                    size={11}
+                    color={isInProgress ? Blood.primary : Surface.textSecondary}
+                  />
+                  <Text
+                    style={[
+                      styles.protocolText,
+                      !isInProgress && styles.protocolTextStandby,
+                    ]}
+                  >
+                    {isInProgress ? EXTRACTION.livePill : "Standby"}
+                  </Text>
+                </View>
+              </View>
 
-          <Text style={styles.haltText} numberOfLines={1}>
-            {EXTRACTION.haltCta}
-          </Text>
-        </Pressable>
+              {/* ================= TELEMETRY ================= */}
+
+              <View style={styles.card}>
+                <View style={styles.telemetryHead}>
+                  <View style={styles.telemetryText}>
+                    <Text style={styles.eyebrow}>{EXTRACTION.telemetryLabel}</Text>
+
+                    <Text style={styles.unitTitle} accessibilityRole="header">
+                      {EXTRACTION.unitTitle}
+                    </Text>
+                  </View>
+
+                  <View style={styles.isoGroup}>
+                    <View style={styles.groupPill}>
+                      <Text style={styles.groupText}>{request.bloodGroup}</Text>
+                    </View>
+
+                    <Text style={styles.isoLabel}>{EXTRACTION.isoLabel}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.ringWrap}>
+                  <CollectionRing
+                    fraction={fraction}
+                    collectedMl={estimatedMl}
+                    totalMl={450}
+                    eta={eta}
+                  />
+                </View>
+
+                <View style={styles.rfidRow}>
+                  <Feather name="grid" size={16} color={Surface.textSecondary} />
+
+                  <View style={styles.rfidText}>
+                    <Text style={styles.rfidCode} numberOfLines={1}>
+                      {`UNIT-REQ-${referenceFor(request.id)}`}
+                    </Text>
+
+                    <Text style={styles.rfidDetail}>
+                      {extraction !== null
+                        ? `Collection started ${new Date(extraction.startedAt).toLocaleTimeString(
+                            "en-GB",
+                            { hour: "2-digit", minute: "2-digit" },
+                          )} â€¢ Tri-pack Bag`
+                        : EXTRACTION.rfidDetail}
+                    </Text>
+                  </View>
+
+                  <Feather
+                    name={extraction?.status === "completed" ? "check-circle" : "clock"}
+                    size={18}
+                    color={
+                      extraction?.status === "completed" ? Surface.online : Surface.textSecondary
+                    }
+                  />
+                </View>
+              </View>
+
+              {/* ================= LINKED CASE ================= */}
+
+              <View style={styles.card}>
+                <View style={styles.cardHead}>
+                  <Text style={[styles.eyebrow, styles.eyebrowUpper]}>
+                    {EXTRACTION.caseLabel}
+                  </Text>
+
+                  <View style={styles.statPill}>
+                    <Text style={styles.statText}>{`#REQ-${referenceFor(request.id)}`}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.personRow}>
+                  <View style={styles.personAvatar}>
+                    <Text style={styles.personInitials}>
+                      {initialsOf(request.patientName, "PT")}
+                    </Text>
+                  </View>
+
+                  <View style={styles.personText}>
+                    <View style={styles.nameRow}>
+                      <Text style={styles.personName} numberOfLines={1}>
+                        {request.patientName}
+                      </Text>
+
+                      <Text style={styles.personMeta}>
+                        {`${request.bloodGroup} â€¢ ${request.units} ${
+                          request.units === 1 ? "unit" : "units"
+                        }`}
+                      </Text>
+                    </View>
+
+                    <Text style={styles.personWard}>{request.hospital}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.noteRow}>
+                  <Feather name="shuffle" size={13} color={Blood.primary} />
+
+                  <Text style={styles.noteText}>
+                    {request.notes ?? "Cross-match lab standing by for PRBC spin"}
+                  </Text>
+                </View>
+              </View>
+
+              {/* ================= PHLEBOTOMIST ================= */}
+
+              <View style={styles.card}>
+                <View style={styles.personRow}>
+                  <View style={styles.personAvatar}>
+                    <Text style={styles.personInitials}>
+                      {initialsOf(session?.user.fullName, "DR")}
+                    </Text>
+                  </View>
+
+                  <View style={styles.personText}>
+                    <View style={styles.nameRow}>
+                      <Text style={styles.personName} numberOfLines={1}>
+                        {session?.user.fullName ?? EXTRACTION.phlebotomistName}
+                      </Text>
+
+                      <Feather name="check-circle" size={14} color={Surface.online} />
+                    </View>
+
+                    <Text style={styles.personWard}>{EXTRACTION.phlebotomistMeta}</Text>
+                  </View>
+
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Ring the ${EXTRACTION.buzzerLabel}`}
+                    hitSlop={4}
+                    onPress={() => {
+                      haptics.light();
+                    }}
+                    style={({ pressed }) => [styles.buzzer, pressed && styles.pressed]}
+                  >
+                    <Feather name="bell" size={14} color={Blood.primary} />
+                    <Text style={styles.buzzerText}>{EXTRACTION.buzzerLabel}</Text>
+                  </Pressable>
+                </View>
+              </View>
+
+              {/* ================= DECISIONS ================= */}
+
+              {isInProgress ? (
+                <View style={styles.volumeCard}>
+                  <TextField
+                    label="Drawn volume (mL)"
+                    value={volumeText}
+                    onChangeText={(value) => {
+                      setVolumeText(value);
+                      setSubmitError(null);
+                    }}
+                    placeholder="450"
+                    size="dense"
+                    keyboardType="number-pad"
+                    hint="Recorded on the sealed unit and linked to this case."
+                  />
+                </View>
+              ) : null}
+
+              {submitError !== null ? (
+                <View style={styles.submitError}>
+                  <Feather name="alert-circle" size={14} color={Blood.primary} />
+                  <Text style={styles.submitErrorText}>{submitError}</Text>
+                </View>
+              ) : null}
+
+              {extraction === null ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Start the collection session"
+                  accessibilityState={{ disabled: isSubmitting }}
+                  disabled={isSubmitting}
+                  onPress={() => {
+                    void beginCollection();
+                  }}
+                  style={({ pressed }) => [
+                    styles.seal,
+                    pressed && styles.pressed,
+                    isSubmitting && styles.sealDisabled,
+                  ]}
+                >
+                  <Feather name="play" size={16} color={Surface.onPrimary} />
+
+                  <Text style={styles.sealText} numberOfLines={1}>
+                    {isSubmitting ? "Startingâ€¦" : "Start Collection Session"}
+                  </Text>
+                </Pressable>
+              ) : extraction.status === "in_progress" ? (
+                <>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={EXTRACTION.sealCta}
+                    accessibilityState={{ disabled: isSubmitting }}
+                    disabled={isSubmitting}
+                    onPress={() => {
+                      void sealUnit();
+                    }}
+                    style={({ pressed }) => [
+                      styles.seal,
+                      pressed && styles.pressed,
+                      isSubmitting && styles.sealDisabled,
+                    ]}
+                  >
+                    <Feather name="lock" size={16} color={Surface.onPrimary} />
+
+                    <Text style={styles.sealText} numberOfLines={1}>
+                      {isSubmitting ? "Sealingâ€¦" : EXTRACTION.sealCta}
+                    </Text>
+                  </Pressable>
+
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={EXTRACTION.haltCta}
+                    onPress={handleBack}
+                    style={({ pressed }) => [styles.halt, pressed && styles.pressed]}
+                  >
+                    <Feather name="alert-circle" size={16} color={Blood.primary} />
+
+                    <Text style={styles.haltText} numberOfLines={1}>
+                      {EXTRACTION.haltCta}
+                    </Text>
+                  </Pressable>
+                </>
+              ) : (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Return to the requisition board"
+                  onPress={() => {
+                    router.replace(ROLE_HOME.hospital);
+                  }}
+                  style={({ pressed }) => [styles.seal, pressed && styles.pressed]}
+                >
+                  <Feather name="check-circle" size={16} color={Surface.onPrimary} />
+
+                  <Text style={styles.sealText} numberOfLines={1}>
+                    Unit Sealed â€” Return To Board
+                  </Text>
+                </Pressable>
+              )}
+
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Open the donor desk again"
+                onPress={() => {
+                  if (requestId !== null) {
+                    router.push({
+                      pathname: ROUTES.hospitalVerifyDonor,
+                      params: { requestId },
+                    });
+                  }
+                }}
+                style={({ pressed }) => [styles.linkBack, pressed && styles.pressed]}
+              >
+                <Feather name="user-check" size={14} color={Blood.primary} />
+                <Text style={styles.linkBackText}>Back To Donor Desk</Text>
+              </Pressable>
+            </>
+          )}
+        </AsyncState>
       </ScrollView>
     </View>
   );
@@ -439,6 +728,10 @@ const styles = StyleSheet.create({
 
   content: {
     paddingHorizontal: 20,
+    gap: 14,
+  },
+
+  skeletonBlock: {
     gap: 14,
   },
 
@@ -479,11 +772,20 @@ const styles = StyleSheet.create({
     borderColor: Surface.softRedBorder,
   },
 
+  protocolPillStandby: {
+    backgroundColor: Surface.iconWash,
+    borderColor: Surface.border,
+  },
+
   protocolText: {
     ...Typography.micro,
     fontSize: 9.5,
     textTransform: "uppercase",
     color: Blood.primary,
+  },
+
+  protocolTextStandby: {
+    color: Surface.textSecondary,
   },
 
   /* ================= CARDS ================= */
@@ -625,7 +927,7 @@ const styles = StyleSheet.create({
     borderColor: Surface.softBlueBorder,
   },
 
-  /** Full unit — the countdown gives way to a completed state. */
+  /** Full unit â€” the countdown gives way to a completed state. */
   etaPillComplete: {
     backgroundColor: Surface.softGreen,
     borderColor: Surface.softGreenBorder,
@@ -766,6 +1068,32 @@ const styles = StyleSheet.create({
 
   /* ================= DECISIONS ================= */
 
+  volumeCard: {
+    padding: 14,
+    borderRadius: Radius.card,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Surface.border,
+    backgroundColor: Surface.card,
+  },
+
+  submitError: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    padding: 10,
+    borderRadius: Radius.sm,
+    borderWidth: 1,
+    borderColor: Surface.softRedBorder,
+    backgroundColor: Surface.softRed,
+  },
+
+  submitErrorText: {
+    flex: 1,
+    ...Typography.small,
+    fontWeight: "600",
+    color: Blood.primary,
+  },
+
   seal: {
     flexDirection: "row",
     alignItems: "center",
@@ -784,6 +1112,10 @@ const styles = StyleSheet.create({
     color: Surface.onPrimary,
   },
 
+  sealDisabled: {
+    opacity: 0.6,
+  },
+
   halt: {
     flexDirection: "row",
     alignItems: "center",
@@ -800,6 +1132,19 @@ const styles = StyleSheet.create({
   haltText: {
     ...Typography.button,
     fontSize: 14,
+    color: Blood.primary,
+  },
+
+  linkBack: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    minHeight: 40,
+  },
+
+  linkBackText: {
+    ...Typography.label,
     color: Blood.primary,
   },
 });

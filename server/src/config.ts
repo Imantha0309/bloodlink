@@ -6,6 +6,7 @@
  */
 
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 function envInt(name: string, fallback: number): number {
   const raw = process.env[name];
@@ -31,11 +32,14 @@ export const PORT = envInt("PORT", 4000);
  */
 export const HOST = process.env.HOST ?? "0.0.0.0";
 
-/** SQLite file. Resolved against the server package root, not the cwd. */
-export const DB_PATH = resolve(
-  process.cwd(),
-  process.env.BLOODLINK_DB_PATH ?? "./data/bloodlink.db",
-);
+/**
+ * SQLite file. The default resolves against the server package root (via this
+ * module's own location), so starting the server from any cwd uses the same
+ * database. An explicit `BLOODLINK_DB_PATH` is resolved against the cwd.
+ */
+export const DB_PATH = process.env.BLOODLINK_DB_PATH
+  ? resolve(process.cwd(), process.env.BLOODLINK_DB_PATH)
+  : fileURLToPath(new URL("../data/bloodlink.db", import.meta.url));
 
 /** Session lifetime, mirroring SESSION_TTL_MS in the app's mock adapter. */
 export const SESSION_TTL_MS = 8 * 60 * 60 * 1000;

@@ -10,7 +10,7 @@ import {
 
 import { Blood, Elevation, Surface } from "@/constants/colors";
 import { ControlHeight, Radius } from "@/constants/radius";
-import { Typography } from "@/constants/typography";
+import { FontSize, Typography } from "@/constants/typography";
 
 type PrimaryAuthButtonProps = {
   label: string;
@@ -22,6 +22,11 @@ type PrimaryAuthButtonProps = {
   icon?: ComponentProps<typeof Feather>["name"];
   /** Rendered at the far right instead of beside the label, e.g. "arrow-right". */
   trailingIcon?: ComponentProps<typeof Feather>["name"];
+  /**
+   * `compact` trims the height and label size for information-dense screens
+   * whose values sit at 9-11px, where the 54px/15px default reads oversized.
+   */
+  size?: "default" | "compact";
 };
 
 /**
@@ -39,8 +44,11 @@ export function PrimaryAuthButton({
   loadingLabel,
   icon,
   trailingIcon,
+  size = "default",
 }: PrimaryAuthButtonProps) {
   const isInactive = disabled || loading;
+  const isCompact = size === "compact";
+  const iconSize = isCompact ? 14 : 17;
 
   return (
     <Pressable
@@ -51,6 +59,7 @@ export function PrimaryAuthButton({
       accessibilityState={{ disabled: isInactive, busy: loading }}
       style={({ pressed }) => [
         styles.button,
+        isCompact && styles.buttonCompact,
         isInactive && styles.buttonDisabled,
         pressed && !isInactive && styles.buttonPressed,
       ]}
@@ -59,19 +68,21 @@ export function PrimaryAuthButton({
         <View style={styles.content}>
           <ActivityIndicator size="small" color={Surface.onPrimary} />
 
-          <Text style={styles.label}>{loadingLabel ?? label}</Text>
+          <Text style={[styles.label, isCompact && styles.labelCompact]}>
+            {loadingLabel ?? label}
+          </Text>
         </View>
       ) : (
         <View style={[styles.content, trailingIcon !== undefined && styles.contentTrailing]}>
-          {icon ? <Feather name={icon} size={17} color={Surface.onPrimary} /> : null}
+          {icon ? <Feather name={icon} size={iconSize} color={Surface.onPrimary} /> : null}
 
-          <Text style={styles.label}>{label}</Text>
+          <Text style={[styles.label, isCompact && styles.labelCompact]}>{label}</Text>
 
           {/* Pinned to the trailing edge so the label stays optically centred
               regardless of how long it is. */}
           {trailingIcon ? (
             <View style={styles.trailing}>
-              <Feather name={trailingIcon} size={17} color={Surface.onPrimary} />
+              <Feather name={trailingIcon} size={iconSize} color={Surface.onPrimary} />
             </View>
           ) : null}
         </View>
@@ -95,6 +106,12 @@ const styles = StyleSheet.create({
   buttonPressed: {
     backgroundColor: Blood.dark,
     transform: [{ scale: 0.985 }],
+  },
+
+  buttonCompact: {
+    minHeight: 44,
+    borderRadius: Radius.sm,
+    paddingHorizontal: 16,
   },
 
   buttonDisabled: {
@@ -123,5 +140,10 @@ const styles = StyleSheet.create({
   label: {
     ...Typography.button,
     color: Surface.onPrimary,
+  },
+
+  labelCompact: {
+    fontSize: FontSize.small,
+    letterSpacing: 0,
   },
 });

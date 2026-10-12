@@ -51,17 +51,34 @@ function AppNavigator() {
           reachable whether or not anyone is signed in. */}
       <Stack.Screen name="emergency-request" options={{ contentStyle: screenBackground }} />
 
+      {/* Public pass verification screen for QR code scans. */}
+      <Stack.Screen name="pass-details" options={{ contentStyle: screenBackground }} />
+
       <Stack.Protected guard={status === "authenticated"}>
         <Stack.Screen
           name="dashboard/recipient"
           options={{ contentStyle: screenBackground }}
         />
         <Stack.Screen name="dashboard/donor" options={{ contentStyle: screenBackground }} />
+        <Stack.Screen name="dashboard/donor-requests" options={{ contentStyle: screenBackground }} />
+        <Stack.Screen name="dashboard/donor-transit" options={{ contentStyle: screenBackground }} />
+        <Stack.Screen name="dashboard/donor-intake" options={{ contentStyle: screenBackground }} />
+        <Stack.Screen name="dashboard/donor-profile" options={{ contentStyle: screenBackground }} />
         <Stack.Screen
           name="dashboard/hospital"
           options={{ contentStyle: screenBackground }}
         />
         <Stack.Screen name="dashboard/admin" options={{ contentStyle: screenBackground }} />
+
+        {/* Destinations the recipient home links to. */}
+        <Stack.Screen name="dashboard/requests" options={{ contentStyle: screenBackground }} />
+        <Stack.Screen name="dashboard/alerts" options={{ contentStyle: screenBackground }} />
+        <Stack.Screen name="dashboard/profile" options={{ contentStyle: screenBackground }} />
+        <Stack.Screen name="dashboard/request-status" options={{ contentStyle: screenBackground }} />
+        <Stack.Screen name="donors" options={{ contentStyle: screenBackground }} />
+        <Stack.Screen name="compatibility" options={{ contentStyle: screenBackground }} />
+        <Stack.Screen name="blood-bank-detail" options={{ contentStyle: screenBackground }} />
+        <Stack.Screen name="location" options={{ contentStyle: screenBackground }} />
 
         {/* Edit form for a recipient's own emergency request — only reachable
             while signed in, since it loads and updates the caller's record. */}

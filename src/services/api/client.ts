@@ -124,9 +124,15 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
       signal: controller.signal,
     });
-  } catch {
-    // Offline, DNS failure, or timeout — all surfaced as a connectivity
-    // problem rather than a credential problem.
+  } catch (error) {
+    // Offline, DNS failure, connection refused, or timeout — all surfaced as a
+    // connectivity problem rather than a credential problem. The underlying
+    // cause is kept in the dev log, since "network" alone cannot distinguish
+    // "server not running" from "wrong host in .env".
+    if (__DEV__) {
+      console.warn(`[api] request to ${base}${path} failed`, error);
+    }
+
     throw new ApiError("network");
   } finally {
     clearTimeout(timer);

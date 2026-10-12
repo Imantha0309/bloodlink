@@ -42,7 +42,7 @@
 | **Reference** | [What works](#what-works) · [Layout](#layout) · [Checks](#checks) · [Troubleshooting](#troubleshooting) |
 
 > Looking to get running fast? Jump to **[Setup](#setup)** — five steps, then
-> `npx expo start --clear` and press `a`.
+> `npm start -- --clear` and press `a`.
 
 ---
 
@@ -236,10 +236,13 @@ Do this before starting the app. If it fails here, the app cannot work either.
 In a **second** terminal, from the repository root:
 
 ```bash
-npx expo start --clear
+npm start -- --clear
 ```
 
 Then press `a` to launch the Android emulator.
+
+Metro uses port `8082` so Expo Go does not accidentally connect to another
+service occupying the default port `8081`.
 
 > `--clear` matters: `EXPO_PUBLIC_*` values are inlined by Metro at build time,
 > so a change to `.env` is invisible until the cache is reset. Without it you
@@ -259,7 +262,7 @@ npm run dev
 
 ```bash
 # terminal 2 — from the repository root
-npx expo start
+npm start
 ```
 
 Running `npm run dev` from the repository root fails with
@@ -312,7 +315,7 @@ port 4000 — `curl http://<that-ip>:4000/health` from another machine is the
 quickest way to tell whether the problem is the address or the firewall.
 
 Edit `.env` with the value for your target, then restart the app with
-`npx expo start --clear`.
+`npm start -- --clear`.
 
 If `EXPO_PUBLIC_API_URL` is unset the app falls back to an in-memory mock
 adapter, so it still navigates and demos — but nothing persists and the
@@ -329,8 +332,10 @@ backend, stop the server and try to sign in: you should get
   code is shown on screen because the local backend has no SMS provider
 - **Emergency requests** — the zero-login form itself, plus a confirmation with
   a reference number
-- **Four role dashboards** — fed by `GET /dashboard/me`, with a working donor
-  availability toggle
+- **Donor CRUD** — create/read/update/remove availability, create/read/update/
+  withdraw emergency responses, and see response status history
+- **Four role dashboards** — fed by `GET /dashboard/me`, with donor availability
+  and emergency-response controls
 
 ## Layout
 
@@ -373,7 +378,7 @@ machine, then confirm the host alias for your target (`10.0.2.2` only works on
 the Android emulator).
 
 **Changed `.env` and nothing happened** — Metro inlines `EXPO_PUBLIC_*` at build
-time. Restart with `npx expo start --clear`.
+time. Restart with `npm start -- --clear`.
 
 **`npm install` fails in `server/`** on `better-sqlite3` — it is a native
 module. Confirm you are on Node 22.5+ (`node -v`); on Node 24 the prebuild is

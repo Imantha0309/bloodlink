@@ -20,7 +20,24 @@ import { useAuth } from "@/providers/auth-provider";
 
 export default function LoadingScreen() {
   const router = useRouter();
-  const { status, session } = useAuth();
+  const { session, status } = useAuth();
+
+  /**
+   * "Get Started" has to respect the guards in `_layout.tsx`: `login` is only
+   * reachable while signed out, so pushing it from an authenticated session
+   * would bounce. A signed-in user goes straight to their own dashboard.
+   */
+  function handleGetStarted() {
+    if (status === "authenticated" && session !== null) {
+      router.replace(ROLE_HOME[session.user.role]);
+      return;
+    }
+
+    if (status === "unauthenticated") {
+      router.push(ROUTES.login);
+    }
+  }
+
   // Lazy `useState` initialisers rather than `useRef(...).current`: same stable
   // per-instance Animated.Value, but nothing reads a ref during render.
   const [fadeAnim] = useState(() => new Animated.Value(0));
@@ -183,9 +200,8 @@ export default function LoadingScreen() {
               style={styles.getStartedButton}
               accessibilityRole="button"
               accessibilityLabel="Get Started"
-              onPress={() => {
-                router.push(ROUTES.login);
-              }}
+              disabled={status === "loading"}
+              onPress={handleGetStarted}
             >
               <Text style={styles.getStartedText}>Get Started →</Text>
             </Pressable>

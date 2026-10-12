@@ -6,7 +6,7 @@ import { Blood, Surface } from "@/constants/colors";
 import { Radius } from "@/constants/radius";
 import { ROLE_NAME } from "@/constants/roles";
 import { Typography } from "@/constants/typography";
-import { MOCK_CREDENTIAL_HINT } from "@/services/auth";
+import { MOCK_CREDENTIAL_HINT, hasRemoteApi } from "@/services/auth";
 
 type DevCredentialsHintProps = {
   /** Fills the sign-in form with the chosen account. */
@@ -20,12 +20,17 @@ type DevCredentialsHintProps = {
  * the server seeds them — so the same list is correct whether or not
  * `EXPO_PUBLIC_API_URL` is set. Collapsed by default so the sign-in screen
  * still reads as the production one.
+ *
+ * IMPORTANT: Only show when using mock auth (no backend configured).
+ * When hasRemoteApi is true, real authentication is active and demo
+ * credentials should not be displayed.
  */
 export function DevCredentialsHint({ onPick }: DevCredentialsHintProps) {
   const [isOpen, setIsOpen] = useState(false);
 
-  // Dead-code-eliminated in release builds, so the fixtures never ship.
-  if (!__DEV__) {
+  // Only show in dev builds AND when no backend API is configured.
+  // When a real backend is available, use actual credentials.
+  if (!__DEV__ || hasRemoteApi) {
     return null;
   }
 

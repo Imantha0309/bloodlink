@@ -6,6 +6,7 @@ import type {
   AuthService,
   AuthSession,
   AuthUser,
+  DonorProfileInput,
   PasswordResetChallenge,
   SignInInput,
   SignUpInput,
@@ -85,6 +86,37 @@ export class HttpAuthService implements AuthService {
     await saveSession(session);
 
     return session;
+  }
+
+  async updateDonorProfile(input: DonorProfileInput): Promise<AuthUser> {
+    const body = await request<{ user?: AuthUser }>(ME_PATH, {
+      method: "PATCH",
+      body: {
+        fullName: input.fullName.trim(),
+        email: input.email?.trim() || null,
+        mobile: input.mobile?.trim() || null,
+        district: input.district,
+        bloodGroup: input.bloodGroup,
+      },
+    });
+
+    if (!body.user || typeof body.user.id !== "string") {
+      throw new ApiError("unknown", "The server returned an unexpected response.");
+    }
+    return body.user;
+  }
+
+  async updateRecipientDistrict(district: string): Promise<AuthUser> {
+    // The server's `/me` PATCH routes recipients onto a district-only branch.
+    const body = await request<{ user?: AuthUser }>(ME_PATH, {
+      method: "PATCH",
+      body: { district },
+    });
+
+    if (!body.user || typeof body.user.id !== "string") {
+      throw new ApiError("unknown", "The server returned an unexpected response.");
+    }
+    return body.user;
   }
 
   /**

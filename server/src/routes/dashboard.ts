@@ -9,6 +9,7 @@
 import { Router } from "express";
 
 import { db } from "../db";
+import { CAN_DONATE_TO } from "../lib/blood-compatibility";
 import { requireAuth } from "../middleware/auth";
 import {
   toEmergencyRequest,
@@ -18,18 +19,6 @@ import {
 } from "../types";
 
 export const dashboardRouter = Router();
-
-/** Recipient blood groups a donor of a given group can give to. */
-const CAN_DONATE_TO: Record<BloodGroup, readonly BloodGroup[]> = {
-  "O-": ["O-", "O+", "A-", "A+", "B-", "B+", "AB-", "AB+"],
-  "O+": ["O+", "A+", "B+", "AB+"],
-  "A-": ["A-", "A+", "AB-", "AB+"],
-  "A+": ["A+", "AB+"],
-  "B-": ["B-", "B+", "AB-", "AB+"],
-  "B+": ["B+", "AB+"],
-  "AB-": ["AB-", "AB+"],
-  "AB+": ["AB+"],
-};
 
 export type DashboardStat = {
   key: string;
@@ -42,7 +31,7 @@ export type DashboardSummary = {
   role: UserRole;
   stats: DashboardStat[];
   requests: ReturnType<typeof toEmergencyRequest>[];
-  availability: { isAvailable: boolean; lastDonationAt: string | null } | null;
+  availability: { isAvailable: boolean; lastDonationAt: string | null; recordExists: boolean } | null;
 };
 
 function countOpenRequests(where = "", params: unknown[] = []): number {
@@ -75,18 +64,31 @@ function relevantRequests(role: UserRole, userId: string, bloodGroup: BloodGroup
   }
 
   // A donor only sees requests their blood group can actually serve.
+  if (role === "donor" && bloodGroup === null) {
+    return [];
+  }
+
   if (role === "donor" && bloodGroup !== null) {
     const targets = CAN_DONATE_TO[bloodGroup];
     const placeholders = targets.map(() => "?").join(", ");
 
     return db
       .prepare(
-        `SELECT * FROM emergency_requests
-          WHERE status IN ('pending', 'verified')
-            AND blood_group IN (${placeholders})
+        `SELECT r.*, dr.response AS donor_response, dr.stage AS donor_stage,
+          EXISTS (
+            SELECT 1 FROM donor_request_responses accepted
+             WHERE accepted.request_id = r.id
+               AND accepted.response = 'accepted'
+               AND accepted.donor_id <> ?
+          ) AS accepted_by_other_donor
+           FROM emergency_requests r
+           LEFT JOIN donor_request_responses dr
+             ON dr.request_id = r.id AND dr.donor_id = ?
+          WHERE r.status IN ('pending', 'verified')
+            AND r.blood_group IN (${placeholders})
           ${order}`,
       )
-      .all(...targets) as EmergencyRequestRow[];
+      .all(userId, userId, ...targets) as EmergencyRequestRow[];
   }
 
   return db
@@ -114,6 +116,7 @@ dashboardRouter.get("/me", requireAuth, (request, response) => {
     availability = {
       isAvailable,
       lastDonationAt: row?.last_donation_at ?? null,
+      recordExists: row !== undefined,
     };
 
     const matching =

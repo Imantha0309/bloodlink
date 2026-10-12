@@ -3,10 +3,10 @@ import { useRouter } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Blood, Surface } from "@/constants/colors";
-import type { Requisition } from "@/constants/hospital-demo";
 import { Radius } from "@/constants/radius";
 import { ROUTES } from "@/constants/routes";
 import { Typography } from "@/constants/typography";
+import type { Requisition } from "@/utils/requisition";
 
 const AVATAR_SIZE = 26;
 
@@ -99,6 +99,8 @@ export function RequisitionCard({
           accessibilityRole="button"
           accessibilityLabel={`Manage requisition ${item.reference}`}
           accessibilityHint="Opens the requisition to update or delete it"
+          hitSlop={8}
+          style={({ pressed }) => [styles.manage, pressed && styles.pressed]}
           onPress={() => {
             if (onManage !== undefined) {
               onManage();
@@ -107,8 +109,6 @@ export function RequisitionCard({
 
             router.push(ROUTES.hospitalVerifyDonor);
           }}
-          hitSlop={8}
-          style={({ pressed }) => [styles.manage, pressed && styles.pressed]}
         >
           <Text style={styles.manageText}>Manage Requisition</Text>
           <Feather name="arrow-right" size={13} color={Blood.primary} />

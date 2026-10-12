@@ -14,7 +14,7 @@ type FormAlertProps = {
  * Form-level failure, e.g. wrong credentials or no connectivity.
  *
  * Distinct from `FieldError` because it is about the submission as a whole,
- * not one input. Copy arrives pre-sanitised from `authErrorMessage`.
+ * not one input. Copy arrives pre-sanitised from `apiErrorMessage`.
  */
 export function FormAlert({ message }: FormAlertProps) {
   const hasMessage = message !== null;

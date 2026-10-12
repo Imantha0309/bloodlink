@@ -4,7 +4,7 @@ import { EmptyNote } from "@/components/dashboard/empty-note";
 import { RequestCard } from "@/components/dashboard/request-card";
 import type { BloodGroup } from "@/constants/blood-groups";
 import { CAN_DONATE_TO } from "@/constants/blood-groups";
-import type { EmergencyRequest } from "@/services/requests/emergency-requests";
+import type { DonorResponse, EmergencyRequest } from "@/services/requests/emergency-requests";
 
 type RequestListProps = {
   requests: readonly EmergencyRequest[];
@@ -25,6 +25,14 @@ type RequestListProps = {
   onEdit?: (request: EmergencyRequest) => void;
   /** Cancels a request after confirmation; the list reports the outcome. */
   onCancel?: (request: EmergencyRequest) => Promise<void>;
+  /** Offers the accept/decline actions to a donor working the queue. */
+  canAccept?: boolean;
+  onDonorResponse?: (
+    id: string,
+    response: DonorResponse,
+    isUpdate: boolean,
+  ) => Promise<DonorResponse>;
+  onRemoveDonorResponse?: (id: string) => Promise<void>;
 };
 
 /** A triage list, or the "nothing here" note when it is empty. */
@@ -36,6 +44,9 @@ export function RequestList({
   isManageable = false,
   onEdit,
   onCancel,
+  canAccept = true,
+  onDonorResponse,
+  onRemoveDonorResponse,
 }: RequestListProps) {
   if (requests.length === 0) {
     return <EmptyNote title={emptyTitle} message={emptyMessage} />;
@@ -53,6 +64,9 @@ export function RequestList({
           isManageable={isManageable}
           onEdit={onEdit}
           onCancel={onCancel}
+          canAccept={canAccept}
+          onDonorResponse={onDonorResponse}
+          onRemoveDonorResponse={onRemoveDonorResponse}
         />
       ))}
     </View>

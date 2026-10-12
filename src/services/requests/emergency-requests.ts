@@ -13,6 +13,8 @@ import type { UrgencyLevel } from "@/constants/emergency";
 import { hasRemoteApi } from "@/services/config";
 
 export type RequestStatus = "pending" | "verified" | "fulfilled" | "cancelled";
+export type DonorResponse = "accepted" | "declined";
+export type DonationStage = "accepted" | "en_route" | "arrived" | "completed";
 
 export type EmergencyRequest = {
   id: string;
@@ -27,8 +29,16 @@ export type EmergencyRequest = {
   notes: string | null;
   status: RequestStatus;
   createdAt: string;
+  /** When the status last changed (equals `createdAt` until it does). */
+  updatedAt: string;
   /** True when it came through the account-free urgent path. */
   isAnonymous: boolean;
+  /** This donor's persisted decision, null until they respond. */
+  donorResponse: DonorResponse | null;
+  /** Progress from acceptance through hospital intake. */
+  donorStage: DonationStage | null;
+  /** True when another donor has already accepted this request. */
+  acceptedByOtherDonor?: boolean;
 };
 
 export type EmergencyRequestInput = {
@@ -49,8 +59,13 @@ export type EmergencyRequestInput = {
  */
 export type EmergencyRequestUpdate = Partial<EmergencyRequestInput>;
 
-/** Offline stand-in so the screens have something to render without a server. */
-const MOCK_REQUESTS: EmergencyRequest[] = [
+/**
+ * Offline stand-in so the screens have something to render without a server.
+ *
+ * Seeded with a couple of plausible requests; anything the user creates is
+ * pushed onto the same list.
+ */
+const OFFLINE_REQUESTS: EmergencyRequest[] = [
   {
     id: "req_mock_1",
     patientName: "R. M. Silva",
@@ -64,9 +79,12 @@ const MOCK_REQUESTS: EmergencyRequest[] = [
     notes: "Road traffic accident. Theatre scheduled within the hour.",
     status: "pending",
     createdAt: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
+    updatedAt: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
     // Account-free urgent path — no requester to edit or cancel it, so the
     // dashboard hides the Manage / Cancel actions (see `isAnonymous`).
     isAnonymous: true,
+    donorResponse: null,
+    donorStage: null,
   },
   {
     id: "req_mock_2",
@@ -81,9 +99,12 @@ const MOCK_REQUESTS: EmergencyRequest[] = [
     notes: "Post-operative transfusion.",
     status: "verified",
     createdAt: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(),
+    updatedAt: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(),
     // Raised by the signed-in mock recipient (`usr_mock_recipient`), whose
     // mobile is 0775551234 — so this is the one they can manage or cancel.
     isAnonymous: false,
+    donorResponse: null,
+    donorStage: null,
   },
 ];
 
@@ -126,10 +147,13 @@ export async function createEmergencyRequest(
       notes: input.notes ?? null,
       status: "pending",
       createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
       isAnonymous: true,
+      donorResponse: null,
+      donorStage: null,
     };
 
-    MOCK_REQUESTS.unshift(created);
+    OFFLINE_REQUESTS.unshift(created);
 
     return created;
   }
@@ -160,7 +184,7 @@ export async function createEmergencyRequest(
 
 export async function listEmergencyRequests(): Promise<EmergencyRequest[]> {
   if (!hasRemoteApi) {
-    return [...MOCK_REQUESTS];
+    return [...OFFLINE_REQUESTS];
   }
 
   const body = await request<{ requests?: unknown }>("/emergency-requests");
@@ -180,7 +204,7 @@ export type EmergencyRequestDetail = {
 
 export async function getEmergencyRequest(id: string): Promise<EmergencyRequestDetail> {
   if (!hasRemoteApi) {
-    const found = MOCK_REQUESTS.find((item) => item.id === id);
+    const found = OFFLINE_REQUESTS.find((item) => item.id === id);
 
     if (found === undefined) {
       throw new ApiError("not_found", "That request could not be found.");
@@ -207,6 +231,14 @@ export async function getEmergencyRequest(id: string): Promise<EmergencyRequestD
   };
 }
 
+/** Mirrors the server's legal moves — terminal states have no exits. */
+const ALLOWED_TRANSITIONS: Record<RequestStatus, readonly RequestStatus[]> = {
+  pending: ["verified", "fulfilled", "cancelled"],
+  verified: ["fulfilled", "cancelled"],
+  fulfilled: [],
+  cancelled: [],
+};
+
 /**
  * Applies an edit to a request the signed-in user raised.
  *
@@ -219,7 +251,7 @@ export async function updateEmergencyRequest(
   update: EmergencyRequestUpdate,
 ): Promise<EmergencyRequest> {
   if (!hasRemoteApi) {
-    const found = MOCK_REQUESTS.find((item) => item.id === id);
+    const found = OFFLINE_REQUESTS.find((item) => item.id === id);
 
     if (found === undefined) {
       throw new ApiError("not_found", "That request could not be found.");
@@ -249,13 +281,58 @@ export async function updateEmergencyRequest(
 }
 
 /**
+ * Moves a request to a new status.
+ *
+ * The server is the authority on who may do what (owner cancels, hospital and
+ * admin run triage) and answers 401/409 — those errors surface as `ApiError`s
+ * for the caller to render.
+ */
+export async function updateEmergencyRequestStatus(
+  id: string,
+  status: RequestStatus,
+): Promise<EmergencyRequest> {
+  if (!hasRemoteApi) {
+    const found = OFFLINE_REQUESTS.find((item) => item.id === id);
+
+    if (found === undefined) {
+      throw new ApiError("not_found", "That request could not be found.");
+    }
+
+    if (!ALLOWED_TRANSITIONS[found.status].includes(status) || status === found.status) {
+      throw new ApiError(
+        "conflict",
+        `A request that is ${found.status} cannot be marked ${status}.`,
+      );
+    }
+
+    found.status = status;
+    found.updatedAt = new Date().toISOString();
+
+    return { ...found };
+  }
+
+  const body = await request<unknown>(`/emergency-requests/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: { status },
+  });
+
+  const updated = readRequestBody(body);
+
+  if (updated === null) {
+    throw new ApiError("unknown", "The server returned an unexpected response.");
+  }
+
+  return updated;
+}
+
+/**
  * Cancels a request. A cancel is a status flip, never a delete — the triage
  * trail is kept — so this maps to `DELETE /emergency-requests/:id`, which the
  * server treats as "mark cancelled".
  */
 export async function cancelEmergencyRequest(id: string): Promise<EmergencyRequest> {
   if (!hasRemoteApi) {
-    const found = MOCK_REQUESTS.find((item) => item.id === id);
+    const found = OFFLINE_REQUESTS.find((item) => item.id === id);
 
     if (found === undefined) {
       throw new ApiError("not_found", "That request could not be found.");
@@ -266,6 +343,7 @@ export async function cancelEmergencyRequest(id: string): Promise<EmergencyReque
     }
 
     found.status = "cancelled";
+    found.updatedAt = new Date().toISOString();
 
     return found;
   }
@@ -282,4 +360,68 @@ export async function cancelEmergencyRequest(id: string): Promise<EmergencyReque
   }
 
   return cancelled;
+}
+
+export async function respondToEmergencyRequest(
+  id: string,
+  response: DonorResponse,
+): Promise<DonorResponse> {
+  if (!hasRemoteApi) {
+    const found = OFFLINE_REQUESTS.find((item) => item.id === id);
+
+    if (!found) {
+      throw new ApiError("not_found", "That request could not be found.");
+    }
+
+    if (found.status !== "pending" && found.status !== "verified") {
+      throw new ApiError("conflict", "This request is no longer accepting responses.");
+    }
+
+    found.donorResponse = response;
+    found.donorStage = response === "accepted" ? "accepted" : null;
+    return response;
+  }
+
+  const body = await request<{ response?: unknown }>(
+    `/emergency-requests/${encodeURIComponent(id)}/response`,
+    { method: "POST", body: { response } },
+  );
+
+  if (body.response !== "accepted" && body.response !== "declined") {
+    throw new ApiError("unknown", "The server returned an unexpected response.");
+  }
+
+  return body.response;
+}
+
+export async function updateEmergencyResponse(
+  id: string,
+  response: DonorResponse,
+): Promise<DonorResponse> {
+  if (!hasRemoteApi) {
+    return respondToEmergencyRequest(id, response);
+  }
+
+  const body = await request<{ response?: unknown }>(
+    `/emergency-requests/${encodeURIComponent(id)}/response`,
+    { method: "PUT", body: { response } },
+  );
+  if (body.response !== "accepted" && body.response !== "declined") {
+    throw new ApiError("unknown", "The server returned an unexpected response.");
+  }
+  return body.response;
+}
+
+export async function deleteEmergencyResponse(id: string): Promise<void> {
+  if (!hasRemoteApi) {
+    const found = OFFLINE_REQUESTS.find((item) => item.id === id);
+    if (!found) throw new ApiError("not_found", "That request could not be found.");
+    found.donorResponse = null;
+    found.donorStage = null;
+    return;
+  }
+
+  await request<{ deleted?: boolean }>(`/emergency-requests/${encodeURIComponent(id)}/response`, {
+    method: "DELETE",
+  });
 }

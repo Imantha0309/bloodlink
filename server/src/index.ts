@@ -11,10 +11,13 @@ import express, { type NextFunction, type Request, type Response } from "express
 import { db } from "./db";
 import { HOST, PORT } from "./config";
 import { ApiError, type ApiErrorBody } from "./lib/errors";
+import { alertsRouter } from "./routes/alerts";
 import { authRouter } from "./routes/auth";
+import { bloodBanksRouter } from "./routes/blood-banks";
 import { dashboardRouter } from "./routes/dashboard";
 import { donorsRouter } from "./routes/donors";
 import { emergencyRouter } from "./routes/emergency";
+import { hospitalRouter } from "./routes/hospital";
 import { passwordResetRouter } from "./routes/password-reset";
 
 const app = express();
@@ -48,6 +51,9 @@ app.use("/auth", passwordResetRouter);
 app.use("/donors", donorsRouter);
 app.use("/emergency-requests", emergencyRouter);
 app.use("/dashboard", dashboardRouter);
+app.use("/blood-banks", bloodBanksRouter);
+app.use("/hospital", hospitalRouter);
+app.use("/alerts", alertsRouter);
 
 // Unmatched route — must come after every router.
 app.use((_request, response) => {

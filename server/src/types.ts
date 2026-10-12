@@ -17,6 +17,10 @@ export type UrgencyLevel = (typeof URGENCY_LEVELS)[number];
 
 export const REQUEST_STATUSES = ["pending", "verified", "fulfilled", "cancelled"] as const;
 export type RequestStatus = (typeof REQUEST_STATUSES)[number];
+export const DONOR_RESPONSES = ["accepted", "declined"] as const;
+export type DonorResponse = (typeof DONOR_RESPONSES)[number];
+export const DONATION_STAGES = ["accepted", "en_route", "arrived", "completed"] as const;
+export type DonationStage = (typeof DONATION_STAGES)[number];
 
 /** A `users` row. */
 export type UserRow = {
@@ -26,6 +30,7 @@ export type UserRow = {
   email: string | null;
   mobile: string | null;
   district: string | null;
+  registration_number: string | null;
   blood_group: BloodGroup | null;
   password_hash: string;
   is_verified: number;
@@ -60,6 +65,13 @@ export type EmergencyRequestRow = {
   status: RequestStatus;
   created_at: string;
   updated_at: string;
+  /** Present on donor request feeds; null means not answered yet. */
+  donor_response?: DonorResponse | null;
+  donor_stage?: DonationStage | null;
+  /** True when another donor has already accepted this request. */
+  accepted_by_other_donor?: number | boolean;
+  checkin_token_hash?: string | null;
+  checkin_token_expires_at?: string | null;
 };
 
 /** The user object the app reads off a session. Mirrors `AuthUser`. */
@@ -94,8 +106,13 @@ export type EmergencyRequestPayload = {
   notes: string | null;
   status: RequestStatus;
   createdAt: string;
+  updatedAt: string;
   /** True when the request came through the account-free urgent path. */
   isAnonymous: boolean;
+  /** Donor's response to this request; null when the donor has not responded. */
+  donorResponse: DonorResponse | null;
+  donorStage: DonationStage | null;
+  acceptedByOtherDonor: boolean;
 };
 
 export function toAuthUser(row: UserRow): AuthUser {
@@ -124,6 +141,10 @@ export function toEmergencyRequest(row: EmergencyRequestRow): EmergencyRequestPa
     notes: row.notes,
     status: row.status,
     createdAt: row.created_at,
+    updatedAt: row.updated_at,
     isAnonymous: row.requester_user_id === null,
+    donorResponse: row.donor_response ?? null,
+    donorStage: row.donor_stage ?? null,
+    acceptedByOtherDonor: Boolean(row.accepted_by_other_donor),
   };
 }

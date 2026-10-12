@@ -37,3 +37,21 @@ export const BLOOD_GROUP_NOTES: Partial<Record<BloodGroup, string>> = {
   "O-": "Universal donor — can be given to any patient",
   "AB+": "Universal recipient — can receive from any donor",
 };
+
+/**
+ * `"B+"` → `"B+ (Positive)"`, the spelled-out label used on the review summary.
+ *
+ * `BLOOD_GROUP_NOTES` is deliberately partial — it only carries the universal
+ * donor hints — so the review screen needs its own complete map to be able to
+ * render any group the user picked.
+ */
+export const BLOOD_GROUP_LONG: Record<BloodGroup, string> = {
+  "A+": "A+ (Positive)",
+  "A-": "A- (Negative)",
+  "B+": "B+ (Positive)",
+  "B-": "B- (Negative)",
+  "AB+": "AB+ (Positive)",
+  "AB-": "AB- (Negative)",
+  "O+": "O+ (Positive)",
+  "O-": "O- (Negative)",
+};

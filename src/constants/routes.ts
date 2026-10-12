@@ -14,10 +14,21 @@ export const ROUTES = {
   roleSelect: "/role-select",
   login: "/login",
   register: "/register",
+  requestStatus: "/dashboard/request-status",
   forgotPassword: "/forgot-password",
   emergencyRequest: "/emergency-request",
   /** Edit form for a recipient's own emergency request; takes an `id` param. */
   manageRequest: "/manage-request",
+  donors: "/donors",
+  compatibility: "/compatibility",
+  location: "/location",
+  bloodBankDetail: "/blood-bank-detail",
+  donorHome: "/dashboard/donor",
+  donorRequests: "/dashboard/donor-requests",
+  donorTransit: "/dashboard/donor-transit",
+  donorIntake: "/dashboard/donor-intake",
+  donorProfile: "/dashboard/donor-profile",
+  passDetails: "/pass-details",
   /** Blood bank storage monitor, pushed from the hospital Home tab. */
   hospitalStorage: "/dashboard/hospital/storage",
   /** Requisition form, pushed from the hospital Home and storage screens. */
@@ -32,6 +43,19 @@ export const ROUTES = {
   hospitalExtractionSession: "/dashboard/hospital/extraction-session",
   /** Staff profile, opened from the avatar in the hospital headers. */
   hospitalProfile: "/dashboard/hospital/profile",
+} as const satisfies Record<string, Href>;
+
+/**
+ * Screens shown inside the dashboard tab bar.
+ *
+ * Keyed by tab name so `DashboardTabBar` stays a dumb presentational component
+ * and the recipient dashboard supplies the active key.
+ */
+export const DASHBOARD_TABS = {
+  home: "/dashboard/recipient",
+  requests: "/dashboard/requests",
+  alerts: "/dashboard/alerts",
+  profile: "/dashboard/profile",
 } as const satisfies Record<string, Href>;
 
 /** Dashboard for each role, per the post-authentication flow. */

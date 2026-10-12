@@ -8,8 +8,15 @@
 
 import { z } from "zod";
 
-import { BLOOD_GROUPS, URGENCY_LEVELS } from "../types";
-import { normalizeContact } from "./contact";
+import {
+  BLOOD_GROUPS,
+  DONOR_RESPONSES,
+  DONATION_STAGES,
+  REQUEST_STATUSES,
+  URGENCY_LEVELS,
+} from "../types";
+import { DISTRICTS } from "./geo";
+import { normalizeContact, normalizeEmail, normalizeMobile } from "./contact";
 import { ApiError } from "./errors";
 import { PASSWORD_MIN_LENGTH, isPasswordAcceptable } from "./passwords";
 
@@ -49,12 +56,33 @@ export const registerSchema = z.object({
   fullName: z.string().trim().min(2, "Please enter your full name."),
   identifier: identifierSchema,
   password: passwordSchema,
-  district: z.string().trim().min(1).optional(),
+  district: z.string().trim().min(1, "Please choose your district."),
   bloodGroup: bloodGroupSchema.optional(),
   /** Donors only — used to seed their availability record. */
   lastDonationAt: z.string().trim().min(1).optional(),
   /** Hospitals only. Captured for the admin verification queue. */
   registrationNumber: z.string().trim().min(1).optional(),
+});
+
+export const donorProfileSchema = z.object({
+  fullName: z.string().trim().min(2, "Please enter your full name."),
+  email: z.string().trim().nullable(),
+  mobile: z.string().trim().nullable(),
+  district: z.enum(DISTRICTS),
+  bloodGroup: bloodGroupSchema,
+}).superRefine((profile, context) => {
+  if (profile.email !== null && profile.email !== "" && normalizeEmail(profile.email) === null) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["email"], message: "Enter a valid email address." });
+  }
+  if (profile.mobile !== null && profile.mobile !== "" && normalizeMobile(profile.mobile) === null) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["mobile"], message: "Enter a valid Sri Lankan mobile number." });
+  }
+  if (
+    (profile.email === null || profile.email === "") &&
+    (profile.mobile === null || profile.mobile === "")
+  ) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["mobile"], message: "Provide an email address or mobile number." });
+  }
 });
 
 export const forgotPasswordSchema = z.object({
@@ -94,6 +122,61 @@ export const emergencyRequestSchema = z.object({
     }),
   urgency: z.enum(URGENCY_LEVELS),
   notes: z.string().trim().max(500, "Please keep notes under 500 characters.").optional(),
+});
+
+/** Status transition body for `PATCH /emergency-requests/:id`. */
+export const emergencyStatusPatchSchema = z.object({
+  status: z.enum(REQUEST_STATUSES, {
+    errorMap: () => ({ message: "Choose a valid status." }),
+  }),
+});
+
+export const donorResponseSchema = z.object({
+  response: z.enum(DONOR_RESPONSES),
+});
+
+export const donorStageSchema = z.object({
+  stage: z.enum(DONATION_STAGES),
+});
+
+export const checkInSchema = z.object({
+  token: z.string().trim().min(20),
+});
+
+/** `PUT /hospital/inventory/:bankId/:group/:component` body. */
+export const inventoryUnitsSchema = z.object({
+  units: z.coerce
+    .number()
+    .int("Units must be a whole number.")
+    .min(0, "Units cannot be negative.")
+    .max(999, "That is more stock than the field can hold."),
+});
+
+const vitalsString = z.string().trim().max(40);
+
+/** Vitals recorded at intake before the donation is approved. */
+export const screeningSchema = z.object({
+  temperature: vitalsString.optional(),
+  bloodPressure: vitalsString.optional(),
+  pulse: vitalsString.optional(),
+  hemoglobin: vitalsString.optional(),
+  eligible: z.boolean(),
+  bedLabel: vitalsString.optional(),
+});
+
+/** Completing the extraction session. */
+export const extractionSchema = z.object({
+  volumeMl: z.coerce
+    .number()
+    .int("Volume must be a whole number.")
+    .min(1, "Record the collected volume.")
+    .max(1000, "That volume is implausible."),
+  phlebotomistName: vitalsString.optional(),
+});
+
+/** Recipients may only re-point their district; the rest is donor-only. */
+export const recipientProfileSchema = z.object({
+  district: z.enum(DISTRICTS),
 });
 
 /**

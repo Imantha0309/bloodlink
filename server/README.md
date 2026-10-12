@@ -47,9 +47,9 @@ adapter, so the same credentials work whether or not the backend is running.
 | `0775551234` | `Recipient@123` | recipient |
 | `admin@bloodlink.lk` | `Admin@123` | admin |
 
-Plus 24 additional donors spread across districts and blood groups, so
-`/donors/stats` and the hospital/admin dashboards show real numbers rather than
-a fabricated national count.
+The seed creates no fictional emergency requests or extra donor profiles. The
+demo donor account starts paused; register real donor accounts and create real
+emergency requests to populate the donor queue.
 
 ## Endpoints
 
@@ -64,7 +64,13 @@ a fabricated national count.
 | `POST` | `/auth/verify-otp` | — | `{resetId, code}` → `{resetToken}` |
 | `POST` | `/auth/reset-password` | — | `{resetToken, newPassword}` → `{ok}` |
 | `GET` | `/donors/stats` | — | `{total, provinces, avatarInitials, updatedAt}` for the sign-in card |
-| `PUT` | `/donors/me/availability` | Bearer | Donor only; `403` for other roles |
+| `GET` | `/donors/me/availability` | Bearer | Read the donor's record; a missing record is returned as paused |
+| `PUT` | `/donors/me/availability` | Bearer | Create or update availability; donor only |
+| `DELETE` | `/donors/me/availability` | Bearer | Remove the donor's availability record; donor only |
+| `GET` | `/donors/me/responses` | Bearer | Read all of the donor's emergency responses, including declines |
+| `POST` | `/emergency-requests/:id/response` | Bearer | Create a donor response (`accepted` or `declined`); donor only |
+| `PUT` | `/emergency-requests/:id/response` | Bearer | Update a response before transit starts; donor only |
+| `DELETE` | `/emergency-requests/:id/response` | Bearer | Withdraw a response before transit starts; donor only |
 | `POST` | `/emergency-requests` | optional | **Public** — the zero-login urgent path. Links to the user when a token is present |
 | `GET` | `/emergency-requests` | Bearer | Role-filtered: recipients see their own, donors see what their group can serve, hospitals and admins see the whole open queue |
 | `GET` | `/emergency-requests/:id` | optional | Includes `compatibleDonorGroups` |

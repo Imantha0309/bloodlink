@@ -16,6 +16,10 @@ const AVATAR_SIZE = 26;
  * The two states differ only in what sits on the right of the status panel —
  * overlapping donor avatars while donors are moving, an urgency flag while the
  * broadcast is still unanswered — so both share one card.
+ *
+ * "Manage Requisition" is owned by the caller: the board opens the manage
+ * screen for that request. It falls back to the donor arrival desk so the card
+ * still works anywhere it is not wired to the live queue.
  */
 export function RequisitionCard({
   item,

@@ -12,6 +12,7 @@ import { useAuthBack } from "@/hooks/use-auth-back";
 import { useAuth } from "@/providers/auth-provider";
 import { apiErrorMessage } from "@/services/auth";
 import {
+  cancelEmergencyRequest,
   listEmergencyRequests,
   type EmergencyRequest,
 } from "@/services/requests/emergency-requests";
@@ -143,7 +144,22 @@ export default function RequestsScreen() {
                 onPress={() => openRequest(request.id)}
                 style={({ pressed }) => [styles.cardPressable, pressed && styles.pressed]}
               >
-                <RequestCard request={request} />
+                <RequestCard
+                  request={request}
+                  isManageable
+                  onEdit={(entry) => {
+                    router.push({
+                      pathname: ROUTES.manageRequest,
+                      params: { id: entry.id },
+                    });
+                  }}
+                  onCancel={async (entry) => {
+                    await cancelEmergencyRequest(entry.id);
+                    // A cancel is a status flip, so pull the fresh list rather
+                    // than guessing at the new state locally.
+                    void load("refresh");
+                  }}
+                />
               </Pressable>
             ))}
           </View>

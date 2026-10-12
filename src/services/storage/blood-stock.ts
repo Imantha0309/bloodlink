@@ -17,7 +17,6 @@ import { useSyncExternalStore } from "react";
 
 import type { BloodGroup } from "@/constants/blood-groups";
 import {
-  BLOOD_STORAGE,
   CRITICAL_RESERVE,
   RESERVE_GAUGES,
   STORAGE_FRACTIONS,
@@ -38,20 +37,21 @@ const CRITICAL_AT_PCT = 25;
 /** Cylinder capacity assumed for a group the fixtures never gauged. */
 const DEFAULT_GAUGE_CAPACITY = 250;
 
-/** Bank capacity implied by the fixture stock/capacity pair. */
+/** Cylinder capacity per group, implied by each fixture gauge's units/fill. */
+const GAUGE_CAPACITY = new Map<BloodGroup, number>(
+  RESERVE_GAUGES.map((gauge) => [gauge.group, Math.round(gauge.units / (gauge.fillPct / 100))]),
+);
+
+/** Bank totals implied by the fixture gauges' units and fill levels. */
+const SEED_TOTAL_UNITS = RESERVE_GAUGES.reduce((sum, gauge) => sum + gauge.units, 0);
 const BANK_CAPACITY = Math.round(
-  BLOOD_STORAGE.totalUnits / (BLOOD_STORAGE.capacityPct / 100),
+  RESERVE_GAUGES.reduce((sum, gauge) => sum + gauge.units / (gauge.fillPct / 100), 0),
 );
 
 /** Intake vault capacity implied by that compartment's fixture levels. */
 const INTAKE_SEED =
   VAULT_COMPARTMENTS.find((item) => item.id === INTAKE_COMPARTMENT_ID) ?? VAULT_COMPARTMENTS[0];
 const INTAKE_CAPACITY = Math.round(INTAKE_SEED.units / (INTAKE_SEED.capacityPct / 100));
-
-/** Cylinder capacity per group, implied by each fixture gauge's units/fill. */
-const GAUGE_CAPACITY = new Map<BloodGroup, number>(
-  RESERVE_GAUGES.map((gauge) => [gauge.group, Math.round(gauge.units / (gauge.fillPct / 100))]),
-);
 
 /** Live line under the critical-reserve card. */
 export type CriticalReserveLine = {
@@ -148,8 +148,8 @@ function seedStock(): BloodStock {
   const gauges = RESERVE_GAUGES.map((gauge) => gaugeFor(gauge.group, gauge.units));
 
   return {
-    totalUnits: BLOOD_STORAGE.totalUnits,
-    capacityPct: BLOOD_STORAGE.capacityPct,
+    totalUnits: SEED_TOTAL_UNITS,
+    capacityPct: fillPercent(SEED_TOTAL_UNITS, BANK_CAPACITY),
     gauges,
     compartments: VAULT_COMPARTMENTS.map((item) => ({ ...item })),
     fractions: STORAGE_FRACTIONS.map((fraction) => ({ ...fraction })),

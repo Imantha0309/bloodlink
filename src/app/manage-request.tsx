@@ -51,11 +51,27 @@ const NO_ERRORS: EmergencyFormErrors = {
   bloodGroup: null,
   units: null,
   hospital: null,
+  ward: null,
   district: null,
   contactName: null,
   contactMobile: null,
   notes: null,
 };
+
+/**
+ * Splits the ward line back out of notes on load, the way
+ * `emergency-request.tsx` folds it in on submit — the schema has no ward
+ * column yet, so it travels as the first line of the free text.
+ */
+function splitWard(notes: string): { ward: string; rest: string } {
+  const [first, ...lines] = notes.split("\n");
+
+  if (first !== undefined && first.startsWith("Ward: ")) {
+    return { ward: first.slice("Ward: ".length), rest: lines.join("\n") };
+  }
+
+  return { ward: "", rest: notes };
+}
 
 /**
  * Edit form for a request the signed-in recipient already raised.
@@ -80,6 +96,7 @@ export default function ManageRequestScreen() {
   const [bloodGroup, setBloodGroup] = useState<string | null>(null);
   const [units, setUnits] = useState("1");
   const [hospital, setHospital] = useState("");
+  const [ward, setWard] = useState("");
   const [district, setDistrict] = useState<string | null>(null);
   const [contactName, setContactName] = useState("");
   const [contactMobile, setContactMobile] = useState("");
@@ -130,7 +147,10 @@ export default function ManageRequestScreen() {
         setContactName(request.contactName);
         setContactMobile(request.contactMobile);
         setUrgency(request.urgency);
-        setNotes(request.notes ?? "");
+
+        const { ward: savedWard, rest } = splitWard(request.notes ?? "");
+        setWard(savedWard);
+        setNotes(rest);
       })
       .catch((caught: unknown) => {
         if (isActive) {
@@ -219,6 +239,7 @@ export default function ManageRequestScreen() {
       bloodGroup: bloodGroup ?? "",
       units,
       hospital,
+      ward,
       district: district ?? "",
       contactName,
       contactMobile,
@@ -235,6 +256,12 @@ export default function ManageRequestScreen() {
 
     setIsSubmitting(true);
 
+    // The ward travels as the first line of notes until the schema carries a
+    // real column — same stopgap the public form uses on submit.
+    const wardLine = `Ward: ${ward.trim()}`;
+    const rest = notes.trim();
+    const composedNotes = rest === "" ? wardLine : `${wardLine}\n${rest}`;
+
     try {
       await updateEmergencyRequest(requestId, {
         patientName: patientName.trim(),
@@ -245,7 +272,7 @@ export default function ManageRequestScreen() {
         contactName: contactName.trim(),
         contactMobile: contactMobile.trim(),
         urgency,
-        notes: notes.trim() === "" ? null : notes.trim(),
+        notes: composedNotes,
       });
 
       setIsSaved(true);
@@ -371,6 +398,19 @@ export default function ManageRequestScreen() {
                       autoCapitalize="words"
                       icon="home"
                       onSubmitEditing={() => contactNameRef.current?.focus()}
+                    />
+
+                    <TextField
+                      label="Ward & Room Details"
+                      value={ward}
+                      onChangeText={(value) => {
+                        setWard(value);
+                        clearError("ward");
+                      }}
+                      placeholder="e.g. Ward 14, Intensive Care Unit"
+                      error={errors.ward}
+                      autoCapitalize="words"
+                      icon="clipboard"
                     />
 
                     <SelectField

@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AsyncState } from "@/components/ui/async-state";
 import { SkeletonCard } from "@/components/ui/skeleton";
 import { TextField } from "@/components/ui/text-field";
+import { KeyboardDismissView } from "@/components/ui/keyboard-dismiss";
 import { Blood, Elevation, Surface } from "@/constants/colors";
 import { EXTRACTION } from "@/constants/hospital-demo";
 import { Radius } from "@/constants/radius";
@@ -331,7 +332,7 @@ export default function HospitalExtractionSessionScreen() {
         : `${Math.floor(elapsedSeconds / 60)}m ${Math.floor(elapsedSeconds % 60)}s elapsed`;
 
   return (
-    <View style={styles.root}>
+    <KeyboardDismissView style={styles.root}>
       <StatusBar style="dark" />
 
       <ScrollView
@@ -341,6 +342,7 @@ export default function HospitalExtractionSessionScreen() {
           { paddingTop: insets.top + 6, paddingBottom: insets.bottom + 24 },
         ]}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
         {/* ================= BACK ================= */}
 
@@ -653,7 +655,7 @@ export default function HospitalExtractionSessionScreen() {
           )}
         </AsyncState>
       </ScrollView>
-    </View>
+    </KeyboardDismissView>
   );
 }
 

@@ -24,6 +24,9 @@ frontend/android/app/release/
 
 # Backend build output
 backend/dist/
+# Uploaded avatars — derived data, re-uploadable, and should never be committed
+backend/uploads/
+backend/.env
 
 # Logs
 *.log

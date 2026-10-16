@@ -22,10 +22,12 @@ import { FormAlert } from "@/components/auth/form-alert";
 import { PasswordInput } from "@/components/auth/password-input";
 import { PhoneEmailInput } from "@/components/auth/phone-email-input";
 import { PrimaryAuthButton } from "@/components/auth/primary-auth-button";
+import { AnimatedAvatar } from "@/components/common/animated-avatar";
+import { KeyboardDismissView } from "@/components/ui/keyboard-dismiss";
 import { Blood, Surface } from "@/constants/colors";
 import { ROLE_HOME, ROUTES } from "@/constants/routes";
 import { Typography } from "@/constants/typography";
-import { useAuthBack } from "@/hooks/use-auth-back";
+import { useBack } from "@/hooks/use-back";
 import { useAuth } from "@/providers/auth-provider";
 import { apiErrorMessage } from "@/services/auth";
 import { hasErrors, validateLoginForm, type LoginFormErrors } from "@/utils/validation";
@@ -44,7 +46,10 @@ export default function LoginScreen() {
   const insets = useSafeAreaInsets();
   const passwordRef = useRef<RNTextInput>(null);
   const { signIn } = useAuth();
-  const handleBack = useAuthBack();
+  // Reachable cold by deep link, so the hardware back button needs the same
+  // fallback the header arrow has — otherwise it pops an empty stack and quits
+  // while the arrow returns to the splash.
+  const handleBack = useBack(() => false);
 
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
@@ -96,7 +101,7 @@ export default function LoginScreen() {
   }
 
   return (
-    <View style={styles.root}>
+    <KeyboardDismissView style={styles.root}>
       <StatusBar style="dark" />
 
       {/* Top inset is owned by AuthHeader and the bottom by the scroll
@@ -121,6 +126,35 @@ export default function LoginScreen() {
             showsVerticalScrollIndicator={false}
             bounces={false}
           >
+            <View style={styles.avatarClusterWrap}>
+              <View style={styles.avatarCluster}>
+                <AnimatedAvatar
+                  name="HP"
+                  size={42}
+                  animated
+                  pulseColor="#16834A"
+                  style={styles.avatarLeft}
+                />
+                <AnimatedAvatar
+                  size={58}
+                  animated
+                  pulseColor={Blood.primary}
+                  style={styles.avatarCenter}
+                />
+                <AnimatedAvatar
+                  name="KS"
+                  size={42}
+                  animated
+                  pulseColor="#4D73B8"
+                  style={styles.avatarRight}
+                />
+              </View>
+              <View style={styles.networkBadge}>
+                <View style={styles.greenDot} />
+                <Text style={styles.networkBadgeText}>Live Donor & Hospital Network</Text>
+              </View>
+            </View>
+
             <AuthIntroCard
               title="Sign In to BloodLink"
               description="Access emergency blood requests and donor notifications"
@@ -203,7 +237,7 @@ export default function LoginScreen() {
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
-    </View>
+    </KeyboardDismissView>
   );
 }
 
@@ -225,7 +259,59 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingHorizontal: 20,
     paddingTop: 4,
-    gap: 20,
+    gap: 16,
+  },
+
+  avatarClusterWrap: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingTop: 6,
+    paddingBottom: 2,
+    gap: 10,
+  },
+
+  avatarCluster: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  avatarLeft: {
+    marginRight: -12,
+    zIndex: 1,
+  },
+
+  avatarCenter: {
+    zIndex: 2,
+  },
+
+  avatarRight: {
+    marginLeft: -12,
+    zIndex: 1,
+  },
+
+  networkBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#F1F5F9",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 20,
+  },
+
+  greenDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#16834A",
+  },
+
+  networkBadgeText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#475569",
+    letterSpacing: 0.2,
   },
 
   form: {

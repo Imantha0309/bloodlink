@@ -35,10 +35,6 @@ export const DISTRICTS = [
 
 export type District = (typeof DISTRICTS)[number];
 
-export function isDistrict(value: unknown): value is District {
-  return typeof value === "string" && (DISTRICTS as readonly string[]).includes(value);
-}
-
 const PROVINCE_BY_DISTRICT: Record<District, string> = {
   Colombo: "Western",
   Gampaha: "Western",

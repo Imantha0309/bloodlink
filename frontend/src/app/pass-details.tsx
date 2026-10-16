@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -17,61 +17,95 @@ import { Radius } from "@/constants/radius";
 import { Typography } from "@/constants/typography";
 import { apiErrorMessage } from "@/services/auth";
 import { verifyDonorCheckIn } from "@/services/donors/donor-workflow";
+import {
+  getEmergencyRequest,
+  type EmergencyRequest,
+} from "@/services/requests/emergency-requests";
+import { intakePayloadOf } from "@/utils/qr-payload";
+import { KeyboardDismissView } from "@/components/ui/keyboard-dismiss";
 
+/**
+ * The intake ticket behind a scanned QR.
+ *
+ * Everything shown here used to be scraped out of the QR payload itself — it
+ * parsed `?donor=...&bloodGroup=...` query strings and `Donor: Jane` line pairs,
+ * then rendered whatever it found as though a desk could rely on it. That was
+ * both forgeable and unreadable by the server.
+ *
+ * Now the code carries nothing but an opaque secret, this screen reads it with
+ * the one canonical decoder, and the details come from `getEmergencyRequest`.
+ * The donor's *identity* is not on an intake ticket at all; that is what the
+ * identity pass is for, and this screen says so rather than inventing a name.
+ */
 export default function PassDetailsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{
     ticket?: string;
-    donor?: string;
-    bloodGroup?: string;
-    patient?: string;
-    hospital?: string;
-    district?: string;
-    units?: string;
-    urgency?: string;
-    caseId?: string;
-    expiresAt?: string;
     raw?: string;
   }>();
 
-  // If raw scan data was passed in (e.g. from camera/pasted), parse it
-  const parsedFromRaw = parseRawScanData(params.raw ?? params.ticket ?? "");
+  const rawPayload = params.raw ?? params.ticket ?? "";
+  const scanned = intakePayloadOf(rawPayload);
 
-  const ticket = params.ticket || parsedFromRaw.ticket || "";
-  const caseId = params.caseId || parsedFromRaw.caseId || (ticket ? ticket.split(":")[1] : "");
-
-  const donor = params.donor || parsedFromRaw.donor || "";
-  const bloodGroup = params.bloodGroup || parsedFromRaw.bloodGroup || "";
-  const patient = params.patient || parsedFromRaw.patient || "";
-  const hospital = params.hospital || parsedFromRaw.hospital || "";
-  const district = params.district || parsedFromRaw.district || "";
-  const units = params.units || parsedFromRaw.units || "";
-  const urgency = params.urgency || parsedFromRaw.urgency || "";
-
-  // Nothing is invented: with no usable ticket the screen is a dead pass, not a
-  // donor with invented details.
-  const isPassValid = isRealPass({ ticket, caseId, donor, hospital });
-
-  const [inputCode, setInputCode] = useState(ticket);
+  const [inputCode, setInputCode] = useState(rawPayload);
+  const [loaded, setLoaded] = useState<{ id: string; request: EmergencyRequest | null } | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
   const [verifiedStage, setVerifiedStage] = useState<"pending" | "arrived">("pending");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Extract the requestId and token from ticket string (e.g. bloodlink-intake:req_123:token456)
-  const tokenParts = (inputCode || ticket).split(":");
-  const resolvedRequestId = tokenParts.length >= 2 ? tokenParts[1] : caseId;
-  const resolvedToken = tokenParts.length >= 3 ? tokenParts[2] : inputCode;
+  const requestId = scanned?.requestId ?? null;
+
+  // The ticket only proves the holder is the right donor for this request; who
+  // they are, and what is needed, both come from the server. The id is stored
+  // alongside the row — a `null` request records a lookup that failed, so a
+  // stale response can never be shown against a different code, and "still
+  // loading" is derived from whether *this* id has resolved rather than being
+  // set from inside the effect.
+  useEffect(() => {
+    if (requestId === null) {
+      return;
+    }
+
+    let cancelled = false;
+
+    void getEmergencyRequest(requestId)
+      .then((detail) => {
+        if (!cancelled) {
+          setLoaded({ id: requestId, request: detail.request });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setLoaded({ id: requestId, request: null });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [requestId]);
+
+  const settled = loaded !== null && loaded.id === requestId;
+  const request = settled ? loaded.request : null;
+  const isLoading = requestId !== null && !settled;
+
+  // Re-read whenever the operator types a different code into the retry box.
+  const editable = intakePayloadOf(inputCode);
+  const isPassValid = scanned !== null;
 
   async function handleConfirmIntake() {
-    if (isVerifying) return;
+    if (isVerifying || editable === null) {
+      return;
+    }
+
     setIsVerifying(true);
     setErrorMessage(null);
     setStatusMessage(null);
 
     try {
-      await verifyDonorCheckIn(resolvedRequestId, resolvedToken);
+      await verifyDonorCheckIn(editable.requestId, editable.secret);
       setVerifiedStage("arrived");
       setStatusMessage("Donor intake verified successfully! Donor status set to Arrived.");
     } catch (caught) {
@@ -82,7 +116,7 @@ export default function PassDetailsScreen() {
   }
 
   return (
-    <View style={styles.root}>
+    <KeyboardDismissView style={styles.root}>
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
         <Pressable
@@ -108,6 +142,7 @@ export default function PassDetailsScreen() {
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
         {isPassValid ? null : (
           <>
@@ -195,18 +230,22 @@ export default function PassDetailsScreen() {
           <View style={styles.cardTop}>
             <View style={styles.bloodBadge}>
               <Feather name="droplet" size={16} color="#FFFFFF" />
-              <Text style={styles.bloodText}>{bloodGroup || "—"}</Text>
+              <Text style={styles.bloodText}>{request?.bloodGroup ?? "—"}</Text>
             </View>
 
             <View style={styles.cardTopInfo}>
               <Text style={styles.hospitalName} numberOfLines={1}>
-                {hospital || "Unknown facility"}
+                {request?.hospital ?? "Unknown facility"}
               </Text>
-              <Text style={styles.districtName}>{district ? `${district} District` : "—"}</Text>
+              <Text style={styles.districtName}>
+                {request?.district ? `${request.district} District` : "—"}
+              </Text>
             </View>
 
             <View style={styles.urgencyBadge}>
-              <Text style={styles.urgencyText}>{urgency ? urgency.toUpperCase() : "—"}</Text>
+              <Text style={styles.urgencyText}>
+                {request?.urgency ? request.urgency.toUpperCase() : "—"}
+              </Text>
             </View>
           </View>
 
@@ -214,32 +253,44 @@ export default function PassDetailsScreen() {
 
           {/* Details Grid */}
           <View style={styles.detailsList}>
-            <DetailRow label="Donor Full Name" value={donor || "Not on pass"} icon="user" isBold />
-            <DetailRow label="Patient Name" value={patient || "Not on pass"} icon="heart" />
+            <DetailRow
+              label="Donor"
+              value="Not on an intake pass"
+              icon="user"
+              isBold
+            />
+            <DetailRow label="Patient Name" value={request?.patientName ?? "—"} icon="heart" />
             <DetailRow
               label="Blood Group Needed"
-              value={bloodGroup || "Not on pass"}
+              value={request?.bloodGroup ?? "—"}
               icon="droplet"
               highlight
             />
             <DetailRow
               label="Units Requested"
-              value={units === "" ? "Not on pass" : `${units} ${Number(units) === 1 ? "Unit" : "Units"}`}
+              value={request === null ? "—" : `${request.units} ${request.units === 1 ? "Unit" : "Units"}`}
               icon="activity"
             />
             <DetailRow
               label="Case Reference"
-              value={caseId === "" ? "Not on pass" : `#${caseId.slice(-6).toUpperCase()}`}
+              value={request === null ? "—" : `#${request.id.slice(-6).toUpperCase()}`}
               icon="hash"
             />
-            {ticket ? (
+            {requestId !== null ? (
               <DetailRow
                 label="Security Ticket"
-                value={ticket.length > 25 ? `${ticket.slice(0, 25)}...` : ticket}
+                value={`bloodlink-intake:v1:${requestId}:••••`}
                 icon="lock"
               />
             ) : null}
           </View>
+
+          {isLoading ? (
+            <View style={styles.loadingRow}>
+              <ActivityIndicator size="small" color={Surface.textSecondary} />
+              <Text style={styles.loadingText}>Loading the requisition…</Text>
+            </View>
+          ) : null}
 
           {/* Status Chip */}
           <View style={styles.cardFooter}>
@@ -281,13 +332,13 @@ export default function PassDetailsScreen() {
         ) : null}
 
         {/* Manual Code Input / Ticket Inspection */}
-        {!ticket && (
+        {!isPassValid && (
           <View style={styles.manualWrap}>
             <Text style={styles.manualLabel}>Or verify with ticket code:</Text>
             <TextInput
               value={inputCode}
               onChangeText={setInputCode}
-              placeholder="e.g. bloodlink-intake:req_123:abc..."
+              placeholder="e.g. bloodlink-intake:v1:req_123:abc..."
               placeholderTextColor={Surface.textMuted}
               style={styles.input}
               autoCapitalize="none"
@@ -296,7 +347,7 @@ export default function PassDetailsScreen() {
           </View>
         )}
       </ScrollView>
-    </View>
+    </KeyboardDismissView>
   );
 }
 
@@ -331,95 +382,6 @@ function DetailRow({
         {value}
       </Text>
     </View>
-  );
-}
-
-function parseRawScanData(raw: string): Partial<{
-  donor: string;
-  bloodGroup: string;
-  patient: string;
-  hospital: string;
-  district: string;
-  units: string;
-  urgency: string;
-  caseId: string;
-  ticket: string;
-}> {
-  if (!raw) return {};
-
-  // If raw is a URL, extract search params
-  if (raw.includes("?") && (raw.startsWith("http") || raw.startsWith("exp:") || raw.startsWith("/"))) {
-    try {
-      const queryString = raw.split("?")[1] || "";
-      const searchParams = new URLSearchParams(queryString);
-      return {
-        donor: searchParams.get("donor") ?? undefined,
-        bloodGroup: searchParams.get("bloodGroup") ?? undefined,
-        patient: searchParams.get("patient") ?? undefined,
-        hospital: searchParams.get("hospital") ?? undefined,
-        district: searchParams.get("district") ?? undefined,
-        units: searchParams.get("units") ?? undefined,
-        urgency: searchParams.get("urgency") ?? undefined,
-        caseId: searchParams.get("caseId") ?? undefined,
-        ticket: searchParams.get("ticket") ?? undefined,
-      };
-    } catch {
-      // ignore
-    }
-  }
-
-  // If raw is key-value formatted text (e.g. from our formatted QR code)
-  const lines = raw.split("\n");
-  const result: Record<string, string> = {};
-
-  for (const line of lines) {
-    const colonIndex = line.indexOf(":");
-    if (colonIndex > 0) {
-      const key = line.slice(0, colonIndex).trim().toLowerCase();
-      const val = line.slice(colonIndex + 1).trim();
-
-      if (key.includes("donor")) result.donor = val;
-      if (key.includes("blood group") || key === "group") result.bloodGroup = val;
-      if (key.includes("patient")) result.patient = val;
-      if (key.includes("hospital")) result.hospital = val;
-      if (key.includes("district")) result.district = val;
-      if (key.includes("unit")) result.units = val.replace(/[^0-9]/g, "");
-      if (key.includes("priority") || key.includes("urgency")) result.urgency = val;
-      if (key.includes("case") || key.includes("ref")) result.caseId = val.replace("#", "");
-      if (key.includes("ticket") || val.startsWith("bloodlink-intake:")) result.ticket = val;
-    }
-  }
-
-  // If raw string itself is a ticket token
-  if (raw.startsWith("bloodlink-intake:")) {
-    result.ticket = raw;
-    const parts = raw.split(":");
-    if (parts[1]) result.caseId = parts[1];
-  }
-
-  return result;
-}
-
-/**
- * A pass is only real when a ticket came with it.
- *
- * Every field below used to fall back to invented values — "Verified Blood
- * Donor", "O+", "National Hospital of Sri Lanka" — so a truncated scan rendered
- * a confident, entirely fictional donor identity to the person at the desk. The
- * screen now reads as invalid instead, which is the only honest thing to show
- * when there is nothing to verify.
- */
-function isRealPass(fields: {
-  ticket: string;
-  caseId: string;
-  donor: string;
-  hospital: string;
-}): boolean {
-  return (
-    fields.ticket !== "" &&
-    fields.caseId !== "" &&
-    fields.donor !== "" &&
-    fields.hospital !== ""
   );
 }
 
@@ -675,6 +637,18 @@ const styles = StyleSheet.create({
   highlightText: {
     fontWeight: "800",
     color: Blood.primary,
+  },
+
+  loadingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 10,
+  },
+
+  loadingText: {
+    ...Typography.small,
+    color: Surface.textSecondary,
   },
 
   cardFooter: {

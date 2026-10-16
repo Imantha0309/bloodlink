@@ -21,7 +21,7 @@ import { z } from "zod";
 
 import { assertStaff } from "../domain/access";
 import { isDonorEligible } from "../domain/compatibility";
-import { STAGE_ORDER } from "../domain/lifecycle";
+import { STAGE_ORDER, isOpen, isResponseMutable } from "../domain/lifecycle";
 import { requestRow } from "../domain/serialize";
 import { asyncHandler, fail } from "../http";
 import { currentUser, requireAuth } from "../middleware/auth";
@@ -322,7 +322,7 @@ donorsRouter.post(
     const request = await findRequest(param(req, "requestId"));
     const response = await findAcceptedResponse(request._id, user._id);
 
-    if (response.stage !== "accepted") {
+    if (!isResponseMutable(response.stage)) {
       throw fail.conflict("You are already on your way to this donation.");
     }
 
@@ -547,7 +547,7 @@ donorsRouter.post(
         response.stage = "completed";
         await response.save({ session });
 
-        if (request.status === "pending" || request.status === "verified") {
+        if (isOpen(request.status)) {
           request.status = "fulfilled";
           await request.save({ session });
         }

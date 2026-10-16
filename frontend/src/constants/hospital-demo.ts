@@ -233,4 +233,12 @@ export const PROFILE_MENU: readonly ProfileMenuItem[] = [
     iconTone: "blue",
     href: ROUTES.hospitalReassignment,
   },
+  {
+    id: "settings",
+    title: "Account Settings",
+    detail: "Manage staff profile, notifications & district",
+    icon: "settings",
+    iconTone: "blue",
+    href: ROUTES.settings,
+  },
 ];

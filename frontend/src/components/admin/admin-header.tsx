@@ -1,26 +1,48 @@
 import { Feather } from "@expo/vector-icons";
-import { StyleSheet, Text, View } from "react-native";
+import { useRouter } from "expo-router";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
+import { AnimatedAvatar } from "@/components/common/animated-avatar";
 import { Blood, Surface } from "@/constants/colors";
 import { Radius } from "@/constants/radius";
+import { ROUTES } from "@/constants/routes";
 import { Typography } from "@/constants/typography";
-import { initialsOf } from "@/utils/initials";
+import { useAuth } from "@/providers/auth-provider";
 
 type AdminHeaderProps = {
   /** Line under the brand, e.g. "National Blood Registry". */
   subtitle: string;
   /** Full name of the signed-in administrator; falls back to "Admin". */
   fullName?: string | null;
+  /**
+   * Opens the administrator's own profile.
+   *
+   * Optional so the admin profile screen, which is already inside it, can render
+   * the header without a link back to itself.
+   */
+  onOpenProfile?: () => void;
+  /** Optional avatar URL */
+  avatarUrl?: string | null;
 };
 
 /**
  * Brand header for the administrator area.
  *
- * Mirrors `HospitalHeader` minus the avatar link: an admin has no staff profile
- * screen to open, so the monogram is presentational here rather than a
- * navigation target.
+ * Mirrors `HospitalHeader`. The avatar used to be presentational because an
+ * admin had no profile screen to open; now that one exists, callers pass
+ * `onOpenProfile` and the monogram goes where every other role's does.
  */
-export function AdminHeader({ subtitle, fullName }: AdminHeaderProps) {
+export function AdminHeader({
+  subtitle,
+  fullName,
+  onOpenProfile,
+  avatarUrl,
+}: AdminHeaderProps) {
+  const router = useRouter();
+  const { session } = useAuth();
+  const name = fullName ?? session?.user.fullName ?? "Admin";
+  const effectiveAvatar = avatarUrl ?? session?.user.avatarUrl;
+
   return (
     <View style={styles.row}>
       <View style={styles.brand}>
@@ -36,8 +58,43 @@ export function AdminHeader({ subtitle, fullName }: AdminHeaderProps) {
         </View>
       </View>
 
-      <View style={styles.avatar}>
-        <Text style={styles.avatarText}>{initialsOf(fullName ?? "Admin")}</Text>
+      <View style={styles.actions}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Settings"
+          hitSlop={6}
+          onPress={() => router.push(ROUTES.settings)}
+          style={({ pressed }) => [styles.iconBtn, pressed && styles.pressed]}
+        >
+          <Feather name="settings" size={18} color={Surface.textSecondary} />
+        </Pressable>
+
+        {onOpenProfile === undefined ? (
+          <AnimatedAvatar
+            url={effectiveAvatar}
+            name={name}
+            size={38}
+            showHalo={false}
+            role="admin"
+          />
+        ) : (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Open your profile"
+            accessibilityHint="Shows your identity pass"
+            hitSlop={8}
+            onPress={onOpenProfile}
+            style={({ pressed }) => [pressed && styles.pressed]}
+          >
+            <AnimatedAvatar
+              url={effectiveAvatar}
+              name={name}
+              size={38}
+              showHalo={false}
+              role="admin"
+            />
+          </Pressable>
+        )}
       </View>
     </View>
   );
@@ -84,6 +141,23 @@ const styles = StyleSheet.create({
     color: Surface.textSecondary,
   },
 
+  actions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+
+  iconBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: Radius.full,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Surface.iconWash,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Surface.border,
+  },
+
   avatar: {
     width: 38,
     height: 38,
@@ -98,5 +172,9 @@ const styles = StyleSheet.create({
   avatarText: {
     ...Typography.micro,
     color: Surface.text,
+  },
+
+  pressed: {
+    opacity: 0.7,
   },
 });

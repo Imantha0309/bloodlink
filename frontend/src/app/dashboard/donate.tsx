@@ -9,7 +9,7 @@ import { HomeHeader } from "@/components/dashboard/home-header";
 import { RequestList } from "@/components/dashboard/request-list";
 import { recipientTabs } from "@/components/dashboard/recipient-tabs";
 import { CAN_DONATE_TO, isBloodGroup } from "@/constants/blood-groups";
-import { DASHBOARD_TABS } from "@/constants/routes";
+import { DASHBOARD_TABS, ROUTES } from "@/constants/routes";
 import { useUnreadAlerts } from "@/hooks/use-unread-alerts";
 import { useAuth } from "@/providers/auth-provider";
 import type { DashboardSummary } from "@/services/dashboard/dashboard";
@@ -81,6 +81,7 @@ function DonateContent({
   summary: DashboardSummary;
   helpers: DashboardHelpers;
 }) {
+  const router = useRouter();
   const { session } = useAuth();
   const rawGroup = session?.user.bloodGroup ?? null;
   const donorGroup = isBloodGroup(rawGroup) ? rawGroup : null;
@@ -130,6 +131,7 @@ function DonateContent({
           await deleteEmergencyResponse(id);
           helpers.reload();
         }}
+        onAccepted={() => router.push(ROUTES.donorTransit)}
         emptyTitle={donorGroup === null ? "No blood group set" : "No matching requests right now"}
         emptyMessage={
           donorGroup === null

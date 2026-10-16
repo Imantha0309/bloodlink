@@ -13,6 +13,7 @@ import {
     type DonorProfileInput,
     type SignInInput,
     type SignUpInput,
+    type UpdateProfileInput,
 } from "@/services/auth";
 import type { StationAssignment } from "@/services/hospital/station";
 
@@ -47,6 +48,8 @@ type AuthContextValue = {
   /** Registers a new account and signs it in, with the same guarantee. */
   signUp: (input: SignUpInput) => Promise<AuthSession>;
   updateDonorProfile: (input: DonorProfileInput) => Promise<AuthUser>;
+  updateProfile: (input: UpdateProfileInput) => Promise<AuthUser>;
+  uploadAvatar: (imageUri: string) => Promise<AuthUser>;
   /** Re-points the signed-in recipient's district (the "location" page). */
   updateRecipientDistrict: (district: string) => Promise<AuthUser>;
   /**
@@ -187,6 +190,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return updatedUser;
   }, [session]);
 
+  const updateProfile = useCallback(async (input: UpdateProfileInput) => {
+    const updatedUser = await authService.updateProfile(input);
+    if (session === null) throw new Error("No active session.");
+    const next = { ...session, user: updatedUser };
+    await saveSession(next);
+    setSession(next);
+    return updatedUser;
+  }, [session]);
+
+  const uploadAvatar = useCallback(async (imageUri: string) => {
+    const updatedUser = await authService.uploadAvatar(imageUri);
+    if (session === null) throw new Error("No active session.");
+    const next = { ...session, user: updatedUser };
+    await saveSession(next);
+    setSession(next);
+    return updatedUser;
+  }, [session]);
+
   const updateRecipientDistrict = useCallback(async (district: string) => {
     const updatedUser = await authService.updateRecipientDistrict(district);
     if (session === null) throw new Error("No active recipient session.");
@@ -224,6 +245,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signIn,
       signUp,
       updateDonorProfile,
+      updateProfile,
+      uploadAvatar,
       updateRecipientDistrict,
       applyStation,
       signOut,
@@ -234,6 +257,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signIn,
       signUp,
       updateDonorProfile,
+      updateProfile,
+      uploadAvatar,
       updateRecipientDistrict,
       applyStation,
       signOut,

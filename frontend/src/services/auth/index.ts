@@ -24,6 +24,7 @@ export {
   type AuthSession,
   type AuthUser,
   type DonorProfileInput,
+  type UpdateProfileInput,
   type SelfRegisterRole,
   type SignInInput,
   type SignUpInput,

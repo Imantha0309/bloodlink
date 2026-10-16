@@ -1,4 +1,5 @@
 import { Feather } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
@@ -9,8 +10,10 @@ import { AsyncState } from "@/components/ui/async-state";
 import { OptionChips } from "@/components/ui/option-chips";
 import { SkeletonCard } from "@/components/ui/skeleton";
 import { TextField } from "@/components/ui/text-field";
+import { KeyboardDismissView } from "@/components/ui/keyboard-dismiss";
 import { Blood, Surface } from "@/constants/colors";
 import { Radius } from "@/constants/radius";
+import { ROUTES } from "@/constants/routes";
 import { Typography } from "@/constants/typography";
 import { useAuth } from "@/providers/auth-provider";
 import { apiErrorMessage } from "@/services/api/errors";
@@ -44,6 +47,7 @@ const ROLE_LABELS: Record<UserRole, string> = {
  * cannot touch stock or patients.
  */
 export default function AdminUsersScreen() {
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const { session } = useAuth();
   const selfUid = session?.user.id ?? null;
@@ -145,7 +149,7 @@ export default function AdminUsersScreen() {
   }
 
   return (
-    <View style={styles.root}>
+    <KeyboardDismissView style={styles.root}>
       <StatusBar style="dark" />
 
       <ScrollView
@@ -157,7 +161,11 @@ export default function AdminUsersScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        <AdminHeader subtitle="Account Administration" fullName={session?.user.fullName} />
+        <AdminHeader
+          subtitle="Account Administration"
+          fullName={session?.user.fullName}
+          onOpenProfile={() => router.push(ROUTES.adminProfile)}
+        />
 
         <View style={styles.headingText}>
           <Text style={styles.title} accessibilityRole="header">
@@ -326,7 +334,7 @@ export default function AdminUsersScreen() {
           </View>
         </AsyncState>
       </ScrollView>
-    </View>
+    </KeyboardDismissView>
   );
 }
 

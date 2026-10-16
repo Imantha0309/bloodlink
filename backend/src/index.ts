@@ -10,6 +10,7 @@
 
 import cors from "cors";
 import express from "express";
+import path from "node:path";
 
 import { connectDb, connectionState } from "./db";
 import { env } from "./env";
@@ -35,7 +36,26 @@ const app = express();
 app.use(env.corsOrigin === "*" ? cors() : cors({ origin: env.corsOrigin.split(",").map((origin) => origin.trim()) }));
 
 // Request bodies here are small — a request, a screening, a stock count.
+// The avatar route is the exception: it receives a whole image, so it is
+// declared with its own limit rather than widening this one for every route.
 app.use(express.json({ limit: "256kb" }));
+
+/**
+ * Avatars are served from this process rather than a CDN, which is why the
+ * directory is resolved against where the server is running from rather than
+ * `__dirname` — a compiled deployment runs from `dist/` with `UPLOAD_DIR`
+ * pointing at the real location.
+ */
+app.use(
+  env.uploadBaseUrl,
+  express.static(path.resolve(process.cwd(), env.uploadDir), {
+    fallthrough: true,
+    // Avatars are immutable: every upload writes a new filename, so an
+    // aggressively cached response can never serve a stale picture.
+    maxAge: "30d",
+    immutable: true,
+  }),
+);
 
 /** Liveness, and a cheap way to see which database the process reached. */
 app.get("/health", (_req, res) => {

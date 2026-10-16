@@ -59,6 +59,17 @@ function resolveBaseUrl(): string {
 
 const BASE_URL = resolveBaseUrl();
 
+/** Resolves an avatar path (relative or absolute) to a full URL. */
+export function resolveAvatarUrl(path: string | null | undefined): string | null {
+  if (!path) {
+    return null;
+  }
+  if (path.startsWith("http://") || path.startsWith("https://") || path.startsWith("data:")) {
+    return path;
+  }
+  return `${BASE_URL}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
 type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 type QueryValue = string | number | boolean | null | undefined;
@@ -227,6 +238,49 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
 
   if (response.status === 204) {
     return undefined as T;
+  }
+
+  const text = await response.text();
+
+  if (text.length === 0) {
+    return undefined as T;
+  }
+
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new ApiError("unknown", "The server returned a response the app could not read.");
+  }
+}
+
+/**
+ * Uploads a multipart FormData payload (e.g. avatar image) to the API.
+ */
+export async function apiUpload<T>(path: string, formData: FormData): Promise<T> {
+  const headers: Record<string, string> = { Accept: "application/json" };
+  const token = await authToken();
+
+  if (token !== null) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  let response: Response;
+
+  try {
+    response = await fetch(buildUrl(path, undefined), {
+      method: "POST",
+      headers,
+      body: formData,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw error;
+    }
+    throw new ApiError("network");
+  }
+
+  if (!response.ok) {
+    throw await readError(response);
   }
 
   const text = await response.text();

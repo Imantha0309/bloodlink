@@ -11,10 +11,39 @@ type QrCodeScannerProps = {
   /** Called once per successful read with the raw QR payload. */
   onScanned: (value: string) => void;
   onCancel: () => void;
+  /** Instruction inside the framing overlay. Defaults to the intake prompt. */
+  hint?: string;
+  /**
+   * Torch state. Pass it with `onToggleTorch` and a torch button appears;
+   * leave both out and the camera renders exactly as it did before.
+   */
+  torch?: boolean;
+  onToggleTorch?: () => void;
+  /** Pauses detection while a previous read is still being resolved. */
+  isBusy?: boolean;
+  /** Replaces the generic cancel button's label, e.g. "Close". */
+  cancelLabel?: string;
 };
 
-/** Full-pane live camera that reads a single QR code and hands it back. */
-export function QrCodeScanner({ onScanned, onCancel }: QrCodeScannerProps) {
+/**
+ * Full-pane live camera that reads a single QR code and hands it back.
+ *
+ * This is the shared camera for every scanner in the app: the hospital intake
+ * desk, the check-in modal, and the identity-pass sheet. There were two copies
+ * once — one that read only intake tickets and one that read only passes — and
+ * they drifted, so the weaker one invented a `"scanned"` token for anything it
+ * could not parse. One component means one place where the barcode types, the
+ * debounce and the permission states are defined.
+ */
+export function QrCodeScanner({
+  onScanned,
+  onCancel,
+  hint = "Point at the donor intake QR code",
+  torch,
+  onToggleTorch,
+  isBusy = false,
+  cancelLabel = "Cancel",
+}: QrCodeScannerProps) {
   const [permission, requestPermission] = useCameraPermissions();
   const [hasScanned, setHasScanned] = useState(false);
   const lockRef = useRef(false);
@@ -26,7 +55,8 @@ export function QrCodeScanner({ onScanned, onCancel }: QrCodeScannerProps) {
     }
   }, [permission, requestPermission]);
 
-  // Web has no reliable BarcodeDetector in expo-camera; callers hide the pane.
+  // Web has no reliable BarcodeDetector in expo-camera, so the pane is absent
+  // there and callers render a manual-entry alternative instead.
   if (Platform.OS === "web") {
     return null;
   }
@@ -70,10 +100,14 @@ export function QrCodeScanner({ onScanned, onCancel }: QrCodeScannerProps) {
       <CameraView
         style={StyleSheet.absoluteFill}
         facing="back"
+        enableTorch={torch ?? false}
         barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
         onBarcodeScanned={(event) => {
-          // Debounce: the scanner fires many times per second on a steady frame.
-          if (lockRef.current || hasScanned) return;
+          // Debounce: the scanner fires many times per second on a steady
+          // frame. `isBusy` keeps a second read from queueing behind a resolve
+          // that is still running, which is what made the desk see a stale
+          // confirmation while the request was in flight.
+          if (lockRef.current || hasScanned || isBusy) return;
           const value = event.data?.trim();
           if (!value) return;
 
@@ -91,17 +125,30 @@ export function QrCodeScanner({ onScanned, onCancel }: QrCodeScannerProps) {
           <View style={[styles.corner, styles.cornerBottomLeft]} />
           <View style={[styles.corner, styles.cornerBottomRight]} />
         </View>
-        <Text style={styles.hint}>Point at the donor intake QR code</Text>
+        <Text style={styles.hint}>{hint}</Text>
       </View>
+
+      {onToggleTorch === undefined ? null : (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={torch ? "Turn torch off" : "Turn torch on"}
+          accessibilityState={{ selected: torch }}
+          hitSlop={8}
+          onPress={onToggleTorch}
+          style={({ pressed }) => [styles.torch, pressed && styles.pressed]}
+        >
+          <Feather name={torch ? "zap" : "zap-off"} size={18} color={torch ? "#FFD666" : "#FFFFFF"} />
+        </Pressable>
+      )}
 
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="Cancel scanning"
+        accessibilityLabel={cancelLabel === "Cancel" ? "Cancel scanning" : cancelLabel}
         onPress={onCancel}
         style={({ pressed }) => [styles.cancelButton, pressed && styles.pressed]}
       >
         <Feather name="x" size={18} color="#FFFFFF" />
-        <Text style={styles.cancelButtonText}>Cancel</Text>
+        <Text style={styles.cancelButtonText}>{cancelLabel}</Text>
       </Pressable>
     </View>
   );
@@ -164,6 +211,21 @@ const styles = StyleSheet.create({
     color: "#CBD2E0",
     textAlign: "center",
     paddingHorizontal: 24,
+  },
+
+  /** Sits inside the pane, above the cancel button, out of the scan frame. */
+  torch: {
+    position: "absolute",
+    top: 14,
+    right: 14,
+    width: 40,
+    height: 40,
+    borderRadius: Radius.full,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.55)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.25)",
   },
 
   permissionButton: {

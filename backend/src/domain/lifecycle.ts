@@ -38,14 +38,9 @@ export function assertTransition(from: RequestStatus, to: RequestStatus): void {
   }
 }
 
-/** Statuses that still accept donor responses. */
+/** Statuses that still accept donor responses. Only verified requests are open to donors. */
 export function isOpen(status: RequestStatus): boolean {
-  return status === "pending" || status === "verified";
-}
-
-/** Terminal statuses, for the "nothing more will happen" cases. */
-export function isTerminal(status: RequestStatus): boolean {
-  return status === "fulfilled" || status === "cancelled";
+  return status === "verified";
 }
 
 /**

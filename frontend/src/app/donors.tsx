@@ -13,11 +13,11 @@ import { BLOOD_GROUPS, type BloodGroup, isBloodGroup } from "@/constants/blood-g
 import { Blood, Surface } from "@/constants/colors";
 import { DISTRICTS } from "@/constants/districts";
 import { Radius } from "@/constants/radius";
-import { DASHBOARD_TABS, ROLE_HOME } from "@/constants/routes";
+import { DASHBOARD_TABS } from "@/constants/routes";
 import { Typography } from "@/constants/typography";
 import { queryKeys } from "@/data/keys";
 import { useQuery } from "@/data/use-query";
-import { useAuthBack } from "@/hooks/use-auth-back";
+import { useHomeBack } from "@/hooks/use-home-back";
 import { useAuth } from "@/providers/auth-provider";
 import { searchDonors } from "@/services/donors/directory";
 
@@ -33,7 +33,7 @@ import { searchDonors } from "@/services/donors/directory";
 export default function DonorsScreen() {
   const router = useRouter();
   const { session } = useAuth();
-  const onBack = useAuthBack(ROLE_HOME[session?.user.role ?? "recipient"]);
+  const onBack = useHomeBack();
   const { bloodGroup: groupParam } = useLocalSearchParams<{ bloodGroup?: string }>();
 
   const initialGroup: BloodGroup | null =

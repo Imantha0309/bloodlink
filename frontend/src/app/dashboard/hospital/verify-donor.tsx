@@ -10,6 +10,7 @@ import { QrCodeScanner } from "@/components/qr-code-scanner";
 import { AsyncState } from "@/components/ui/async-state";
 import { SkeletonCard } from "@/components/ui/skeleton";
 import { TextField } from "@/components/ui/text-field";
+import { KeyboardDismissView } from "@/components/ui/keyboard-dismiss";
 import { Blood, Elevation, Surface } from "@/constants/colors";
 import { DONATION_STAGE_META } from "@/constants/emergency";
 import { VERIFY_DONOR } from "@/constants/hospital-demo";
@@ -23,9 +24,11 @@ import {
   submitScreening,
   type RequestWorkflow,
 } from "@/services/hospital";
+import { updateEmergencyRequestStatus } from "@/services/requests/emergency-requests";
 import { verifyDonorCheckIn } from "@/services/donors/donor-workflow";
 import { haptics } from "@/utils/haptics";
 import { initialsOf } from "@/utils/initials";
+import { intakePayloadOf } from "@/utils/qr-payload";
 import { referenceFor } from "@/utils/reference";
 import { timeAgo } from "@/utils/time";
 
@@ -132,21 +135,16 @@ export default function HospitalVerifyDonorScreen() {
   }
 
   async function handleCheckIn(rawTicket: string) {
-    const [prefix, scannedRequestId, token, ...extra] = rawTicket.trim().split(":");
+    const ticket = intakePayloadOf(rawTicket);
 
     setCheckInError(null);
 
-    if (
-      prefix !== "bloodlink-intake" ||
-      !scannedRequestId ||
-      !token ||
-      extra.length > 0
-    ) {
+    if (ticket === null) {
       setCheckInError("This is not a valid BloodLink intake pass.");
       return;
     }
 
-    if (requestId !== null && scannedRequestId !== requestId) {
+    if (requestId !== null && ticket.requestId !== requestId) {
       setCheckInError("This pass belongs to a different requisition.");
       return;
     }
@@ -154,8 +152,8 @@ export default function HospitalVerifyDonorScreen() {
     setIsVerifying(true);
 
     try {
-      await verifyDonorCheckIn(scannedRequestId, token);
-      setWorkflow(await getRequestWorkflow(scannedRequestId));
+      await verifyDonorCheckIn(ticket.requestId, ticket.secret);
+      setWorkflow(await getRequestWorkflow(ticket.requestId));
       setTicketText("");
       setIsScanning(false);
       haptics.success();
@@ -195,6 +193,62 @@ export default function HospitalVerifyDonorScreen() {
     }
   }
 
+  const [isVerifyingStatus, setIsVerifyingStatus] = useState(false);
+  const [verifyStatusError, setVerifyStatusError] = useState<string | null>(null);
+  const [verifyStatusSuccess, setVerifyStatusSuccess] = useState<string | null>(null);
+
+  async function handleVerifyAndBroadcast() {
+    if (requestId === null || isVerifyingStatus) {
+      return;
+    }
+
+    setIsVerifyingStatus(true);
+    setVerifyStatusError(null);
+    setVerifyStatusSuccess(null);
+
+    try {
+      const updated = await updateEmergencyRequestStatus(requestId, "verified");
+      haptics.success();
+      setVerifyStatusSuccess("Emergency requisition verified! Broadcasted to compatible donors now.");
+      if (workflow !== null) {
+        setWorkflow({
+          ...workflow,
+          request: updated,
+        });
+      }
+    } catch (caught) {
+      haptics.error();
+      setVerifyStatusError(apiErrorMessage(caught));
+    } finally {
+      setIsVerifyingStatus(false);
+    }
+  }
+
+  async function handleDeclineRequest() {
+    if (requestId === null || isVerifyingStatus) {
+      return;
+    }
+
+    setIsVerifyingStatus(true);
+    setVerifyStatusError(null);
+
+    try {
+      const updated = await updateEmergencyRequestStatus(requestId, "cancelled");
+      haptics.medium();
+      if (workflow !== null) {
+        setWorkflow({
+          ...workflow,
+          request: updated,
+        });
+      }
+    } catch (caught) {
+      haptics.error();
+      setVerifyStatusError(apiErrorMessage(caught));
+    } finally {
+      setIsVerifyingStatus(false);
+    }
+  }
+
   function approve() {
     if (requestId === null) {
       return;
@@ -218,7 +272,7 @@ export default function HospitalVerifyDonorScreen() {
   const stage = response !== null ? DONATION_STAGE_META[response.stage] : null;
 
   return (
-    <View style={styles.root}>
+    <KeyboardDismissView style={styles.root}>
       <StatusBar style="dark" />
 
       <ScrollView
@@ -228,6 +282,7 @@ export default function HospitalVerifyDonorScreen() {
           { paddingTop: insets.top + 10, paddingBottom: insets.bottom + 24 },
         ]}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
         <HospitalHeader
           subtitle={VERIFY_DONOR.headerSubtitle}
@@ -263,6 +318,143 @@ export default function HospitalVerifyDonorScreen() {
                   <Text style={styles.liveText}>{VERIFY_DONOR.livePill}</Text>
                 </View>
               </View>
+
+              {/* ================= HOSPITAL VERIFICATION DESK ================= */}
+              {request.status === "pending" ? (
+                <View style={styles.verificationCard}>
+                  <View style={styles.verificationHead}>
+                    <View style={styles.verificationBadge}>
+                      <Feather name="shield" size={16} color={Blood.primary} />
+                    </View>
+                    <View style={styles.verificationHeadText}>
+                      <Text style={styles.verificationTitle}>
+                        Awaiting Hospital Verification
+                      </Text>
+                      <Text style={styles.verificationSubtitle}>
+                        Recipient request submitted • Review details to broadcast to donors
+                      </Text>
+                    </View>
+                    <View style={styles.pendingUrgencyPill}>
+                      <Text style={styles.pendingUrgencyText}>
+                        {request.urgency.toUpperCase()}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.detailsGrid}>
+                    <View style={styles.detailRow}>
+                      <View style={styles.detailItem}>
+                        <Text style={styles.detailLabel}>Patient Name</Text>
+                        <Text style={styles.detailValue}>{request.patientName}</Text>
+                      </View>
+                      <View style={styles.detailItem}>
+                        <Text style={styles.detailLabel}>Blood Required</Text>
+                        <Text style={styles.detailValueHighlight}>
+                          {request.bloodGroup} • {request.units} {request.units === 1 ? "Unit" : "Units"}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.detailRow}>
+                      <View style={styles.detailItem}>
+                        <Text style={styles.detailLabel}>Hospital / Location</Text>
+                        <Text style={styles.detailValue}>{request.hospital}</Text>
+                      </View>
+                      <View style={styles.detailItem}>
+                        <Text style={styles.detailLabel}>District</Text>
+                        <Text style={styles.detailValue}>{request.district ?? "District pending"}</Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.detailRow}>
+                      <View style={styles.detailItem}>
+                        <Text style={styles.detailLabel}>Contact Person</Text>
+                        <Text style={styles.detailValue}>{request.contactName}</Text>
+                      </View>
+                      <View style={styles.detailItem}>
+                        <Text style={styles.detailLabel}>Phone Number</Text>
+                        <Text style={styles.detailValue} selectable>{request.contactMobile}</Text>
+                      </View>
+                    </View>
+
+                    {request.notes ? (
+                      <View style={styles.notesBlock}>
+                        <Text style={styles.detailLabel}>Clinical Notes / Ward</Text>
+                        <Text style={styles.notesText}>{request.notes}</Text>
+                      </View>
+                    ) : null}
+                  </View>
+
+                  {verifyStatusError ? (
+                    <View style={styles.actionError}>
+                      <Feather name="alert-triangle" size={14} color={Blood.primary} />
+                      <Text style={styles.actionErrorText}>{verifyStatusError}</Text>
+                    </View>
+                  ) : null}
+
+                  {verifyStatusSuccess ? (
+                    <View style={styles.actionSuccess}>
+                      <Feather name="check-circle" size={14} color={Surface.online} />
+                      <Text style={styles.actionSuccessText}>{verifyStatusSuccess}</Text>
+                    </View>
+                  ) : null}
+
+                  <View style={styles.verifyActionRow}>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Verify and broadcast request to compatible donors"
+                      disabled={isVerifyingStatus}
+                      onPress={() => void handleVerifyAndBroadcast()}
+                      style={({ pressed }) => [
+                        styles.verifyButton,
+                        pressed && styles.pressed,
+                        isVerifyingStatus && styles.buttonDisabled,
+                      ]}
+                    >
+                      <Feather name="radio" size={16} color={Surface.onPrimary} />
+                      <Text style={styles.verifyButtonText}>
+                        {isVerifyingStatus ? "Broadcasting..." : "Accept & Broadcast to Donors"}
+                      </Text>
+                    </Pressable>
+
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Decline blood request"
+                      disabled={isVerifyingStatus}
+                      onPress={() => void handleDeclineRequest()}
+                      style={({ pressed }) => [
+                        styles.declineButton,
+                        pressed && styles.pressed,
+                        isVerifyingStatus && styles.buttonDisabled,
+                      ]}
+                    >
+                      <Feather name="x" size={15} color={Blood.primary} />
+                      <Text style={styles.declineButtonText}>Decline</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ) : request.status === "verified" ? (
+                <View style={styles.verifiedBanner}>
+                  <View style={styles.verifiedBadge}>
+                    <Feather name="check-circle" size={16} color={Surface.online} />
+                  </View>
+                  <View style={styles.verifiedBannerText}>
+                    <Text style={styles.verifiedBannerTitle}>
+                      Verified & Broadcast Active
+                    </Text>
+                    <Text style={styles.verifiedBannerSubtitle}>
+                      This requisition has been verified by the hospital. Compatible donors can now respond and check in.
+                    </Text>
+                  </View>
+                </View>
+              ) : (
+                <View style={styles.cancelledBanner}>
+                  <Feather name="alert-circle" size={16} color={Blood.primary} />
+                  <Text style={styles.cancelledBannerText}>
+                    This request is {request.status}.
+                  </Text>
+                </View>
+              )}
 
               {/* ================= IDENTIFICATION ================= */}
 
@@ -321,7 +513,7 @@ export default function HospitalVerifyDonorScreen() {
                     label="Intake pass code"
                     value={ticketText}
                     onChangeText={setTicketText}
-                    placeholder="bloodlink-intake:request-id:token"
+                    placeholder="bloodlink-intake:v1:request-id:secret"
                     size="dense"
                     autoCapitalize="none"
                   />
@@ -675,7 +867,7 @@ export default function HospitalVerifyDonorScreen() {
           )}
         </AsyncState>
       </ScrollView>
-    </View>
+    </KeyboardDismissView>
   );
 }
 
@@ -1312,5 +1504,255 @@ const styles = StyleSheet.create({
   deferText: {
     ...Typography.button,
     color: Blood.primary,
+  },
+
+  /* ================= VERIFICATION DESK ================= */
+
+  verificationCard: {
+    backgroundColor: Surface.card,
+    borderRadius: Radius.card,
+    borderWidth: 1.5,
+    borderColor: Surface.softRedBorder,
+    padding: 16,
+    gap: 14,
+    ...Elevation.card,
+  },
+
+  verificationHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+
+  verificationBadge: {
+    width: 38,
+    height: 38,
+    borderRadius: Radius.sm,
+    backgroundColor: Surface.softRed,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: Surface.softRedBorder,
+  },
+
+  verificationHeadText: {
+    flex: 1,
+    gap: 2,
+  },
+
+  verificationTitle: {
+    ...Typography.cardTitle,
+    fontSize: 15,
+    color: Surface.text,
+  },
+
+  verificationSubtitle: {
+    ...Typography.micro,
+    color: Surface.textSecondary,
+  },
+
+  pendingUrgencyPill: {
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: Radius.pill,
+    backgroundColor: Surface.softRed,
+    borderWidth: 1,
+    borderColor: Surface.softRedBorder,
+  },
+
+  pendingUrgencyText: {
+    ...Typography.micro,
+    fontSize: 9.5,
+    fontWeight: "700",
+    color: Blood.primary,
+  },
+
+  detailsGrid: {
+    // `iconWash` is the shared low-emphasis panel fill — this grid holds
+    // micro labels in `textMuted`, which need a touch more backing than
+    // `Surface.background` to stay legible.
+    backgroundColor: Surface.iconWash,
+    borderRadius: Radius.field,
+    padding: 12,
+    gap: 10,
+  },
+
+  detailRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+
+  detailItem: {
+    flex: 1,
+    gap: 2,
+  },
+
+  detailLabel: {
+    ...Typography.micro,
+    color: Surface.textMuted,
+  },
+
+  detailValue: {
+    ...Typography.small,
+    fontWeight: "600",
+    color: Surface.text,
+  },
+
+  detailValueHighlight: {
+    ...Typography.small,
+    fontWeight: "700",
+    color: Blood.primary,
+  },
+
+  notesBlock: {
+    gap: 4,
+    paddingTop: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Surface.border,
+  },
+
+  notesText: {
+    ...Typography.small,
+    color: Surface.textSecondary,
+    fontStyle: "italic",
+  },
+
+  verifyActionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 4,
+  },
+
+  verifyButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    minHeight: 48,
+    paddingHorizontal: 16,
+    borderRadius: Radius.field,
+    backgroundColor: Blood.primary,
+    ...Elevation.button,
+  },
+
+  verifyButtonText: {
+    ...Typography.label,
+    fontWeight: "700",
+    color: Surface.onPrimary,
+  },
+
+  declineButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    minHeight: 48,
+    paddingHorizontal: 14,
+    borderRadius: Radius.field,
+    borderWidth: 1,
+    borderColor: Surface.softRedBorder,
+    backgroundColor: Surface.softRed,
+  },
+
+  declineButtonText: {
+    ...Typography.small,
+    fontWeight: "700",
+    color: Blood.primary,
+  },
+
+  buttonDisabled: {
+    opacity: 0.5,
+  },
+
+  actionError: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    padding: 10,
+    borderRadius: Radius.sm,
+    backgroundColor: Surface.softRed,
+    borderWidth: 1,
+    borderColor: Surface.softRedBorder,
+  },
+
+  actionErrorText: {
+    flex: 1,
+    ...Typography.small,
+    color: Blood.primary,
+    fontWeight: "600",
+  },
+
+  actionSuccess: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    padding: 10,
+    borderRadius: Radius.sm,
+    backgroundColor: Surface.softGreen,
+    borderWidth: 1,
+    borderColor: Surface.softGreenBorder,
+  },
+
+  actionSuccessText: {
+    flex: 1,
+    ...Typography.small,
+    color: Surface.online,
+    fontWeight: "600",
+  },
+
+  verifiedBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    padding: 14,
+    borderRadius: Radius.field,
+    backgroundColor: Surface.softGreen,
+    borderWidth: 1,
+    borderColor: Surface.softGreenBorder,
+  },
+
+  verifiedBadge: {
+    width: 34,
+    height: 34,
+    borderRadius: Radius.sm,
+    backgroundColor: Surface.card,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  verifiedBannerText: {
+    flex: 1,
+    gap: 2,
+  },
+
+  verifiedBannerTitle: {
+    ...Typography.label,
+    fontWeight: "700",
+    color: Surface.online,
+  },
+
+  verifiedBannerSubtitle: {
+    ...Typography.micro,
+    color: Surface.textSecondary,
+  },
+
+  cancelledBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    padding: 14,
+    borderRadius: Radius.field,
+    backgroundColor: Surface.softRed,
+    borderWidth: 1,
+    borderColor: Surface.softRedBorder,
+  },
+
+  cancelledBannerText: {
+    ...Typography.small,
+    color: Blood.primary,
+    fontWeight: "600",
   },
 });

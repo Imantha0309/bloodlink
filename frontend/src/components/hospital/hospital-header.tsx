@@ -2,10 +2,12 @@ import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
+import { AnimatedAvatar } from "@/components/common/animated-avatar";
 import { Blood, Surface } from "@/constants/colors";
 import { Radius } from "@/constants/radius";
 import { ROUTES } from "@/constants/routes";
 import { Typography } from "@/constants/typography";
+import { useAuth } from "@/providers/auth-provider";
 
 type HospitalHeaderProps = {
   /** Line under the brand, e.g. "Hospital Staff Dashboard". */
@@ -14,6 +16,10 @@ type HospitalHeaderProps = {
   initials: string;
   /** Unread-attention dot on the avatar; off by default. */
   alertDot?: boolean;
+  /** Optional avatar image URL override. */
+  avatarUrl?: string | null;
+  /** Called when the user taps the back button. */
+  onBack?: () => void;
 };
 
 /**
@@ -23,11 +29,30 @@ type HospitalHeaderProps = {
  * the BloodLink mark on the left and the station controls on the right, so the
  * hospital tabs own their chrome.
  */
-export function HospitalHeader({ subtitle, initials, alertDot = false }: HospitalHeaderProps) {
+export function HospitalHeader({
+  subtitle,
+  initials,
+  alertDot = false,
+  avatarUrl,
+  onBack,
+}: HospitalHeaderProps) {
   const router = useRouter();
+  const { session } = useAuth();
+  const effectiveAvatar = avatarUrl ?? session?.user.avatarUrl;
 
   return (
     <View style={styles.row}>
+      {onBack && (
+        <Pressable
+          onPress={onBack}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          hitSlop={6}
+          style={({ pressed }) => [styles.backButton, pressed && styles.backButtonPressed]}
+        >
+          <Feather name="arrow-left" size={20} color={Surface.text} />
+        </Pressable>
+      )}
       <View style={styles.brand}>
         <View style={styles.logo}>
           <Feather name="droplet" size={18} color={Surface.onPrimary} />
@@ -42,9 +67,16 @@ export function HospitalHeader({ subtitle, initials, alertDot = false }: Hospita
       </View>
 
       <View style={styles.actions}>
-        <View style={styles.weather}>
-          <Feather name="cloud-snow" size={16} color={Surface.textSecondary} />
-        </View>
+        <Pressable
+          onPress={() => router.push(ROUTES.settings)}
+          accessibilityRole="button"
+          accessibilityLabel="Settings"
+          accessibilityHint="Manage hospital profile & preferences"
+          hitSlop={6}
+          style={({ pressed }) => [styles.iconBtn, pressed && styles.avatarPressed]}
+        >
+          <Feather name="settings" size={18} color={Surface.textSecondary} />
+        </Pressable>
 
         <Pressable
           onPress={() => router.push(ROUTES.hospitalProfile)}
@@ -52,9 +84,15 @@ export function HospitalHeader({ subtitle, initials, alertDot = false }: Hospita
           accessibilityLabel="Open profile"
           accessibilityHint="Opens your staff profile"
           hitSlop={6}
-          style={({ pressed }) => [styles.avatar, pressed && styles.avatarPressed]}
+          style={({ pressed }) => [pressed && styles.avatarPressed]}
         >
-          <Text style={styles.avatarText}>{initials}</Text>
+          <AnimatedAvatar
+            url={effectiveAvatar}
+            name={initials}
+            size={38}
+            showHalo={false}
+            role="hospital"
+          />
 
           {alertDot ? <View style={styles.alertDot} pointerEvents="none" /> : null}
         </Pressable>
@@ -110,6 +148,17 @@ const styles = StyleSheet.create({
     gap: 10,
   },
 
+  iconBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: Radius.full,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Surface.iconWash,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Surface.border,
+  },
+
   weather: {
     width: 32,
     height: 32,
@@ -129,6 +178,23 @@ const styles = StyleSheet.create({
   },
 
   avatarPressed: {
+    opacity: 0.6,
+  },
+
+  /** Back button displayed when the previous screen expects to return. */
+  backButton: {
+    width: 36,
+    height: 36,
+    borderRadius: Radius.full,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Surface.iconWash,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Surface.border,
+  },
+
+  /** Dim the back button when pressed. */
+  backButtonPressed: {
     opacity: 0.6,
   },
 

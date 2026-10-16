@@ -13,7 +13,7 @@ import { Radius } from "@/constants/radius";
 import { ROLE_CARDS, ROLE_LABEL, type SelfRegisterRole } from "@/constants/roles";
 import { ROUTES } from "@/constants/routes";
 import { Typography } from "@/constants/typography";
-import { useAuthBack } from "@/hooks/use-auth-back";
+import { useBack } from "@/hooks/use-back";
 
 /**
  * Step 1 of the sign-up flow: choose how you join the network.
@@ -24,10 +24,17 @@ import { useAuthBack } from "@/hooks/use-auth-back";
  */
 export default function RoleSelectScreen() {
   const router = useRouter();
+  // No step to go back to, so the first thing `useBack` tries is the previous
+  // screen and the second is this fallback.
+  //
   // Fallback is `login`, not `register`: register without a role param
   // immediately replaces itself with this screen, so falling back to it would
   // bounce straight back here and the user could never leave.
-  const handleBack = useAuthBack(ROUTES.login);
+  //
+  // Reachable cold — deep link to `/role-select`, or `register`'s no-role
+  // redirect — so the hardware back button needs the same fallback the arrow
+  // has. Without it, the arrow returned to login while the button quit the app.
+  const handleBack = useBack(() => false, ROUTES.login);
 
   // Deliberately no default: the user must choose, so the continue button's
   // disabled state is reachable.
@@ -67,9 +74,9 @@ export default function RoleSelectScreen() {
             <View style={styles.noticeBody}>
               <Text style={styles.noticeTitle}>Universal Emergency Protocol</Text>
 
-              <Text style={styles.noticeText}>
-                Roles are verified for expedited dispatch during critical situations.
-              </Text>
+<Text style={styles.noticeText}>
+              Roles are verified for rapid response during critical situations.
+            </Text>
             </View>
           </View>
 

@@ -4,13 +4,15 @@
  *
  * The raw intake token lives only on the donor's device; only its SHA-256 hash
  * is ever sent to the backend. The ticket string embeds the request id and the
- * secret so a scanner can recover both: `bloodlink-intake:<requestId>:<secret>`.
+ * secret so a scanner can recover both, and is written by `encodeIntake` so it
+ * matches the one decoder every scanner in the app uses.
  */
 
 import { CryptoDigestAlgorithm, digestStringAsync, randomUUID } from "expo-crypto";
 
 import { apiRequest } from "@/services/api/client";
 import { toApiError } from "@/services/api/to-api-error";
+import { encodeIntake } from "@/utils/qr-payload";
 import {
   readEmergencyRequest,
   type DonationStage,
@@ -121,7 +123,7 @@ export async function createDonorCheckInTicket(requestId: string): Promise<Donor
       throw new Error("The server returned an invalid intake ticket.");
     }
 
-    return { ticket: `bloodlink-intake:${requestId}:${secret}`, expiresAt: ticket.expiresAt };
+    return { ticket: encodeIntake(requestId, secret), expiresAt: ticket.expiresAt };
   } catch (error) {
     throw toApiError(error, "Start transit before opening your intake QR.");
   }

@@ -6,7 +6,7 @@
  * effect immediately instead of whenever the token happens to expire.
  */
 
-import type { NextFunction, Request, RequestHandler, Response } from "express";
+import type { Request, RequestHandler } from "express";
 
 import { fail } from "../http";
 import { Session } from "../models/session";
@@ -116,26 +116,4 @@ export function currentUser(req: Request): UserDoc {
   }
 
   return req.user;
-}
-
-/** For the few handlers that run on a route without `requireAuth` but need one. */
-export function currentUserOrNull(req: Request): UserDoc | null {
-  return req.user ?? null;
-}
-
-/** Guards the hospital and admin surface. Verification is checked in `isStaff`. */
-export function requireStaff(req: Request, res: Response, next: NextFunction): void {
-  const user = req.user;
-
-  if (user === undefined) {
-    next(fail.unauthorized());
-    return;
-  }
-
-  if (user.role !== "admin" && !(user.role === "hospital" && user.isVerified)) {
-    next(fail.conflict("Your account is not cleared for hospital operations yet."));
-    return;
-  }
-
-  next();
 }

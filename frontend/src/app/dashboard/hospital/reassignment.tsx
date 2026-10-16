@@ -7,11 +7,11 @@ import { FormAlert } from "@/components/auth/form-alert";
 import { PrimaryAuthButton } from "@/components/auth/primary-auth-button";
 import { StepHeader } from "@/components/emergency/step-header";
 import { TextField } from "@/components/ui/text-field";
+import { KeyboardDismissView } from "@/components/ui/keyboard-dismiss";
 import { Blood, Surface } from "@/constants/colors";
 import { Radius } from "@/constants/radius";
-import { ROUTES } from "@/constants/routes";
 import { Typography } from "@/constants/typography";
-import { useAuthBack } from "@/hooks/use-auth-back";
+import { useHomeBack } from "@/hooks/use-home-back";
 import { useAuth } from "@/providers/auth-provider";
 import { apiErrorMessage } from "@/services/api/errors";
 import {
@@ -30,7 +30,7 @@ import {
  */
 export default function HospitalReassignmentScreen() {
   const insets = useSafeAreaInsets();
-  const onBack = useAuthBack(ROUTES.hospitalProfile);
+  const onBack = useHomeBack();
   const { session, applyStation } = useAuth();
 
   const saved = readStationAssignment(session?.user.station, session?.user.wardLabel);
@@ -76,7 +76,7 @@ export default function HospitalReassignmentScreen() {
   }
 
   return (
-    <View style={styles.root}>
+    <KeyboardDismissView style={styles.root}>
       <StepHeader title="Station Reassignment" onBack={onBack} />
 
       <ScrollView
@@ -160,7 +160,7 @@ export default function HospitalReassignmentScreen() {
           </Text>
         </View>
       </ScrollView>
-    </View>
+    </KeyboardDismissView>
   );
 }
 

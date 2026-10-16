@@ -37,6 +37,8 @@ export type AuthUser = {
    */
   station?: string | null;
   wardLabel?: string | null;
+  /** Profile picture URL relative to API origin, or full URL. */
+  avatarUrl?: string | null;
 };
 
 export type AuthSession = {
@@ -74,6 +76,14 @@ export type DonorProfileInput = {
   bloodGroup: string;
 };
 
+export type UpdateProfileInput = {
+  fullName?: string;
+  email?: string | null;
+  mobile?: string | null;
+  district?: string | null;
+  bloodGroup?: string | null;
+};
+
 export interface AuthService {
   /**
    * Resolves with a session on success. Rejects with `AuthError` on any
@@ -86,6 +96,12 @@ export interface AuthService {
 
   /** Updates the profile details for the currently signed-in donor. */
   updateDonorProfile(input: DonorProfileInput): Promise<AuthUser>;
+
+  /** Updates profile details for any non-admin signed-in user. */
+  updateProfile(input: UpdateProfileInput): Promise<AuthUser>;
+
+  /** Uploads a new avatar image from local URI. */
+  uploadAvatar(imageUri: string): Promise<AuthUser>;
 
   /** Re-points the signed-in recipient's district (their "location" page). */
   updateRecipientDistrict(district: string): Promise<AuthUser>;

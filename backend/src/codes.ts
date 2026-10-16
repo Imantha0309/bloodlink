@@ -20,15 +20,3 @@ export type ApiErrorCode =
   | "conflict"
   | "unauthorized"
   | "unknown";
-
-/** HTTP status for each code, for the handful of places that need a default. */
-export const STATUS_FOR_CODE: Record<ApiErrorCode, number> = {
-  invalid_credentials: 401,
-  network: 503,
-  account_locked: 423,
-  validation: 422,
-  not_found: 404,
-  conflict: 409,
-  unauthorized: 401,
-  unknown: 500,
-};

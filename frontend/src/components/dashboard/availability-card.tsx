@@ -1,7 +1,8 @@
 import { Feather } from "@expo/vector-icons";
 import { useState } from "react";
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Switch, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, Switch, Text, View } from "react-native";
 
+import { useConfirm } from "@/components/ui/confirm-provider";
 import { Blood, Elevation, Surface } from "@/constants/colors";
 import { Radius } from "@/constants/radius";
 import { Typography } from "@/constants/typography";
@@ -27,6 +28,7 @@ type AvailabilityCardProps = {
  * Fully controlled: the displayed value always comes from `availability`.
  */
 export function AvailabilityCard({ availability, onSaved }: AvailabilityCardProps) {
+  const { confirm } = useConfirm();
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -50,19 +52,20 @@ export function AvailabilityCard({ availability, onSaved }: AvailabilityCardProp
     }
   }
 
-  function confirmRemove() {
-    Alert.alert(
-      "Remove availability record?",
-      "You will be paused and hidden from available-donor totals. You can set your availability again at any time.",
-      [
-        { text: "Keep record", style: "cancel" },
-        {
-          text: "Remove",
-          style: "destructive",
-          onPress: () => void handleRemove(),
-        },
-      ],
-    );
+  async function confirmRemove() {
+    const approved = await confirm({
+      title: "Remove availability record?",
+      message:
+        "You will be paused and hidden from available-donor totals. You can set your availability again at any time.",
+      cancelLabel: "Keep record",
+      confirmLabel: "Remove",
+      icon: "trash-2",
+      destructive: true,
+    });
+
+    if (approved) {
+      await handleRemove();
+    }
   }
 
   async function handleRemove() {
@@ -146,7 +149,9 @@ export function AvailabilityCard({ availability, onSaved }: AvailabilityCardProp
             accessibilityRole="button"
             accessibilityLabel="Remove availability record"
             disabled={isSaving}
-            onPress={confirmRemove}
+            onPress={() => {
+              void confirmRemove();
+            }}
             style={({ pressed }) => [styles.removeButton, pressed && styles.removePressed]}
           >
             <Feather name="trash-2" size={12} color={Surface.danger} />

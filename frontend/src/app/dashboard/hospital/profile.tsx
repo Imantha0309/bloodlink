@@ -12,9 +12,11 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import QRCode from "react-native-qrcode-svg";
 
+import { UserPassCard } from "@/components/qr/user-pass-card";
+import { AnimatedAvatar } from "@/components/common/animated-avatar";
 import { EmptyNote } from "@/components/dashboard/empty-note";
+import { useConfirm } from "@/components/ui/confirm-provider";
 import { Skeleton } from "@/components/ui/skeleton";
 import { type BloodGroup, BLOOD_GROUPS } from "@/constants/blood-groups";
 import { Blood, Elevation, Surface } from "@/constants/colors";
@@ -39,7 +41,7 @@ import {
 } from "@/services/dashboard/dashboard";
 import { type HospitalInventoryBank, type InventoryItem } from "@/services/blood-banks";
 import { getHospitalInventory } from "@/services/hospital";
-import { initialsOf } from "@/utils/initials";
+import { haptics } from "@/utils/haptics";
 
 /* ================= CREDENTIAL ARTWORK ================= */
 
@@ -147,6 +149,7 @@ export default function HospitalProfileScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { session, signOut } = useAuth();
+  const { confirm, alert: notify } = useConfirm();
 
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [autoDispatch, setAutoDispatch] = useState(true);
@@ -227,7 +230,6 @@ export default function HospitalProfileScreen() {
   const facility = district !== null ? `${district} District Blood Bank` : "Regional Blood Bank";
   const idBankLine = district !== null ? `${district} Regional Blood Center` : "Regional Blood Center";
   const identifier = user?.mobile ?? user?.email ?? user?.id ?? "—";
-  const credentialValue = `bloodlink:user:${user?.id ?? ""}`;
 
   const credentialFields = [
     { label: "Role", value: user === undefined ? "—" : "Hospital" },
@@ -265,13 +267,31 @@ export default function HospitalProfileScreen() {
       return;
     }
 
+    const approved = await confirm({
+      title: "Sign out",
+      message: "Are you sure you want to sign out?",
+      confirmLabel: "Sign out",
+      icon: "log-out",
+      destructive: true,
+    });
+
+    if (!approved) {
+      return;
+    }
+
     setIsSigningOut(true);
 
     try {
-      // The session has to be gone before navigating: `/login` is guarded off
-      // while authenticated, so navigating first would bounce back here.
       await signOut();
       router.replace(ROUTES.login);
+    } catch (error) {
+      console.error("Failed to sign out:", error);
+      await notify({
+        title: "Sign out failed",
+        message: "There was an error signing out. Please try again.",
+        icon: "alert-triangle",
+        destructive: true,
+      });
     } finally {
       setIsSigningOut(false);
     }
@@ -302,16 +322,47 @@ export default function HospitalProfileScreen() {
 
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Scan credential code"
+            accessibilityLabel="Settings"
             hitSlop={6}
+            onPress={() => {
+              haptics.light();
+              router.push(ROUTES.settings);
+            }}
             style={({ pressed }) => [styles.topAction, pressed && styles.pressed]}
           >
-            <Feather name="maximize" size={20} color={Surface.text} />
+            <Feather name="settings" size={19} color={Surface.text} />
           </Pressable>
 
-          <View style={styles.topAvatar}>
-            <Text style={styles.topAvatarText}>{initialsOf(name)}</Text>
-          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Scan credential code"
+            hitSlop={6}
+            onPress={() => {
+              haptics.light();
+              router.push(ROUTES.scan);
+            }}
+            style={({ pressed }) => [styles.topAction, pressed && styles.pressed]}
+          >
+            <Feather name="maximize" size={19} color={Surface.text} />
+          </Pressable>
+
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Staff profile settings"
+            hitSlop={4}
+            onPress={() => {
+              haptics.light();
+              router.push(ROUTES.settings);
+            }}
+          >
+            <AnimatedAvatar
+              url={user?.avatarUrl}
+              name={name}
+              size={36}
+              showHalo={false}
+              role="hospital"
+            />
+          </Pressable>
         </View>
 
         {/* ================= DUTY ================= */}
@@ -329,13 +380,18 @@ export default function HospitalProfileScreen() {
 
         <View style={styles.card}>
           <View style={styles.identityRow}>
-            <View style={styles.identityAvatar}>
-              <Text style={styles.identityInitials}>{initialsOf(name)}</Text>
-
-              <View style={styles.verifiedBadge} pointerEvents="none">
-                <Feather name="check" size={10} color={Surface.onPrimary} />
-              </View>
-            </View>
+            <AnimatedAvatar
+              url={user?.avatarUrl}
+              name={name}
+              size={56}
+              showHalo
+              role="hospital"
+              badgeIcon="check"
+              onPress={() => {
+                haptics.light();
+                router.push(ROUTES.settings);
+              }}
+            />
 
             <View style={styles.identityText}>
               <Text style={styles.identityName} numberOfLines={1}>
@@ -349,11 +405,15 @@ export default function HospitalProfileScreen() {
 
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={HOSPITAL_PROFILE.idActionLabel}
+              accessibilityLabel="Edit profile settings"
               hitSlop={6}
+              onPress={() => {
+                haptics.light();
+                router.push(ROUTES.settings);
+              }}
               style={({ pressed }) => [styles.identityAction, pressed && styles.pressed]}
             >
-              <Feather name="external-link" size={18} color={Surface.textSecondary} />
+              <Feather name="settings" size={18} color={Surface.textSecondary} />
             </Pressable>
           </View>
         </View>
@@ -414,13 +474,14 @@ export default function HospitalProfileScreen() {
               accessible
               accessibilityLabel="Credential QR code"
             >
-              <QRCode
-                value={credentialValue}
-                size={QR_SIZE}
-                color={Surface.text}
-                backgroundColor={Surface.card}
-                ecl="M"
-              />
+              {/* The old `bloodlink:user:<id>` code was decoration: nothing on the
+                  server could resolve it, so scanning it proved nothing. The real
+                  pass now lives in `UserPassCard` further down this screen; this
+                  artwork stays as the printed-badge look and is labelled as such
+                  so nobody mistakes it for the scannable one. */}
+              <View style={styles.qrPlaceholder}>
+                <Feather name="award" size={22} color={Surface.textMuted} />
+              </View>
             </View>
           </View>
 
@@ -435,6 +496,14 @@ export default function HospitalProfileScreen() {
             ))}
           </View>
         </View>
+
+        {/* ================= MY PASS ================= */}
+
+        <UserPassCard
+          fullName={user?.fullName}
+          role="hospital"
+          subtitle={[user?.station, district].filter(Boolean).join(" · ") || null}
+        />
 
         {/* ================= STATS ================= */}
 
@@ -561,8 +630,32 @@ export default function HospitalProfileScreen() {
         {/* ================= MENU ================= */}
 
         <View style={styles.card}>
-          {PROFILE_MENU.map((item, index) => (
-            <MenuRow key={item.id} item={item} first={index === 0} />
+          <Pressable
+            onPress={() => {
+              haptics.light();
+              router.push(ROUTES.scan);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Scan a pass"
+            accessibilityHint="Opens the camera to identify someone at the desk"
+            style={({ pressed }) => [styles.menuRow, pressed && styles.pressed]}
+          >
+            <View style={styles.menuIcon}>
+              <Feather name="maximize" size={15} color={Blood.primary} />
+            </View>
+
+            <View style={styles.menuText}>
+              <Text style={styles.menuTitle}>Scan a pass</Text>
+              <Text style={styles.menuDetail}>Identify someone at the desk</Text>
+            </View>
+
+            <Feather name="chevron-right" size={16} color={Surface.textMuted} />
+          </Pressable>
+
+          {/* The scan row sits above the menu, so every menu row now needs the
+              divider that used to be skipped on the first one. */}
+          {PROFILE_MENU.map((item) => (
+            <MenuRow key={item.id} item={item} first={false} />
           ))}
         </View>
 
@@ -1026,6 +1119,13 @@ const styles = StyleSheet.create({
     borderRadius: Radius.sm - 4,
     backgroundColor: Surface.card,
     overflow: "hidden",
+  },
+
+  qrPlaceholder: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Surface.iconWash,
   },
 
   idFields: {

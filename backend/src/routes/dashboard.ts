@@ -2,7 +2,7 @@
  * The per-role dashboard summary.
  *
  * Every number here was a correlated subquery inside one enormous `CASE` block
- * in the SQL. It is split into a small function per role instead — same figures,
+ * in the SQL. It is split into a small function per role instead ??" same figures,
  * but each one is now readable on its own, which matters because these are the
  * numbers a user decides whether to act on.
  *
@@ -19,6 +19,7 @@ import { currentUser, requireAuth } from "../middleware/auth";
 import { DonorAvailability } from "../models/donor-availability";
 import { EmergencyRequest } from "../models/emergency-request";
 import { User, type UserDoc } from "../models/user";
+import { cache, cacheKey } from "../cache";
 
 export const dashboardRouter = Router();
 
@@ -66,11 +67,11 @@ async function donorStats(user: UserDoc): Promise<Stat[]> {
     user.bloodGroup === null || user.bloodGroup === undefined
       ? 0
       : await EmergencyRequest.countDocuments({
-          status: { $in: OPEN },
+          status: "verified",
           bloodGroup: { $in: requestsForDonor(user.bloodGroup) },
         });
 
-  const open = await EmergencyRequest.countDocuments({ status: { $in: OPEN } });
+  const open = await EmergencyRequest.countDocuments({ status: "verified" });
 
   return [
     {
@@ -104,29 +105,42 @@ async function recipientStats(user: UserDoc): Promise<Stat[]> {
   ];
 }
 
+const HOSPITAL_TTL = 30_000; // 30 seconds
+
 /** Staff triage: what is waiting, what is critical, who is in the pool. */
 async function hospitalStats(user: UserDoc): Promise<Stat[]> {
-  // The two queue figures answer for the board this desk is standing at, the way
-  // the triage screen does — a hospital does not triage another district's
-  // patients. The donor pool below stays national on purpose: a compatible donor
-  // can be called in from anywhere, and the hint says so.
+  const key = cacheKey(`hospital:${user.district ?? "null"}`);
+
+  const cached = cache.get<Stat[]>(key);
+  if (cached !== null) return cached;
+
   const scope = districtFilter(user);
 
   const [pending, critical, donors] = await Promise.all([
-    EmergencyRequest.countDocuments({ ...scope, status: { $in: OPEN } }),
+    EmergencyRequest.countDocuments({ ...scope, status: "pending" }),
     EmergencyRequest.countDocuments({ ...scope, status: { $in: OPEN }, urgency: "critical" }),
     User.countDocuments({ role: "donor" }),
   ]);
 
-  return [
+  const result = [
     stat("pending", "Pending verification", pending, "Awaiting your review"),
     stat("critical", "Critical", critical, "Highest priority"),
     stat("donors", "Registered donors", donors, "In the national pool"),
   ];
+
+  cache.set(key, result, HOSPITAL_TTL);
+  return result;
 }
+
+const ADMIN_TTL = 15_000; // 15 seconds
 
 /** Admin sees the whole system, including the approval queue. */
 async function adminStats(): Promise<Stat[]> {
+  const key = cacheKey("admin");
+
+  const cached = cache.get<Stat[]>(key);
+  if (cached !== null) return cached;
+
   const [users, donorCount, queue, unverified] = await Promise.all([
     User.countDocuments(),
     User.countDocuments({ role: "donor" }),
@@ -134,30 +148,36 @@ async function adminStats(): Promise<Stat[]> {
     User.countDocuments({ role: "hospital", isVerified: false }),
   ]);
 
-  return [
+  const result = [
     stat("users", "Total accounts", users, `${donorCount} donors`),
     stat("queue", "Triage queue", queue, "Open requests"),
     stat("unverified", "Unverified hospitals", unverified, "Need review"),
   ];
+
+  cache.set(key, result, ADMIN_TTL);
+  return result;
 }
+
+const AVAILABLE_DONOR_TTL = 60_000; // 1 minute
 
 /** Donors who are switched on. Deliberately only `donor`, not donor-eligible. */
 async function availableDonorCount(): Promise<number> {
-  const available = await DonorAvailability.find({ isAvailable: true }).select("userId");
+  const key = cacheKey("donor", "available");
 
-  return User.countDocuments({
+  const cached = cache.get<number>(key);
+  if (cached !== null) return cached;
+
+  const available = await DonorAvailability.find({ isAvailable: true }).select("userId");
+  const count = User.countDocuments({
     _id: { $in: available.map((row) => row.userId) },
     role: "donor",
   });
+
+  cache.set(key, count, AVAILABLE_DONOR_TTL);
+  return count;
 }
 
-/**
- * The availability panel, for everyone who has one.
- *
- * A recipient who has set a blood group is donor-eligible and therefore has an
- * availability window; a hospital or a plain recipient does not, and gets
- * `null` so the screen knows to leave the card out entirely.
- */
+/** The availability panel, for everyone who has one. */
 async function availabilityFor(user: UserDoc) {
   const eligible = user.role === "donor" || (user.role === "recipient" && user.bloodGroup !== null);
 

@@ -42,7 +42,7 @@ export function ActiveDonorsCard({ summary }: ActiveDonorsCardProps) {
     let isActive = true;
 
     void getActiveDonors().then((result) => {
-      if (isActive) {
+      if (isActive && result.total > 0) {
         setData(result);
       }
     });
@@ -53,6 +53,12 @@ export function ActiveDonorsCard({ summary }: ActiveDonorsCardProps) {
   }, [summary]);
 
   const isLoading = data === null;
+
+  // Hide the card entirely when there are no donors — it is a reassurance
+  // for when donors exist, not a claim for an empty database.
+  if (data && data.total === 0) {
+    return null;
+  }
 
   return (
     <View style={[styles.card, isLoading && styles.cardLoading]} accessibilityRole="summary">

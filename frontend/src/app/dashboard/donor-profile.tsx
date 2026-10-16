@@ -11,9 +11,12 @@ import {
 } from "react-native";
 
 import { PrimaryAuthButton } from "@/components/auth/primary-auth-button";
+import { AnimatedAvatar } from "@/components/common/animated-avatar";
 import { DashboardShell, type DashboardHelpers } from "@/components/dashboard/dashboard-shell";
 import { DonorTabBar } from "@/components/dashboard/donor-tab-bar";
 import { EmptyNote } from "@/components/dashboard/empty-note";
+import { UserPassCard } from "@/components/qr/user-pass-card";
+import { KeyboardDismissView } from "@/components/ui/keyboard-dismiss";
 import { OptionChips } from "@/components/ui/option-chips";
 import { SelectField } from "@/components/ui/select-field";
 import { TextField } from "@/components/ui/text-field";
@@ -26,6 +29,7 @@ import { Typography } from "@/constants/typography";
 import { useAuth } from "@/providers/auth-provider";
 import { ApiError, apiErrorMessage } from "@/services/auth";
 import type { DashboardSummary } from "@/services/dashboard/dashboard";
+import { haptics } from "@/utils/haptics";
 
 export default function DonorProfileScreen() {
   return (
@@ -33,13 +37,6 @@ export default function DonorProfileScreen() {
       {(summary, helpers) => <ProfileContent summary={summary} helpers={helpers} />}
     </DashboardShell>
   );
-}
-
-function getInitials(name?: string | null): string {
-  if (!name) return "BD";
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
 function ProfileContent({
@@ -81,7 +78,6 @@ function ProfileContent({
   const currentBloodGroup = bloodGroup ?? userBloodGroup;
   const compatibleRecipients = currentBloodGroup ? CAN_DONATE_TO[currentBloodGroup] : null;
   const bloodGroupNote = currentBloodGroup ? BLOOD_GROUP_NOTES[currentBloodGroup] : null;
-  const initials = getInitials(user.fullName);
   const isAvailable = summary.availability?.isAvailable ?? false;
 
   async function handleSave() {
@@ -143,14 +139,23 @@ function ProfileContent({
   }
 
   return (
-    <View style={styles.content}>
-      {/* 1. Donor Profile Hero Card */}
+    <>
+      {/* Wrapped, not the file root: this screen renders inside `DashboardShell`,
+          so the shell's ScrollView stays the parent and keeps the pull-to-refresh.
+          The modal is a sibling of the wrapper rather than inside it, since it is
+          its own window and has no business being a pressable's child. */}
+      <KeyboardDismissView style={styles.content}>
+        {/* 1. Donor Profile Hero Card */}
       <View style={styles.heroCard}>
         <View style={styles.heroTopRow}>
           <View style={styles.avatarWrap}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarInitials}>{initials}</Text>
-            </View>
+            <AnimatedAvatar
+              url={user.avatarUrl}
+              name={user.fullName}
+              size={56}
+              showEditBadge
+              onPress={() => router.push(ROUTES.settings)}
+            />
             <View style={[styles.avatarStatusBadge, isAvailable ? styles.avatarOnline : styles.avatarPaused]}>
               <Feather name={isAvailable ? "radio" : "pause"} size={10} color="white" />
             </View>
@@ -169,6 +174,15 @@ function ProfileContent({
                   </Text>
                 </View>
               ) : null}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Settings"
+                onPress={() => router.push(ROUTES.settings)}
+                hitSlop={8}
+                style={styles.settingsIconBtn}
+              >
+                <Feather name="settings" size={14} color={Surface.textMuted} />
+              </Pressable>
             </View>
 
             <Text style={styles.donorName} numberOfLines={1}>
@@ -371,7 +385,36 @@ function ProfileContent({
         </View>
       </View>
 
-      {/* 4. Account Settings & Logout Card */}
+      {/* 4. Identity pass + scanner */}
+      <UserPassCard
+        fullName={user.fullName}
+        role="donor"
+        subtitle={user.bloodGroup ?? null}
+      />
+
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Scan a pass"
+        accessibilityHint="Opens the camera to identify someone else"
+        onPress={() => {
+          haptics.light();
+          router.push(ROUTES.scan);
+        }}
+        style={({ pressed }) => [styles.scanRow, pressed && styles.scanRowPressed]}
+      >
+        <View style={styles.scanIcon}>
+          <Feather name="maximize" size={15} color={Blood.primary} />
+        </View>
+
+        <View style={styles.scanText}>
+          <Text style={styles.scanTitle}>Scan a pass</Text>
+          <Text style={styles.scanSubtitle}>Identify someone at a BloodLink desk</Text>
+        </View>
+
+        <Feather name="chevron-right" size={17} color={Surface.textMuted} />
+      </Pressable>
+
+      {/* 5. Account Settings & Logout Card */}
       <View style={styles.settingsCard}>
         <View style={styles.settingsHeader}>
           <View style={styles.settingsIcon}>
@@ -400,7 +443,7 @@ function ProfileContent({
           </View>
         </View>
 
-        {/* Prominent Logout Trigger Button */}
+        {/* 6. Prominent Logout Trigger Button */}
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Log out of BloodLink"
@@ -418,7 +461,7 @@ function ProfileContent({
         </Pressable>
       </View>
 
-      {/* 5. Helpline and Support Footer */}
+      {/* 7. Helpline and Support Footer */}
       <View style={styles.footer}>
         <View style={styles.footerHelpline}>
           <Feather name="phone-call" size={14} color={Blood.primary} />
@@ -428,8 +471,9 @@ function ProfileContent({
         </View>
         <Text style={styles.footerCopy}>BloodLink Emergency Network ┬╖ v1.0.0</Text>
       </View>
+      </KeyboardDismissView>
 
-      {/* 6. Custom Confirmation Logout Modal */}
+      {/* 8. Custom Confirmation Logout Modal */}
       <Modal
         visible={showLogoutModal}
         transparent={true}
@@ -481,7 +525,7 @@ function ProfileContent({
           </View>
         </View>
       </Modal>
-    </View>
+    </>
   );
 }
 
@@ -550,6 +594,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 6,
     marginBottom: 2,
+  },
+  settingsIconBtn: {
+    padding: 3,
+    marginLeft: "auto",
   },
   verifiedBadge: {
     flexDirection: "row",
@@ -793,6 +841,43 @@ const styles = StyleSheet.create({
   },
   feedbackTextError: {
     color: Surface.danger,
+  },
+
+  /* Scan Row */
+  scanRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 14,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: Surface.border,
+    backgroundColor: Surface.card,
+  },
+  scanRowPressed: {
+    opacity: 0.75,
+  },
+  scanIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: Radius.sm,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Surface.softRed,
+    borderWidth: 1,
+    borderColor: Surface.softRedBorder,
+  },
+  scanText: {
+    flex: 1,
+    gap: 2,
+  },
+  scanTitle: {
+    ...Typography.cardTitle,
+    color: Surface.text,
+  },
+  scanSubtitle: {
+    ...Typography.small,
+    color: Surface.textSecondary,
   },
 
   /* Settings & Session Card */

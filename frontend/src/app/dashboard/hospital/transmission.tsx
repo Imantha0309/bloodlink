@@ -14,7 +14,12 @@ import { Typography } from "@/constants/typography";
 import { useAuth } from "@/providers/auth-provider";
 import { apiErrorMessage } from "@/services/api/errors";
 import { getRequestCandidates, type RequestCandidates } from "@/services/hospital";
-import { getEmergencyRequest, type EmergencyRequest } from "@/services/requests/emergency-requests";
+import {
+  getEmergencyRequest,
+  updateEmergencyRequestStatus,
+  type EmergencyRequest,
+} from "@/services/requests/emergency-requests";
+import { haptics } from "@/utils/haptics";
 import { initialsOf } from "@/utils/initials";
 import { referenceFor } from "@/utils/reference";
 
@@ -41,7 +46,26 @@ export default function HospitalTransmissionScreen() {
   const [request, setRequest] = useState<EmergencyRequest | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
   const requestId = params.requestId ?? null;
+
+  async function handleVerifyRequisition() {
+    if (requestId === null || isVerifying) return;
+    setIsVerifying(true);
+    setVerifyError(null);
+    try {
+      const updated = await updateEmergencyRequestStatus(requestId, "verified");
+      haptics.success();
+      setRequest(updated);
+      setCandidates((prev) => (prev ? { ...prev, status: "verified" } : null));
+    } catch (caught) {
+      haptics.error();
+      setVerifyError(apiErrorMessage(caught));
+    } finally {
+      setIsVerifying(false);
+    }
+  }
 
   // Refresh the saved request and its counts while this screen is open.
   useEffect(() => {
@@ -256,6 +280,31 @@ export default function HospitalTransmissionScreen() {
         </View>
 
         {/* ================= ACTIONS ================= */}
+
+        {verifyError ? (
+          <View style={styles.verifyErrorBox}>
+            <Feather name="alert-triangle" size={14} color={Blood.primary} />
+            <Text style={styles.verifyErrorText}>{verifyError}</Text>
+          </View>
+        ) : null}
+
+        {candidates?.status === "pending" ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Verify and broadcast requisition to donors"
+            disabled={isVerifying}
+            onPress={() => void handleVerifyRequisition()}
+            style={({ pressed }) => [styles.verifyCta, pressed && styles.pressed]}
+          >
+            <Feather name="radio" size={17} color={Surface.onPrimary} />
+
+            <Text style={styles.ctaText} numberOfLines={1}>
+              {isVerifying ? "Broadcasting..." : "Verify & Broadcast to Donors"}
+            </Text>
+
+            <Feather name="arrow-right" size={16} color={Surface.onPrimary} />
+          </Pressable>
+        ) : null}
 
         <Pressable
           accessibilityRole="button"
@@ -598,7 +647,7 @@ const styles = StyleSheet.create({
 
   /* ================= ACTIONS ================= */
 
-  cta: {
+  verifyCta: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -607,6 +656,36 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     borderRadius: Radius.field,
     backgroundColor: Blood.primary,
+    ...Elevation.button,
+  },
+
+  verifyErrorBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    padding: 12,
+    borderRadius: Radius.field,
+    backgroundColor: Surface.softRed,
+    borderWidth: 1,
+    borderColor: Surface.softRedBorder,
+  },
+
+  verifyErrorText: {
+    flex: 1,
+    ...Typography.small,
+    color: Blood.primary,
+    fontWeight: "600",
+  },
+
+  cta: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    minHeight: 54,
+    paddingHorizontal: 14,
+    borderRadius: Radius.field,
+    backgroundColor: Surface.text,
     ...Elevation.button,
   },
 

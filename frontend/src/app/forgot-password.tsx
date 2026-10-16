@@ -18,11 +18,12 @@ import { FormAlert } from "@/components/auth/form-alert";
 import { PhoneEmailInput } from "@/components/auth/phone-email-input";
 import { PrimaryAuthButton } from "@/components/auth/primary-auth-button";
 import { StepIndicator } from "@/components/auth/step-indicator";
+import { KeyboardDismissView } from "@/components/ui/keyboard-dismiss";
 import { Blood, Surface } from "@/constants/colors";
 import { Radius } from "@/constants/radius";
 import { ROUTES } from "@/constants/routes";
 import { Typography } from "@/constants/typography";
-import { useAuthBack } from "@/hooks/use-auth-back";
+import { useBack } from "@/hooks/use-back";
 import { apiErrorMessage, authService } from "@/services/auth";
 import { validateContact } from "@/utils/validation";
 
@@ -35,7 +36,6 @@ import { validateContact } from "@/utils/validation";
 export default function ForgotPasswordScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const handleBack = useAuthBack(ROUTES.login);
 
   const [step, setStep] = useState(0);
   const [identifier, setIdentifier] = useState("");
@@ -47,16 +47,29 @@ export default function ForgotPasswordScreen() {
 
   const meta = step === 0 ? { badge: "1", label: "STEP 1 OF 2 • IDENTIFY" } : { badge: "2", label: "STEP 2 OF 2 • EMAIL SENT" };
 
-  function goBack() {
-    if (step > 0 && !isDone) {
-      setStep(step - 1);
-      setFieldError(null);
-      setFormError(null);
-      return;
+  /**
+   * Back, as one decision for the header arrow, the Android button and the iOS
+   * swipe.
+   *
+   * Step two is a dead end rather than a step to step back off, so `isDone`
+   * sends back out of the screen — the same as the header has always done.
+   * Below that, and with no history behind (deep link to `/forgot-password`),
+   * the fallback is login.
+   *
+   * This has to be one hook rather than a step interceptor plus a separate
+   * fallback listener: two `beforeRemove` listeners on one screen cancel each
+   * other's navigation, and back ends up stuck.
+   */
+  const handleBack = useBack(() => {
+    if (step === 0 || isDone) {
+      return false;
     }
 
-    handleBack();
-  }
+    setStep(0);
+    setFieldError(null);
+    setFormError(null);
+    return true;
+  }, ROUTES.login);
 
   async function handleSendLink() {
     if (isSubmitting) {
@@ -87,14 +100,14 @@ export default function ForgotPasswordScreen() {
   }
 
   return (
-    <View style={styles.root}>
+    <KeyboardDismissView style={styles.root}>
       <StatusBar style="dark" />
 
       <SafeAreaView style={styles.safeArea} edges={["left", "right"]}>
         <AuthHeader
           gap={14}
           title="Reset Password"
-          onBack={goBack}
+          onBack={handleBack}
           backAccessibilityLabel={isDone ? "Back" : "Go back"}
           {...(isDone ? {} : { right: <StepIndicator badge={meta.badge} label={meta.label} /> })}
         />
@@ -174,7 +187,7 @@ export default function ForgotPasswordScreen() {
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
-    </View>
+    </KeyboardDismissView>
   );
 }
 

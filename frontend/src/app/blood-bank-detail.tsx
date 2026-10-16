@@ -10,10 +10,9 @@ import { SkeletonCard } from "@/components/ui/skeleton";
 import { BLOOD_GROUPS, type BloodGroup } from "@/constants/blood-groups";
 import { Blood, Surface } from "@/constants/colors";
 import { ControlHeight, Radius } from "@/constants/radius";
-import { DASHBOARD_TABS, ROLE_HOME } from "@/constants/routes";
+import { DASHBOARD_TABS } from "@/constants/routes";
 import { Typography } from "@/constants/typography";
-import { useAuthBack } from "@/hooks/use-auth-back";
-import { useAuth } from "@/providers/auth-provider";
+import { useHomeBack } from "@/hooks/use-home-back";
 import { apiErrorMessage } from "@/services/api/errors";
 import { getBloodBank, listBloodBanks, type BloodBank, type BloodBankDetail } from "@/services/blood-banks";
 
@@ -28,8 +27,7 @@ import { getBloodBank, listBloodBanks, type BloodBank, type BloodBankDetail } fr
 
 export default function BloodBankDetailScreen() {
   const router = useRouter();
-  const { session } = useAuth();
-  const onBack = useAuthBack(ROLE_HOME[session?.user.role ?? "recipient"]);
+  const onBack = useHomeBack();
   const { id: idParam } = useLocalSearchParams<{ id?: string }>();
 
   const bankId = typeof idParam === "string" && idParam !== "" ? idParam : null;

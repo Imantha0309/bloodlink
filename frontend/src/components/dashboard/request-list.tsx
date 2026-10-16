@@ -21,6 +21,11 @@ type RequestListProps = {
   onRemoveDonorResponse?: (id: string) => Promise<void>;
   /** Forwarded to each card's trailing "Manage" affordance. */
   onManage?: (request: EmergencyRequest) => void;
+  /**
+   * Forwarded to each card, which fires it after the server confirms an
+   * accept. Donor screens point this at the journey tab.
+   */
+  onAccepted?: () => void;
 };
 
 /** A triage list, or the "nothing here" note when it is empty. */
@@ -33,6 +38,7 @@ export function RequestList({
   onDonorResponse,
   onRemoveDonorResponse,
   onManage,
+  onAccepted,
 }: RequestListProps) {
   if (requests.length === 0) {
     return <EmptyNote title={emptyTitle} message={emptyMessage} />;
@@ -51,6 +57,7 @@ export function RequestList({
           onDonorResponse={onDonorResponse}
           onRemoveDonorResponse={onRemoveDonorResponse}
           onManage={onManage === undefined ? undefined : () => onManage(request)}
+          onAccepted={onAccepted}
         />
       ))}
     </View>

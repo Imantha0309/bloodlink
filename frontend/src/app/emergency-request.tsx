@@ -19,12 +19,14 @@ import { UrgencyCardList } from "@/components/emergency/urgency-card-list";
 import { OptionChips } from "@/components/ui/option-chips";
 import { SelectField } from "@/components/ui/select-field";
 import { TextField } from "@/components/ui/text-field";
+import { KeyboardDismissView } from "@/components/ui/keyboard-dismiss";
 import { BLOOD_GROUP_NOTES, BLOOD_GROUPS, type BloodGroup } from "@/constants/blood-groups";
 import { Blood, Surface } from "@/constants/colors";
 import type { UrgencyLevel } from "@/constants/emergency";
 import { HIT_SLOP_MIN, Radius } from "@/constants/radius";
 import { ROLE_HOME, ROUTES } from "@/constants/routes";
 import { Typography } from "@/constants/typography";
+import { useBack } from "@/hooks/use-back";
 import { useAuth } from "@/providers/auth-provider";
 import { apiErrorMessage } from "@/services/auth";
 import { type BloodBank, listBloodBanks } from "@/services/blood-banks";
@@ -318,18 +320,21 @@ export default function EmergencyRequestScreen() {
     return false;
   }, [buildValues]);
 
-  const handleBack = useCallback(() => {
-    if (step > 0) {
-      setStep(step - 1);
-      return;
+  // One back decision for the header arrow, the Android button and the iOS
+  // swipe, because they are different code paths and only the arrow belongs to
+  // this screen. Without the hardware back wired up, a press from step two
+  // popped the screen and discarded the patient details typed into step one.
+  // `backFallback` is the way out from step one — a signed-in user goes to their
+  // own dashboard, an anonymous one to login, which is the guard the route
+  // sits behind.
+  const handleBack = useBack(() => {
+    if (step === 0) {
+      return false;
     }
 
-    if (router.canGoBack()) {
-      router.back();
-    } else {
-      router.replace(backFallback);
-    }
-  }, [step, router, backFallback]);
+    setStep((current) => Math.max(0, current - 1));
+    return true;
+  }, backFallback);
 
   /** Sends the user to the step that owns the row they tapped Edit on. */
   const handleEdit = useCallback((target: 0 | 1) => {
@@ -625,12 +630,13 @@ export default function EmergencyRequestScreen() {
             </View>
 
             <Text style={styles.successTitle} accessibilityRole="header">
-              Emergency Request Broadcast
+              Emergency Request Submitted
             </Text>
 
             <Text style={styles.successBody}>
-              Your request has been sent to nearby verified donors. Keep the contact number
-              reachable.
+              Your request has been received and routed to the hospital for verification.
+              Once hospital staff verifies and accepts the request, it will be immediately
+              broadcast to nearby compatible donors.
             </Text>
 
             <View style={styles.reference}>
@@ -687,7 +693,7 @@ export default function EmergencyRequestScreen() {
       : { label: stepTitle };
 
   return (
-    <View style={styles.root}>
+    <KeyboardDismissView style={styles.root}>
       <StepHeader
         title={headerTitle}
         onBack={handleBack}
@@ -764,7 +770,7 @@ export default function EmergencyRequestScreen() {
           </Pressable>
         )}
       </View>
-    </View>
+    </KeyboardDismissView>
   );
 }
 

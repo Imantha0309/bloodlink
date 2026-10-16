@@ -61,11 +61,6 @@ export function requestsForDonor(group: string | null | undefined): BloodGroup[]
   return isBloodGroup(group) ? [...REQUESTS_FOR_DONOR[group]] : [];
 }
 
-/** Whether a donor with `donorGroup` may give to a patient needing `recipientGroup`. */
-export function isCompatible(donorGroup: string | null | undefined, recipientGroup: string): boolean {
-  return isBloodGroup(donorGroup) && donorsForRecipient(recipientGroup).includes(donorGroup);
-}
-
 /**
  * Whether a user can act as a donor at all.
  *

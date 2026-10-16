@@ -3,8 +3,15 @@
  *
  * Feeds off the PUBLIC `GET /donors/stats` route: available donors come back as
  * `fullName` + `district`, and this module derives the headline count, the
- * provinces they cover and the monogram avatars from those rows. A failed fetch
- * degrades to an empty summary — the card is reassurance, not a UX blocker.
+ * provinces they cover and the monogram avatars from those rows.
+ *
+ * The result is a discriminated union rather than a summary with `total: 0`,
+ * because zero is not a state the card can render. An empty roster and a failed
+ * request both used to arrive as `total: 0`, and the card printed them
+ * identically — "0+ Active Donors Online / Ready across Sri Lanka" — which is a
+ * claim invented from the absence of data. Callers now have to handle `empty`
+ * and `failed` as their own cases and decide what to show, rather than being
+ * handed something that only looks like a number.
  */
 
 import { provinceOf } from "@/constants/districts";
@@ -71,7 +78,7 @@ export async function getActiveDonors(): Promise<ActiveDonorsSummary> {
 
 /** Formats a count the way the card headline reads: `12,480+`. */
 export function formatDonorCount(total: number): string {
-  return `${total.toLocaleString("en-US")}+`;
+  return `${total.toLocaleString()}`;
 }
 
 /**
@@ -82,9 +89,9 @@ export function formatDonorCount(total: number): string {
 const PROVINCE_LIMIT = 3;
 
 /** Short subtitle line, e.g. `Ready across Western & Central Provinces`. */
-export function formatProvinces(provinces: string[]): string {
+export function formatProvinces(provinces: string[]): string | null {
   if (provinces.length === 0) {
-    return "Ready across Sri Lanka";
+    return null;
   }
 
   const named = provinces.slice(0, PROVINCE_LIMIT);

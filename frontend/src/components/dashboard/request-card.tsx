@@ -2,6 +2,7 @@ import { Feather } from "@expo/vector-icons";
 import { useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 
+import { useConfirm } from "@/components/ui/confirm-provider";
 import { Blood, Surface } from "@/constants/colors";
 import {
   REQUEST_STATUS_META,
@@ -36,6 +37,15 @@ type RequestCardProps = {
    * footer stays exactly as it was.
    */
   onManage?: () => void;
+  /**
+   * Fired once a response of `accepted` has been confirmed by the server.
+   *
+   * The donor surfaces use it to send the donor straight to the journey tab,
+   * because accepting is what creates the commitment that tab lists. It runs
+   * only on success — a rejected write must leave the donor on the list where
+   * the error is visible, not parked on an empty journey.
+   */
+  onAccepted?: () => void;
 };
 
 /** One emergency request, as it appears in every dashboard's triage list. */
@@ -46,7 +56,9 @@ export function RequestCard({
   onDonorResponse,
   onRemoveDonorResponse,
   onManage,
+  onAccepted,
 }: RequestCardProps) {
+  const { confirm } = useConfirm();
   const [localResponse, setLocalResponse] = useState<{
     basedOn: DonorResponse | null;
     value: DonorResponse | null;
@@ -62,8 +74,14 @@ export function RequestCard({
   const canEditResponse = donorResponse !== null &&
     (donorResponse === "declined" || request.donorStage === null || request.donorStage === "accepted");
 
-  async function handleDonorResponse(next: DonorResponse) {
-    if (!onDonorResponse || isResponding) return;
+  /**
+   * Posts a donor response.
+   *
+   * Resolves `true` only when the server took it, so `onAccepted` can be gated
+   * on the write actually landing rather than on the tap.
+   */
+  async function handleDonorResponse(next: DonorResponse): Promise<boolean> {
+    if (!onDonorResponse || isResponding) return false;
 
     setIsResponding(true);
     setResponseError(null);
@@ -73,20 +91,40 @@ export function RequestCard({
         basedOn: request.donorResponse,
         value: await onDonorResponse(request.id, next, donorResponse !== null),
       });
+      return true;
     } catch (caught) {
       setResponseError(apiErrorMessage(caught));
+      return false;
     } finally {
       setIsResponding(false);
     }
   }
 
+  /** Accepts, then hands off to the journey if the write landed. */
+  async function handleAccept() {
+    if (await handleDonorResponse("accepted")) {
+      onAccepted?.();
+    }
+  }
+
   async function handleRemoveResponse() {
     if (!onRemoveDonorResponse || isResponding) return;
+
+    const approved = await confirm({
+      title: "Remove response",
+      message: "Are you sure you want to remove your donor response?",
+      confirmLabel: "Remove",
+      icon: "trash-2",
+      destructive: true,
+    });
+
+    if (!approved) return;
+
     setIsResponding(true);
     setResponseError(null);
+
     try {
       await onRemoveDonorResponse(request.id);
-      setLocalResponse({ basedOn: request.donorResponse, value: null });
     } catch (caught) {
       setResponseError(apiErrorMessage(caught));
     } finally {
@@ -202,7 +240,7 @@ export function RequestCard({
             <Pressable
               accessibilityRole="button"
               disabled={isResponding}
-              onPress={() => void handleDonorResponse("accepted")}
+              onPress={() => void handleAccept()}
               style={({ pressed }) => [styles.acceptButton, pressed && styles.pressed, isResponding && styles.disabled]}
             >
               <Feather name="check" size={14} color={Surface.card} />
@@ -248,7 +286,7 @@ export function RequestCard({
                 accessibilityRole="button"
                 accessibilityLabel={`Accept request for ${request.patientName}`}
                 disabled={isResponding}
-                onPress={() => void handleDonorResponse("accepted")}
+                onPress={() => void handleAccept()}
                 style={({ pressed }) => [styles.acceptButton, pressed && styles.pressed, isResponding && styles.disabled]}
               >
                 {isResponding ? (

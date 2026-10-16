@@ -24,7 +24,7 @@ export function EmergencyRequestCard({
   onPress,
   title = "In an active emergency?",
   badge = "Zero Login",
-  description = "You can create an immediate urgent request without an account. Our rapid triage team verifies within 2 minutes.",
+  description = "You can create an immediate urgent request without an account. Our rapid triage team verifies promptly.",
   actionLabel = "Request Blood Instantly",
 }: EmergencyRequestCardProps) {
   return (

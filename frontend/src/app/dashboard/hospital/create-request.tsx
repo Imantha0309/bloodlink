@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ContactCard } from "@/components/emergency/contact-card";
 import { TextField } from "@/components/ui/text-field";
+import { KeyboardDismissView } from "@/components/ui/keyboard-dismiss";
 import { Blood, Elevation, Surface } from "@/constants/colors";
 import { BLOOD_GROUPS, type BloodGroup } from "@/constants/blood-groups";
 import { URGENCY_OPTIONS, type UrgencyLevel } from "@/constants/emergency";
@@ -162,7 +163,7 @@ export default function HospitalCreateRequestScreen() {
   }
 
   return (
-    <View style={styles.root}>
+    <KeyboardDismissView style={styles.root}>
       <StatusBar style="dark" />
 
       <ScrollView
@@ -517,7 +518,7 @@ export default function HospitalCreateRequestScreen() {
           ) : null}
         </Pressable>
       </ScrollView>
-    </View>
+    </KeyboardDismissView>
   );
 }
 

@@ -41,18 +41,7 @@ const VERIFICATION_TONE = {
  * Controls are live (group, component, units, sign-off checkboxes) and the
  * broadcast action submits through `createEmergencyRequest` — the same
  * zero-login endpoint the public form uses — then hands the created id to the
-<<<<<<< HEAD
-<<<<<<< HEAD:src/app/dashboard/hospital/create-request.tsx
- * transmission progress screen, which tracks the real candidates. Hospital,
- * district and the contact person default to the signed-in station's own
- * details, which is what the server requires but the operator should never
- * have to retype.
-=======
  * transmission status screen, which tracks the saved request and real candidates.
->>>>>>> origin/feature/recipient-module:frontend/src/app/dashboard/hospital/create-request.tsx
-=======
- * transmission status screen, which tracks the saved request and real candidates.
->>>>>>> origin/feature/recipient-module
  */
 export default function HospitalCreateRequestScreen() {
   const router = useRouter();
@@ -63,16 +52,7 @@ export default function HospitalCreateRequestScreen() {
   const [component, setComponent] = useState<RequestComponent | null>(null);
   const [units, setUnits] = useState<number>(1);
   const [patientName, setPatientName] = useState("");
-<<<<<<< HEAD
-<<<<<<< HEAD:src/app/dashboard/hospital/create-request.tsx
-=======
   const [hospitalName, setHospitalName] = useState("");
-  const [urgency, setUrgency] = useState<UrgencyLevel | null>(null);
->>>>>>> origin/feature/recipient-module:frontend/src/app/dashboard/hospital/create-request.tsx
-=======
-  const [hospitalName, setHospitalName] = useState("");
-  const [urgency, setUrgency] = useState<UrgencyLevel | null>(null);
->>>>>>> origin/feature/recipient-module
   const [contactName, setContactName] = useState(session?.user.fullName ?? "");
   const [contactMobile, setContactMobile] = useState(session?.user.mobile ?? "");
   const [urgency, setUrgency] = useState<UrgencyLevel>("critical");
@@ -513,13 +493,8 @@ export default function HospitalCreateRequestScreen() {
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={CREATE_REQUEST.ctaLabel}
-<<<<<<< HEAD
           accessibilityHint="Creates the requisition and opens the broadcast transmission progress"
           accessibilityState={{ disabled: isSubmitting, busy: isSubmitting }}
-=======
-          accessibilityHint="Opens the broadcast transmission progress"
-          accessibilityState={{ disabled: isSubmitting }}
->>>>>>> origin/feature/recipient-module
           disabled={isSubmitting}
           onPress={() => {
             void handleBroadcast();
@@ -527,11 +502,7 @@ export default function HospitalCreateRequestScreen() {
           style={({ pressed }) => [
             styles.cta,
             pressed && styles.pressed,
-<<<<<<< HEAD
             isSubmitting && styles.ctaBusy,
-=======
-            isSubmitting && styles.ctaDisabled,
->>>>>>> origin/feature/recipient-module
           ]}
         >
           <Feather
@@ -541,11 +512,7 @@ export default function HospitalCreateRequestScreen() {
           />
 
           <Text style={styles.ctaText} numberOfLines={1}>
-<<<<<<< HEAD
             {isSubmitting ? CREATE_REQUEST.ctaBusyLabel : CREATE_REQUEST.ctaLabel}
-=======
-            {isSubmitting ? "Broadcasting…" : CREATE_REQUEST.ctaLabel}
->>>>>>> origin/feature/recipient-module
           </Text>
 
           {!isSubmitting ? (
@@ -936,6 +903,10 @@ const styles = StyleSheet.create({
     borderRadius: Radius.field,
     backgroundColor: Blood.primary,
     ...Elevation.button,
+  },
+
+  ctaBusy: {
+    opacity: 0.7,
   },
 
   ctaText: {

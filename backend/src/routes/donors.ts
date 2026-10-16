@@ -22,6 +22,7 @@ import { z } from "zod";
 import { assertStaff } from "../domain/access";
 import { isDonorEligible } from "../domain/compatibility";
 import { STAGE_ORDER, isOpen, isResponseMutable } from "../domain/lifecycle";
+import { notifyAcceptedDonorOfStatus, notifyRequesterOfStatus } from "../domain/alerts";
 import { requestRow } from "../domain/serialize";
 import { asyncHandler, fail } from "../http";
 import { currentUser, requireAuth } from "../middleware/auth";
@@ -550,6 +551,9 @@ donorsRouter.post(
         if (isOpen(request.status)) {
           request.status = "fulfilled";
           await request.save({ session });
+
+          await notifyRequesterOfStatus(request, "fulfilled", session);
+          await notifyAcceptedDonorOfStatus(request, "fulfilled", session);
         }
 
         return { request, stage: response.stage };

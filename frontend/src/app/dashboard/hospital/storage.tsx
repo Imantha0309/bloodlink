@@ -16,7 +16,6 @@ import { Typography } from "@/constants/typography";
 import { useAuth } from "@/providers/auth-provider";
 import { useBloodStock } from "@/services/storage/blood-stock";
 import { apiErrorMessage } from "@/services/api/errors";
-import { useBloodStock } from "@/services/storage/blood-stock";
 import {
   type BloodComponent,
   type HospitalInventoryBank,
@@ -74,6 +73,7 @@ function toneFor(units: number): { tone: ReserveTone; tag: string } {
  * immediately. A unit sealed on the collection telemetry surfaces in the
  * fresh-intake strip through `@/services/storage/blood-stock`; the banner's
  * plant telemetry stays fixture copy.
+ */
 export default function HospitalStorageScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -85,6 +85,8 @@ export default function HospitalStorageScreen() {
   const [componentFilter, setComponentFilter] = useState<BloodComponent>("whole_blood");
   const [isSaving, setIsSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+
+  const stock = useBloodStock();
 
   // Initial load: state only changes inside the promise callbacks, so the
   // effect body itself never triggers a cascading render.
@@ -834,6 +836,37 @@ const styles = StyleSheet.create({
     height: "100%",
     borderRadius: Radius.full,
     backgroundColor: Blood.primary,
+  },
+
+  intake: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    padding: 10,
+    borderRadius: Radius.sm,
+    backgroundColor: Surface.softBlue,
+  },
+
+  intakeIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: Radius.sm,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Surface.card,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Surface.border,
+  },
+
+  intakeText: {
+    flex: 1,
+    gap: 2,
+  },
+
+  intakeLead: {
+    ...Typography.small,
+    fontWeight: "700",
+    color: Surface.text,
   },
 
   /* ================= SECTIONS ================= */

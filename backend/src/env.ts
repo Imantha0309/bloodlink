@@ -47,6 +47,10 @@ export const env = {
 
   corsOrigin: process.env.CORS_ORIGIN?.trim() || "*",
 
+  // Where uploaded avatars are written, and the origin that serves them back.
+  uploadDir: process.env.UPLOAD_DIR?.trim() || "uploads",
+  uploadBaseUrl: (process.env.UPLOAD_BASE_URL?.trim() || "/uploads").replace(/\/+$/, ""),
+
   maxLoginAttempts: optionalNumber("MAX_LOGIN_ATTEMPTS", 10),
   lockoutMinutes: optionalNumber("LOCKOUT_MINUTES", 15),
 } as const;

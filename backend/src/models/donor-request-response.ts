@@ -20,6 +20,15 @@ export type DonorRequestResponseDocument = {
   response: DonorResponse;
   /** Progress through intake; only mutable while still `accepted`. */
   stage: DonationStage;
+  /**
+   * Set when hospital staff recorded this on the donor's behalf, from a pass they
+   * scanned — the person who did the responding, which is not the donor.
+   *
+   * Nullable so every response a donor gave themselves is unchanged, and so the
+   * recipient dashboard can tell "a donor matched me at the desk" from "this went
+   * through the app".
+   */
+  recordedBy: Types.ObjectId | null;
   /** SHA-256 of the intake ticket. The raw token never leaves the device. */
   checkinTokenHash: string | null;
   checkinTokenExpiresAt: Date | null;
@@ -36,6 +45,8 @@ const donorRequestResponseSchema = new Schema<DonorRequestResponseDocument>(
 
     response: { type: String, enum: DONOR_RESPONSES, required: true },
     stage: { type: String, enum: DONATION_STAGES, default: "accepted" },
+
+    recordedBy: { type: Schema.Types.ObjectId, ref: "User", default: null },
 
     checkinTokenHash: { type: String, default: null },
     checkinTokenExpiresAt: { type: Date, default: null },

@@ -7,9 +7,8 @@ import { StepHeader } from "@/components/emergency/step-header";
 import { Blood, Surface } from "@/constants/colors";
 import { GUIDELINE_SECTIONS, GUIDELINES_EDITION } from "@/constants/guidelines";
 import { Radius } from "@/constants/radius";
-import { ROUTES } from "@/constants/routes";
 import { Typography } from "@/constants/typography";
-import { useAuthBack } from "@/hooks/use-auth-back";
+import { useHomeBack } from "@/hooks/use-home-back";
 
 /**
  * NBTS transfusion guidelines, carried on the device.
@@ -21,7 +20,7 @@ import { useAuthBack } from "@/hooks/use-auth-back";
  */
 export default function HospitalGuidelinesScreen() {
   const insets = useSafeAreaInsets();
-  const onBack = useAuthBack(ROUTES.hospitalProfile);
+  const onBack = useHomeBack();
 
   const [openSection, setOpenSection] = useState<string | null>(GUIDELINE_SECTIONS[0]?.id ?? null);
 

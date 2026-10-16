@@ -2,8 +2,6 @@ import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
-  Alert,
-  Image,
   Modal,
   Pressable,
   ScrollView,
@@ -16,6 +14,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { BrandMark } from "@/components/dashboard/brand-mark";
 import { DashboardTabBar, type DashboardTabKey } from "@/components/dashboard/dashboard-tab-bar";
+import { AnimatedAvatar } from "@/components/common/animated-avatar";
+import { UserPassCard } from "@/components/qr/user-pass-card";
+import { useConfirm } from "@/components/ui/confirm-provider";
 import { REQUEST_STATUS_META, URGENCY_OPTIONS } from "@/constants/emergency";
 import { DASHBOARD_TABS, ROUTES } from "@/constants/routes";
 import { useAuth } from "@/providers/auth-provider";
@@ -24,6 +25,7 @@ import {
   type EmergencyRequest,
 } from "@/services/requests/emergency-requests";
 import { isRequestLive } from "@/utils/request-timeline";
+import { wardOf } from "@/utils/request-ward";
 import { referenceFor } from "@/utils/reference";
 import { timeAgo } from "@/utils/time";
 
@@ -64,6 +66,7 @@ export default function ProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { session, signOut } = useAuth();
+  const { confirm, alert: notify } = useConfirm();
 
   const [smsFallback, setSmsFallback] = useState(true);
   const [info, setInfo] = useState<InfoSheet | null>(null);
@@ -98,6 +101,7 @@ export default function ProfileScreen() {
   const userName = session?.user.fullName ?? "Recipient";
   const mobile = session?.user.mobile ?? null;
   const district = session?.user.district ?? null;
+  const bloodGroup = session?.user.bloodGroup ?? null;
 
   // Newest live request (the list is newest-first); history lives in Requests.
   const liveRequest = (requests ?? []).find((request) => isRequestLive(request.status)) ?? null;
@@ -109,13 +113,7 @@ export default function ProfileScreen() {
       : URGENCY_OPTIONS.find((option) => option.level === liveRequest.urgency);
   const liveStatus =
     liveRequest === null ? undefined : REQUEST_STATUS_META[liveRequest.status];
-  const liveWard =
-    liveRequest === null
-      ? null
-      : ((liveRequest.notes ?? "")
-          .split("\n")
-          .map((line) => line.trim())
-          .find((line) => /^ward\b/i.test(line)) ?? null);
+  const liveWard = liveRequest === null ? null : wardOf(liveRequest.notes);
 
   function openInfo(title: string, lines: string[]) {
     setInfo({ title, lines });
@@ -129,25 +127,20 @@ export default function ProfileScreen() {
     router.push(DASHBOARD_TABS[key]);
   }
 
-  function confirmSignOut() {
-    Alert.alert(
-      "Sign out",
-      "You will need to sign in again to access BloodLink.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Sign out",
-          style: "destructive",
-          onPress: () => {
-            void handleSignOut();
-          },
-        },
-      ],
-    );
-  }
-
   async function handleSignOut() {
     if (isSigningOut) {
+      return;
+    }
+
+    const approved = await confirm({
+      title: "Sign out",
+      message: "You will need to sign in again to access BloodLink.",
+      confirmLabel: "Sign out",
+      icon: "log-out",
+      destructive: true,
+    });
+
+    if (!approved) {
       return;
     }
 
@@ -156,6 +149,14 @@ export default function ProfileScreen() {
     try {
       await signOut();
       router.replace(ROUTES.login);
+    } catch (error) {
+      console.error("Failed to sign out:", error);
+      await notify({
+        title: "Sign out failed",
+        message: "There was an error signing out. Please try again.",
+        icon: "alert-triangle",
+        destructive: true,
+      });
     } finally {
       setIsSigningOut(false);
     }
@@ -172,6 +173,16 @@ export default function ProfileScreen() {
         <View style={styles.headerRight}>
           <Pressable
             accessibilityRole="button"
+            accessibilityLabel="Settings"
+            hitSlop={6}
+            onPress={() => router.push(ROUTES.settings)}
+            style={({ pressed }) => [styles.headerIconButton, pressed && styles.pressed]}
+          >
+            <Feather name="settings" size={15} color={C.sub} />
+          </Pressable>
+
+          <Pressable
+            accessibilityRole="button"
             accessibilityLabel="Security centre"
             hitSlop={6}
             onPress={() => {
@@ -184,13 +195,17 @@ export default function ProfileScreen() {
             <Feather name="shield" size={14} color={C.sub} />
           </Pressable>
 
-          <View style={styles.headerAvatar}>
-            <Image
-              source={require("../../../assets/images/donoravatars.png")}
-              style={styles.headerAvatarImage}
-              resizeMode="cover"
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Open settings"
+            onPress={() => router.push(ROUTES.settings)}
+          >
+            <AnimatedAvatar
+              url={session?.user.avatarUrl}
+              name={userName}
+              size={32}
             />
-          </View>
+          </Pressable>
         </View>
       </View>
 
@@ -202,13 +217,13 @@ export default function ProfileScreen() {
         {/* ---------------------------------------------------- ① identity */}
         <View style={styles.card}>
           <View style={styles.identityRow}>
-            <View style={styles.identityAvatar}>
-              <Image
-                source={require("../../../assets/images/donoravatars.png")}
-                style={styles.identityAvatarImage}
-                resizeMode="cover"
-              />
-            </View>
+            <AnimatedAvatar
+              url={session?.user.avatarUrl}
+              name={userName}
+              size={52}
+              showEditBadge
+              onPress={() => router.push(ROUTES.settings)}
+            />
 
             <View style={styles.identityCopy}>
               <Text style={styles.identityName} numberOfLines={1}>
@@ -243,17 +258,12 @@ export default function ProfileScreen() {
 
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Edit profile"
+              accessibilityLabel="Edit profile and settings"
               hitSlop={6}
-              onPress={() => {
-                openInfo("Edit Profile", [
-                  "Update your photo, phone number, blood group and district.",
-                  "Changes are reviewed before your Recipient badge is re-issued.",
-                ]);
-              }}
+              onPress={() => router.push(ROUTES.settings)}
               style={({ pressed }) => [styles.editButton, pressed && styles.pressed]}
             >
-              <Feather name="edit-2" size={12} color={C.sub} />
+              <Feather name="settings" size={13} color={C.primary} />
             </Pressable>
           </View>
         </View>
@@ -330,36 +340,44 @@ export default function ProfileScreen() {
               </View>
             </View>
 
-            <View
-              style={[
-                styles.transitBlock,
-                { backgroundColor: liveStatus.background, borderColor: liveStatus.border },
-              ]}
-            >
-              <View style={styles.transitCopy}>
-                <View style={styles.inlineRow}>
-                  <Feather name={liveStatus.icon} size={12} color={liveStatus.color} />
-                  <Text style={[styles.transitTitle, { color: liveStatus.color }]}>
-                    {liveStatus.label}
-                  </Text>
-                </View>
-                <Text style={styles.transitEta}>
-                  Raised {timeAgo(liveRequest.createdAt)} · updated{" "}
-                  {timeAgo(liveRequest.updatedAt)}
-                </Text>
-              </View>
-            </View>
-
             <Pressable
               accessibilityRole="button"
+              accessibilityLabel="Open request status"
               onPress={() =>
                 router.push({
                   pathname: REQUEST_STATUS_ROUTE,
                   params: { id: liveRequest.id },
                 })
               }
-              style={({ pressed }) => [styles.trackerButton, pressed && styles.trackerButtonPressed]}
+              style={({ pressed }) => [styles.card, styles.criticalCard, pressed && styles.pressed]}
             >
+              <View style={styles.transitBlock}>
+                <View style={styles.transitCopy}>
+                  <View style={styles.inlineRow}>
+                    <Feather name={liveStatus.icon} size={12} color={liveStatus.color} />
+                    <Text style={[styles.transitTitle, { color: liveStatus.color }]}>
+                      {liveStatus.label}
+                    </Text>
+                  </View>
+                  <Text style={styles.transitEta}>
+                    Raised {timeAgo(liveRequest.createdAt)} · updated{" "}
+                    {timeAgo(liveRequest.updatedAt)}
+                  </Text>
+                </View>
+              </View>
+
+              {/* A donor matched at a desk, not through the app. Their name
+                  arrives in the acceptance alert, so this only says one was
+                  found. */}
+              {liveRequest.donorMatchedOnBehalf ? (
+                <View style={styles.matchedRow}>
+                  <Feather name="user-check" size={13} color={C.green} />
+                  <Text style={styles.matchedText}>
+                    A donor was matched at the hospital desk for this request
+                  </Text>
+                </View>
+              ) : null}
+
               <Text style={styles.trackerButtonText}>Track Request →</Text>
             </Pressable>
           </Pressable>
@@ -560,20 +578,63 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* --------------------------------------------------- ⑥ sign out */}
+        {/* --------------------------------------------- ⑥ identity pass */}
+        {/* `UserPassCard` is built on the shared `Surface` tokens rather than this
+            screen's local `C`. The two palettes differ by one or two units per
+            channel, so the card reads as part of this page; keeping the shared
+            tokens means the pass looks identical on every other profile. */}
+        <UserPassCard
+          fullName={session?.user.fullName}
+          role="recipient"
+          subtitle={[bloodGroup, district].filter(Boolean).join(" · ") || null}
+        />
+
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Scan a pass"
+          accessibilityHint="Opens the camera to identify someone else"
+          onPress={() => {
+            router.push(ROUTES.scan);
+          }}
+          style={({ pressed }) => [styles.safetyRow, styles.safetyRowBorder, pressed && styles.pressed]}
+        >
+          <View style={[styles.safetyIcon, styles.safetyIconRed]}>
+            <Feather name="maximize" size={13} color={C.primary} />
+          </View>
+
+          <View style={styles.safetyCopy}>
+            <Text style={styles.safetyTitle}>Scan a pass</Text>
+            <Text style={styles.safetySubtitle} numberOfLines={2}>
+              Identify someone at a BloodLink desk
+            </Text>
+          </View>
+
+          <Feather name="chevron-right" size={14} color={C.muted} />
+        </Pressable>
+
+        {/* --------------------------------------------------- ⑦ sign out */}
+        {/* The glyph this used to carry (`♙`, U+2659) has patchy coverage in the
+            bundled Android/iOS system faces and renders as a tofu box on some
+            devices, so the label wears the same Feather icon the donor and
+            shell sign-out buttons use. */}
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Sign out"
+          accessibilityState={{ disabled: isSigningOut }}
           disabled={isSigningOut}
-          onPress={confirmSignOut}
+          hitSlop={2}
+          onPress={() => {
+            void handleSignOut();
+          }}
           style={({ pressed }) => [
             styles.signOut,
             pressed && styles.pressed,
             isSigningOut && styles.signOutDisabled,
           ]}
         >
+          <Feather name="log-out" size={13} color={C.text} />
           <Text style={styles.signOutText}>
-            {isSigningOut ? "Signing out…" : "♙ Sign out"}
+            {isSigningOut ? "Signing out…" : "Sign out"}
           </Text>
         </Pressable>
       </ScrollView>
@@ -596,7 +657,12 @@ export default function ProfileScreen() {
         onRequestClose={() => setInfo(null)}
       >
         <Pressable style={styles.modalBackdrop} onPress={() => setInfo(null)}>
-          <Pressable style={styles.modalCard} onPress={(event) => event.stopPropagation()}>
+          {/* `Pressable`, not `View` — the card has to swallow the backdrop's
+              tap, and only a touchable receives the event to stop. */}
+          <Pressable
+            style={styles.modalCard}
+            onPress={(event) => event.stopPropagation()}
+          >
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle} numberOfLines={1}>
                 {info?.title ?? ""}
@@ -914,6 +980,26 @@ const styles = StyleSheet.create({
     lineHeight: 10,
     fontWeight: "700",
     color: C.dark,
+  },
+
+  matchedRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    backgroundColor: C.paleGreen,
+    borderWidth: 1,
+    borderColor: "#C9E9D5",
+  },
+
+  matchedText: {
+    flex: 1,
+    fontSize: 10.5,
+    lineHeight: 14,
+    fontWeight: "600",
+    color: C.green,
   },
 
   criticalMainRow: {
@@ -1324,6 +1410,8 @@ const styles = StyleSheet.create({
   signOut: {
     height: 40,
     borderRadius: 9,
+    flexDirection: "row",
+    gap: 6,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: C.paleBlue,

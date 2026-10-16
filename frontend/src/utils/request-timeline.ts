@@ -22,9 +22,10 @@ export function buildRequestTimeline(
   createdAtLabel: string,
   updatedAtLabel: string,
 ): TimelineStep[] {
+  const timeText = createdAtLabel?.trim() ? createdAtLabel.trim() : "just now";
   const submitted: TimelineStep = {
     title: "Request Submitted",
-    description: `Received by BloodLink ${createdAtLabel}.`,
+    description: `Received by BloodLink ${timeText}.`,
     state: "done",
   };
 
@@ -47,6 +48,9 @@ export function buildRequestTimeline(
         : "The hospital verified this request.",
     state: status === "pending" ? "current" : "done",
   };
+
+  // Kept exactly as the product copy specifies so the pending states always
+  // read the same, no matter which status the request sits in.
 
   const notification: TimelineStep = {
     title: "Donors Notified",

@@ -19,6 +19,7 @@ import { currentUser, requireAuth } from "../middleware/auth";
 import { DonorAvailability } from "../models/donor-availability";
 import { EmergencyRequest } from "../models/emergency-request";
 import { User, type UserDoc } from "../models/user";
+import { cache, cacheKey } from "../cache";
 
 export const dashboardRouter = Router();
 
@@ -112,21 +113,36 @@ async function hospitalStats(user: UserDoc): Promise<Stat[]> {
   // can be called in from anywhere, and the hint says so.
   const scope = districtFilter(user);
 
+  const key = cacheKey(`hospital:${user.district ?? "null"}`);
+  const cached = cache.get<Stat[]>(key);
+  if (cached !== null) return cached;
+
   const [pending, critical, donors] = await Promise.all([
     EmergencyRequest.countDocuments({ ...scope, status: { $in: OPEN } }),
     EmergencyRequest.countDocuments({ ...scope, status: { $in: OPEN }, urgency: "critical" }),
     User.countDocuments({ role: "donor" }),
   ]);
 
-  return [
+  const result = [
     stat("pending", "Pending verification", pending, "Awaiting your review"),
     stat("critical", "Critical", critical, "Highest priority"),
     stat("donors", "Registered donors", donors, "In the national pool"),
   ];
+
+  const HOSPITAL_TTL = 30_000; // 30 seconds
+  cache.set(key, result, HOSPITAL_TTL);
+  return result;
 }
+
+const ADMIN_TTL = 15_000; // 15 seconds
 
 /** Admin sees the whole system, including the approval queue. */
 async function adminStats(): Promise<Stat[]> {
+  const key = cacheKey("admin");
+
+  const cached = cache.get<Stat[]>(key);
+  if (cached !== null) return cached;
+
   const [users, donorCount, queue, unverified] = await Promise.all([
     User.countDocuments(),
     User.countDocuments({ role: "donor" }),
@@ -134,21 +150,32 @@ async function adminStats(): Promise<Stat[]> {
     User.countDocuments({ role: "hospital", isVerified: false }),
   ]);
 
-  return [
+  const result = [
     stat("users", "Total accounts", users, `${donorCount} donors`),
     stat("queue", "Triage queue", queue, "Open requests"),
     stat("unverified", "Unverified hospitals", unverified, "Need review"),
   ];
+
+  cache.set(key, result, ADMIN_TTL);
+  return result;
 }
 
 /** Donors who are switched on. Deliberately only `donor`, not donor-eligible. */
 async function availableDonorCount(): Promise<number> {
-  const available = await DonorAvailability.find({ isAvailable: true }).select("userId");
+  const key = cacheKey("donor", "available");
 
-  return User.countDocuments({
+  const cached = cache.get<number>(key);
+  if (cached !== null) return cached;
+
+  const available = await DonorAvailability.find({ isAvailable: true }).select("userId");
+  const count = User.countDocuments({
     _id: { $in: available.map((row) => row.userId) },
     role: "donor",
   });
+
+  const AVAILABLE_DONOR_TTL = 60_000; // 1 minute
+  cache.set(key, count, AVAILABLE_DONOR_TTL);
+  return count;
 }
 
 /**

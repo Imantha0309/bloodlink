@@ -30,6 +30,16 @@ export const ROUTES = {
   donorProfile: "/dashboard/donor-profile",
   passDetails: "/pass-details",
   /**
+   * The pass scanner, available to every signed-in role.
+   *
+   * Lives at the top level rather than under a dashboard because the desk that
+   * needs it is whichever one the person is standing at, not the one their
+   * account's home tab happens to be.
+   */
+  scan: "/scan",
+  /** User settings and profile management for all roles. */
+  settings: "/settings",
+  /**
    * Donate tab for donor-eligible recipients.
    *
    * A route in its own right so it deep-links and so the tab bar navigates the
@@ -64,6 +74,13 @@ export const ROUTES = {
   adminBanks: "/dashboard/admin/banks",
   /** Account administration: roles and hospital verification. */
   adminUsers: "/dashboard/admin/users",
+  /**
+   * Staff profile for an administrator.
+   *
+   * Admins previously had no profile screen at all, which is why they had
+   * nowhere to show a pass; this gives them the same one every other role has.
+   */
+  adminProfile: "/dashboard/admin-profile",
 } as const satisfies Record<string, Href>;
 
 /**

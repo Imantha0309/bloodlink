@@ -16,7 +16,7 @@
  */
 
 import { ApiError } from "@/services/api/errors";
-import { apiRequest, setAuthToken } from "@/services/api/client";
+import { apiRequest, apiUpload, setAuthToken } from "@/services/api/client";
 import { clearSession, loadSession, saveSession } from "@/services/auth/session";
 import {
   USER_ROLES,
@@ -26,6 +26,7 @@ import {
   type DonorProfileInput,
   type SignInInput,
   type SignUpInput,
+  type UpdateProfileInput,
   type UserRole,
 } from "@/services/auth/types";
 
@@ -69,6 +70,7 @@ function readUser(value: unknown): AuthUser | null {
       typeof candidate.isDonorEligible === "boolean"
         ? candidate.isDonorEligible
         : candidate.role === "donor" || bloodGroup !== null,
+    avatarUrl: readText(candidate.avatarUrl),
   };
 }
 
@@ -160,6 +162,51 @@ export class HttpAuthService implements AuthService {
     });
 
     return this.requireUser(user, "Could not refresh the recipient profile.");
+  }
+
+  async updateProfile(input: UpdateProfileInput): Promise<AuthUser> {
+    const body: Record<string, unknown> = {};
+    if (input.fullName !== undefined) body.fullName = input.fullName.trim();
+    if (input.email !== undefined) body.email = input.email ? input.email.trim() : null;
+    if (input.mobile !== undefined) body.mobile = input.mobile ? input.mobile.trim() : null;
+    if (input.district !== undefined) body.district = input.district ? input.district.trim() : null;
+    if (input.bloodGroup !== undefined) body.bloodGroup = input.bloodGroup ? input.bloodGroup.trim() : null;
+
+    const { user } = await apiRequest<{ user: unknown }>("/auth/me", {
+      method: "PATCH",
+      body,
+    });
+
+    const updatedUser = this.requireUser(user, "Could not update your profile.");
+    const currentSession = await loadSession();
+    if (currentSession !== null) {
+      await this.persist({ ...currentSession, user: updatedUser });
+    }
+    return updatedUser;
+  }
+
+  async uploadAvatar(imageUri: string): Promise<AuthUser> {
+    const formData = new FormData();
+    const filename = imageUri.split("/").pop() || "avatar.jpg";
+    const match = /\.(\w+)$/.exec(filename);
+    const ext = match ? match[1].toLowerCase() : "jpg";
+    const type = ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg";
+
+    formData.append("avatar", {
+      uri: imageUri,
+      name: filename,
+      type,
+    } as unknown as Blob);
+
+    const { user } = await apiUpload<{ user: unknown }>("/auth/me/avatar", formData);
+    const updatedUser = this.requireUser(user, "Could not upload profile picture.");
+
+    const currentSession = await loadSession();
+    if (currentSession !== null) {
+      await this.persist({ ...currentSession, user: updatedUser });
+    }
+
+    return updatedUser;
   }
 
   /**

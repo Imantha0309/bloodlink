@@ -9,9 +9,8 @@ import { SelectField } from "@/components/ui/select-field";
 import { Surface } from "@/constants/colors";
 import { DISTRICTS } from "@/constants/districts";
 import { Radius } from "@/constants/radius";
-import { ROLE_HOME } from "@/constants/routes";
 import { Typography } from "@/constants/typography";
-import { useAuthBack } from "@/hooks/use-auth-back";
+import { useHomeBack } from "@/hooks/use-home-back";
 import { useAuth } from "@/providers/auth-provider";
 import { apiErrorMessage } from "@/services/api/errors";
 
@@ -27,7 +26,7 @@ import { apiErrorMessage } from "@/services/api/errors";
 export default function LocationScreen() {
   const router = useRouter();
   const { session, updateRecipientDistrict } = useAuth();
-  const onBack = useAuthBack(ROLE_HOME[session?.user.role ?? "recipient"]);
+  const onBack = useHomeBack();
 
   const isRecipient = session?.user.role === "recipient";
   const initialDistrict = session?.user.district ?? null;

@@ -1,7 +1,8 @@
 import { Feather } from "@expo/vector-icons";
 import type { ReactNode } from "react";
-import { forwardRef } from "react";
+import { forwardRef, useState } from "react";
 import {
+  Pressable,
   StyleSheet,
   Text,
   TextInput,
@@ -13,24 +14,23 @@ import { Blood, Surface } from "@/constants/colors";
 import { ControlHeight, Radius } from "@/constants/radius";
 import { Typography } from "@/constants/typography";
 import { looksLikeEmail } from "@/utils/contact";
+import { haptics } from "@/utils/haptics";
 
 import { FieldError } from "./field-error";
 import { LkFlag } from "./lk-flag";
 
 const COUNTRY_CODE = "+94";
 
-const PLACEHOLDER = "077 123 4567 or name@mail.com";
+const PHONE_PLACEHOLDER = "077 123 4567";
+const EMAIL_PLACEHOLDER = "name@example.com";
 
-/**
- * Strips a country code the user typed or pasted, so it is not duplicated next
- * to the visible `+94` prefix. Requires a digit after the code, which keeps an
- * in-progress `9` -> `94` from being swallowed mid-keystroke.
- */
 const LEADING_COUNTRY_CODE = /^\s*\+?94(?=\d)/;
 
 function stripDuplicateCountryCode(value: string): string {
   return LEADING_COUNTRY_CODE.test(value) ? `0${value.replace(LEADING_COUNTRY_CODE, "")}` : value;
 }
+
+type Mode = "phone" | "email";
 
 type PhoneEmailInputProps = {
   label?: string;
@@ -40,27 +40,14 @@ type PhoneEmailInputProps = {
   onFocus?: () => void;
   onBlur?: () => void;
   editable?: boolean;
-  /**
-   * Rendered at the right of the label row. Defaults to the "Verified
-   * Network" pill; pass `null` to hide it.
-   */
   labelRight?: ReactNode;
-  /** Forwarded so the screen can chain focus, e.g. submit on return. */
   onSubmitEditing?: () => void;
 };
 
-/**
- * One unified contact field that accepts either a Sri Lankan mobile number or
- * an email address.
- *
- * The `+94` prefix is presentational: it is dropped as soon as the value
- * cannot be a mobile number (typing a letter or `@`), and the real payload is
- * normalised in `@/utils/contact` rather than assembled from the prefix here.
- */
 export const PhoneEmailInput = forwardRef<RNTextInput, PhoneEmailInputProps>(
   function PhoneEmailInput(
     {
-      label = "Email or Mobile Number",
+      label = "Sign In With",
       value,
       onChangeText,
       error = null,
@@ -72,15 +59,62 @@ export const PhoneEmailInput = forwardRef<RNTextInput, PhoneEmailInputProps>(
     },
     ref,
   ) {
-    const isEmailMode = looksLikeEmail(value);
+    const isActuallyEmail = looksLikeEmail(value);
+    const [selectedMode, setSelectedMode] = useState<Mode>(isActuallyEmail ? "email" : "phone");
+
+    const effectiveMode: Mode = isActuallyEmail ? "email" : selectedMode;
+    const isEmailMode = effectiveMode === "email";
     const hasError = error !== null;
+
+    function handleSwitchMode(mode: Mode) {
+      if (mode !== selectedMode) {
+        haptics.selection();
+        setSelectedMode(mode);
+      }
+    }
 
     return (
       <View>
         <View style={styles.labelRow}>
           <Text style={styles.label}>{label}</Text>
-
           {labelRight === undefined ? <VerifiedNetworkBadge /> : labelRight}
+        </View>
+
+        {/* Mode Selector Tabs */}
+        <View style={styles.tabContainer}>
+          <Pressable
+            accessibilityRole="tab"
+            accessibilityLabel="Mobile Number"
+            accessibilityState={{ selected: !isEmailMode }}
+            onPress={() => handleSwitchMode("phone")}
+            style={[styles.tabButton, !isEmailMode && styles.tabButtonActive]}
+          >
+            <Feather
+              name="phone"
+              size={12}
+              color={!isEmailMode ? Blood.primary : Surface.textMuted}
+            />
+            <Text style={[styles.tabText, !isEmailMode && styles.tabTextActive]}>
+              Mobile Number
+            </Text>
+          </Pressable>
+
+          <Pressable
+            accessibilityRole="tab"
+            accessibilityLabel="Email Address"
+            accessibilityState={{ selected: isEmailMode }}
+            onPress={() => handleSwitchMode("email")}
+            style={[styles.tabButton, isEmailMode && styles.tabButtonActive]}
+          >
+            <Feather
+              name="mail"
+              size={12}
+              color={isEmailMode ? Blood.primary : Surface.textMuted}
+            />
+            <Text style={[styles.tabText, isEmailMode && styles.tabTextActive]}>
+              Email Address
+            </Text>
+          </Pressable>
         </View>
 
         <View
@@ -90,15 +124,15 @@ export const PhoneEmailInput = forwardRef<RNTextInput, PhoneEmailInputProps>(
             hasError && styles.fieldError,
           ]}
         >
-          {isEmailMode ? null : (
+          {isEmailMode ? (
+            <View style={styles.emailIconWrap}>
+              <Feather name="mail" size={15} color={Surface.textMuted} />
+            </View>
+          ) : (
             <>
               <View style={styles.prefix}>
                 <LkFlag width={24} decorative />
-
                 <Text style={styles.countryCode}>{COUNTRY_CODE}</Text>
-
-                {/* Country codes are fixed for now, so the chevron is
-                    decorative rather than a dead menu. */}
                 <Feather
                   name="chevron-down"
                   size={13}
@@ -107,7 +141,6 @@ export const PhoneEmailInput = forwardRef<RNTextInput, PhoneEmailInputProps>(
                   importantForAccessibility="no"
                 />
               </View>
-
               <View style={styles.divider} />
             </>
           )}
@@ -115,22 +148,22 @@ export const PhoneEmailInput = forwardRef<RNTextInput, PhoneEmailInputProps>(
           <TextInput
             ref={ref}
             value={value}
-            onChangeText={(next) => onChangeText(stripDuplicateCountryCode(next))}
+            onChangeText={(next) => onChangeText(isEmailMode ? next : stripDuplicateCountryCode(next))}
             onFocus={onFocus}
             onBlur={onBlur}
             onSubmitEditing={onSubmitEditing}
             editable={editable}
-            placeholder={PLACEHOLDER}
+            placeholder={isEmailMode ? EMAIL_PLACEHOLDER : PHONE_PLACEHOLDER}
             placeholderTextColor={Surface.textMuted}
             style={styles.input}
             keyboardType={isEmailMode ? "email-address" : "phone-pad"}
             autoCapitalize="none"
             autoCorrect={false}
-            autoComplete="username"
-            textContentType="username"
+            autoComplete={isEmailMode ? "email" : "tel"}
+            textContentType={isEmailMode ? "emailAddress" : "telephoneNumber"}
             returnKeyType="next"
-            accessibilityLabel={label}
-            accessibilityHint="Enter your email address or mobile number"
+            accessibilityLabel={isEmailMode ? "Email Address" : "Mobile Number"}
+            accessibilityHint={isEmailMode ? "Enter your email address" : "Enter your mobile phone number"}
             selectionColor={Blood.primary}
           />
         </View>
@@ -141,12 +174,10 @@ export const PhoneEmailInput = forwardRef<RNTextInput, PhoneEmailInputProps>(
   },
 );
 
-/** Small reassurance pill at the right of the contact label. */
 function VerifiedNetworkBadge() {
   return (
     <View style={styles.badge} accessible accessibilityLabel="Verified network">
       <Feather name="shield" size={11} color={Blood.dark} />
-
       <Text style={styles.badgeText}>Verified Network</Text>
     </View>
   );
@@ -157,7 +188,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 8,
+    marginBottom: 6,
     gap: 8,
   },
 
@@ -184,6 +215,45 @@ const styles = StyleSheet.create({
     color: Blood.dark,
   },
 
+  tabContainer: {
+    flexDirection: "row",
+    backgroundColor: Surface.border,
+    borderRadius: Radius.field,
+    padding: 3,
+    marginBottom: 8,
+    gap: 4,
+  },
+
+  tabButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 7,
+    borderRadius: Radius.field - 2,
+    gap: 6,
+  },
+
+  tabButtonActive: {
+    backgroundColor: Surface.card,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+
+  tabText: {
+    fontSize: 12,
+    fontWeight: "500",
+    color: Surface.textMuted,
+  },
+
+  tabTextActive: {
+    color: Blood.primary,
+    fontWeight: "600",
+  },
+
   field: {
     flexDirection: "row",
     alignItems: "center",
@@ -196,13 +266,18 @@ const styles = StyleSheet.create({
     borderColor: Surface.border,
   },
 
-  /** Email values need the full width, so the prefix row is not reserved. */
   fieldEmailMode: {
-    paddingLeft: 14,
+    paddingLeft: 12,
   },
 
   fieldError: {
     borderColor: Surface.danger,
+  },
+
+  emailIconWrap: {
+    alignItems: "center",
+    justifyContent: "center",
+    width: 24,
   },
 
   prefix: {
@@ -226,7 +301,6 @@ const styles = StyleSheet.create({
     ...Typography.input,
     flex: 1,
     color: Surface.text,
-    // Android adds its own vertical padding that breaks the fixed height.
     paddingVertical: 0,
   },
 });

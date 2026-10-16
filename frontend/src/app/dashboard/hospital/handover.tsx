@@ -10,11 +10,11 @@ import { AsyncState } from "@/components/ui/async-state";
 import { OptionChips } from "@/components/ui/option-chips";
 import { SkeletonCard } from "@/components/ui/skeleton";
 import { TextField } from "@/components/ui/text-field";
+import { KeyboardDismissView } from "@/components/ui/keyboard-dismiss";
 import { Blood, Surface } from "@/constants/colors";
 import { Radius } from "@/constants/radius";
-import { ROUTES } from "@/constants/routes";
 import { Typography } from "@/constants/typography";
-import { useAuthBack } from "@/hooks/use-auth-back";
+import { useHomeBack } from "@/hooks/use-home-back";
 import { useAuth } from "@/providers/auth-provider";
 import { apiErrorMessage } from "@/services/api/errors";
 import {
@@ -42,7 +42,7 @@ const SHIFT_OPTIONS = [
  */
 export default function HospitalHandoverScreen() {
   const insets = useSafeAreaInsets();
-  const onBack = useAuthBack(ROUTES.hospitalProfile);
+  const onBack = useHomeBack();
   const { session } = useAuth();
 
   const [handovers, setHandovers] = useState<ShiftHandover[] | null>(null);
@@ -127,7 +127,7 @@ export default function HospitalHandoverScreen() {
   const district = session?.user.district ?? null;
 
   return (
-    <View style={styles.root}>
+    <KeyboardDismissView style={styles.root}>
       <StepHeader title="Shift Handover Log" onBack={onBack} />
 
       <ScrollView
@@ -235,7 +235,7 @@ export default function HospitalHandoverScreen() {
           </View>
         </AsyncState>
       </ScrollView>
-    </View>
+    </KeyboardDismissView>
   );
 }
 

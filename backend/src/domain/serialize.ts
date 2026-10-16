@@ -49,6 +49,8 @@ export type RequestRowExtras = {
   donorResponse?: DonorResponse | null;
   donorStage?: DonationStage | null;
   acceptedByOtherDonor?: boolean;
+  /** A donor was matched to this request by staff reading their pass at a desk. */
+  donorMatchedOnBehalf?: boolean;
 };
 
 /**
@@ -76,9 +78,12 @@ export function requestRow(
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
     isAnonymous: doc.requester === null || doc.requester === undefined,
+    /** Lets the client show owner-only affordances (edit/cancel); the API still enforces them. */
+    requesterId: doc.requester === null || doc.requester === undefined ? null : String(doc.requester),
     donorResponse: extras.donorResponse ?? null,
     donorStage: extras.donorStage ?? null,
     acceptedByOtherDonor: extras.acceptedByOtherDonor ?? false,
+    donorMatchedOnBehalf: extras.donorMatchedOnBehalf ?? false,
   };
 }
 
@@ -114,7 +119,30 @@ type UserFields = {
   bloodGroup?: string | null;
   station?: string | null;
   wardLabel?: string | null;
+  avatarUrl?: string | null;
 };
+
+/**
+ * The identity behind a scanned pass, as `ResolvedPass`.
+ *
+ * Deliberately narrower than `authUserRow`. A pass is shown to whoever scans it,
+ * so it carries only what identifies a person at a desk — name, role, and the
+ * station or district they work in. Contact details are not included: a pass is
+ * not a way to lift someone's email or phone number off them.
+ */
+export function passOwnerRow(user: UserFields & { isVerified?: boolean }): Record<string, unknown> {
+  return {
+    id: String(user._id),
+    fullName: user.fullName,
+    role: user.role,
+    bloodGroup: user.bloodGroup ?? null,
+    district: user.district ?? null,
+    station: user.station ?? null,
+    wardLabel: user.wardLabel ?? null,
+    isVerified: user.isVerified ?? false,
+    avatarUrl: user.avatarUrl ?? null,
+  };
+}
 
 /**
  * The signed-in user, as `AuthUser`.
@@ -140,6 +168,7 @@ export function authUserRow(user: UserFields): Record<string, unknown> {
     bloodGroup,
     station: user.station ?? null,
     wardLabel: user.wardLabel ?? null,
+    avatarUrl: user.avatarUrl ?? null,
     // A recipient who has set a blood group can donate as well, which is what
     // every donor-facing query in the old SQL keyed off.
     isDonorEligible: user.role === "donor" || (user.role === "recipient" && bloodGroup !== null),
@@ -170,6 +199,7 @@ export function adminUserRow(user: AdminUserFields): Record<string, unknown> {
     bloodGroup: user.bloodGroup ?? null,
     registrationNumber: user.registrationNumber ?? null,
     isVerified: user.isVerified === true,
+    avatarUrl: user.avatarUrl ?? null,
     createdAt: user.createdAt,
   };
 }

@@ -31,7 +31,6 @@ export const ValidationMessages = {
   confirmPasswordMismatch: "Passwords do not match.",
   termsRequired: "Please accept the terms to continue.",
   bloodGroupRequired: "Select a blood group.",
-  otpInvalid: "Enter the 6-digit code.",
   districtRequired: "Select your district.",
   unitsInvalid: "Enter a number of units between 1 and 20.",
   hospitalRequired: "Please enter the hospital.",
@@ -94,10 +93,6 @@ export function validateFullName(value: string): string | null {
   }
 
   return trimmed.length < 2 ? ValidationMessages.fullNameShort : null;
-}
-
-export function validateOtpCode(value: string): string | null {
-  return /^\d{6}$/.test(value.trim()) ? null : ValidationMessages.otpInvalid;
 }
 
 export function validateUnits(value: string): string | null {
@@ -275,8 +270,4 @@ export function validateEmergencyForm(values: EmergencyFormValues): EmergencyFor
     contactMobile: validateContact(values.contactMobile),
     notes: values.notes.length > 500 ? ValidationMessages.notesTooLong : null,
   };
-}
-
-export function hasEmergencyErrors(errors: EmergencyFormErrors): boolean {
-  return hasFieldErrors(errors);
 }

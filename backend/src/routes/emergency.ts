@@ -23,7 +23,7 @@ import {
   notifyRequesterOfStatus,
 } from "../domain/alerts";
 import { donorsForRecipient, isBloodGroup, isDonorEligible, requestsForDonor } from "../domain/compatibility";
-import { assertTransition } from "../domain/lifecycle";
+import { assertTransition, isResponseMutable } from "../domain/lifecycle";
 import { requestRow } from "../domain/serialize";
 import { asyncHandler, fail } from "../http";
 import { currentUser, optionalAuth, requireAuth } from "../middleware/auth";
@@ -32,7 +32,7 @@ import { DonorAvailability } from "../models/donor-availability";
 import { DonorRequestResponse } from "../models/donor-request-response";
 import { EmergencyRequest, type EmergencyRequestDoc } from "../models/emergency-request";
 import { URGENCY_LEVELS, type UrgencyLevel } from "../models/shared";
-import type { UserDoc } from "../models/user";
+import { User, type UserDoc } from "../models/user";
 
 export const emergencyRouter = Router();
 
@@ -65,7 +65,46 @@ const statusSchema = z.object({
   status: z.enum(["pending", "verified", "fulfilled", "cancelled"]),
 });
 
+/**
+ * Clinical fields a request owner may change, restricted to the subset of
+ * `createSchema` that describes the situation rather than the paperwork.
+ *
+ * `district` and `registrationNumber` are deliberately absent: they come from the
+ * account, so letting a requester rewrite them would let them re-scope a request
+ * into another hospital's district. Reusing `createSchema`'s shapes keeps the
+ * create and edit messages identical, because they should be.
+ */
+const editDetailsSchema = createSchema
+  .pick({
+    patientName: true,
+    bloodGroup: true,
+    units: true,
+    hospital: true,
+    contactName: true,
+    contactMobile: true,
+    urgency: true,
+    notes: true,
+  })
+  .partial()
+  .refine((value) => Object.values(value).some((field) => field !== undefined), {
+    message: "Change at least one field before saving.",
+  });
+
 const responseSchema = z.object({
+  response: z.enum(["accepted", "declined"]),
+});
+
+/**
+ * A response recorded at a desk, on behalf of a donor the staff member scanned.
+ *
+ * The body carries the *pass*, not a donor id. That is the whole security model:
+ * the client cannot name who it is responding for, so staff can only act for a
+ * donor whose pass they physically read — and the same hash `/pass/resolve`
+ * already takes is what identifies them. Naming a donor directly would let any
+ * verified hospital account commit any account in the country to a donation.
+ */
+const onBehalfResponseSchema = z.object({
+  tokenHash: z.string().trim().min(1),
   response: z.enum(["accepted", "declined"]),
 });
 
@@ -91,11 +130,32 @@ emergencyRouter.get(
   asyncHandler(async (req, res) => {
     const user = currentUser(req);
 
-    /** The requests this user raised, which is its own list for a recipient. */
-    const ownRequests = async () =>
-      (await EmergencyRequest.find({ requester: user._id }).sort({ createdAt: -1 })).map((row) =>
-        requestRow(row),
-      );
+    /**
+     * The requests this user raised, which is its own list for a recipient.
+     *
+     * Also annotates whether a donor was matched to each one at a desk — a
+     * response carrying `recordedBy` means staff accepted for a donor whose pass
+     * they scanned. Derived from the responses rather than a match table, so
+     * there is nothing extra to write when a match happens.
+     */
+    const ownRequests = async () => {
+      const rows = await EmergencyRequest.find({ requester: user._id }).sort({ createdAt: -1 });
+
+      if (rows.length === 0) {
+        return [];
+      }
+
+      const matched = await DonorRequestResponse.find({
+        request: { $in: rows.map((row) => row._id) },
+        recordedBy: { $ne: null },
+      })
+        .select("request")
+        .lean();
+
+      const matchedIds = new Set(matched.map((entry) => String(entry.request)));
+
+      return rows.map((row) => requestRow(row, { donorMatchedOnBehalf: matchedIds.has(String(row._id)) }));
+    };
 
     if (req.query.mine === "true") {
       res.json({ requests: await ownRequests() });
@@ -241,50 +301,166 @@ emergencyRouter.get(
 /* ------------------------------------------------------------------- status */
 
 /**
- * Moves a request to a new status.
+ * Clinical edits by the request's owner.
  *
- * Two callers reach this: the owner, who may only cancel their own request, and
- * verified staff, who may review the queue. Everything else — a terminal state,
- * a no-op, a donor trying to verify — is refused with wording that says which.
+ * Split from the status transition on purpose: a status change moves a request
+ * through its lifecycle and may notify donors, while this changes the request
+ * underneath them. Two rules define the boundary.
+ *
+ * Only the owner, and only while pending. Once `verified` the request has been
+ * broadcast, so changing the units or the hospital would contradict what donors
+ * were notified about — the honest fix is cancel and re-raise. Anonymous requests
+ * carry no owner at all, so there is nobody to authorise.
  */
+emergencyRouter.patch(
+  "/:id/details",
+  requireAuth,
+  validateBody(editDetailsSchema),
+  asyncHandler(async (req, res) => {
+    const user = currentUser(req);
+    const input = req.body as z.infer<typeof editDetailsSchema>;
+
+    const request = await findRequest(param(req, "id"));
+
+    if (request.requester === null || !ownsRequest(user, request.requester)) {
+      throw fail.unauthorized("Only the recipient who raised this request can edit it.");
+    }
+
+    if (request.status !== "pending") {
+      throw fail.conflict(
+        request.status === "verified"
+          ? "This request is live. Cancel it and raise a new one if the details changed."
+          : "A closed request cannot be edited.",
+      );
+    }
+
+    if (input.bloodGroup !== undefined && !isBloodGroup(input.bloodGroup)) {
+      throw fail.validation("Choose a valid blood group.", {
+        bloodGroup: "Choose a valid blood group.",
+      });
+    }
+
+    if (input.patientName !== undefined) request.patientName = input.patientName;
+    if (input.bloodGroup !== undefined) request.bloodGroup = input.bloodGroup;
+    if (input.units !== undefined) request.units = input.units;
+    if (input.hospital !== undefined) request.hospital = input.hospital;
+    if (input.contactName !== undefined) request.contactName = input.contactName;
+    if (input.contactMobile !== undefined) request.contactMobile = input.contactMobile;
+    if (input.urgency !== undefined) request.urgency = input.urgency;
+    if (input.notes !== undefined) request.notes = input.notes ?? null;
+
+    await request.save();
+
+    res.json({ request: requestRow(request) });
+  }),
+);
+
+const patchEmergencySchema = z
+  .object({
+    status: z.enum(["pending", "verified", "fulfilled", "cancelled"]).optional(),
+    patientName: z.string().trim().min(2, "Enter the patient's name.").optional(),
+    bloodGroup: z.string().trim().optional(),
+    units: z.number().int().min(1, "At least one unit is needed.").max(20, "That is more than one request can carry.").optional(),
+    hospital: z.string().trim().min(2, "Enter the hospital.").optional(),
+    contactName: z.string().trim().min(2, "Enter a contact name.").optional(),
+    contactMobile: z.string().trim().min(6, "Enter a contact number.").optional(),
+    urgency: z.enum(URGENCY_LEVELS).optional(),
+    notes: z.string().trim().nullable().optional(),
+  })
+  .refine(
+    (value) => value.status !== undefined || Object.entries(value).some(([k, v]) => k !== "status" && v !== undefined),
+    { message: "Provide a status or at least one clinical field to update." },
+  );
+
 emergencyRouter.patch(
   "/:id",
   requireAuth,
-  validateBody(statusSchema),
+  validateBody(patchEmergencySchema),
   asyncHandler(async (req, res) => {
     const user = currentUser(req);
-    const { status: next } = req.body as z.infer<typeof statusSchema>;
+    const input = req.body as z.infer<typeof patchEmergencySchema>;
 
-    const session = await mongoose.startSession();
+    const hasClinicalFields =
+      input.patientName !== undefined ||
+      input.bloodGroup !== undefined ||
+      input.units !== undefined ||
+      input.hospital !== undefined ||
+      input.contactName !== undefined ||
+      input.contactMobile !== undefined ||
+      input.urgency !== undefined ||
+      input.notes !== undefined;
 
-    try {
-      const updated = await session.withTransaction(async () => {
-        const request = await findRequest(param(req, "id"), session);
+    if (hasClinicalFields) {
+      const request = await findRequest(param(req, "id"));
 
-        const ownerMayCancel = next === "cancelled" && ownsRequest(user, request.requester);
+      if (request.requester === null || !ownsRequest(user, request.requester)) {
+        throw fail.unauthorized("Only the recipient who raised this request can edit it.");
+      }
 
-        if (!ownerMayCancel) {
-          assertStaff(user);
-        }
+      if (request.status !== "pending") {
+        throw fail.conflict(
+          request.status === "verified"
+            ? "This request is live. Cancel it and raise a new one if the details changed."
+            : "A closed request cannot be edited.",
+        );
+      }
 
-        assertTransition(request.status, next);
+      if (input.bloodGroup !== undefined && !isBloodGroup(input.bloodGroup)) {
+        throw fail.validation("Choose a valid blood group.", {
+          bloodGroup: "Choose a valid blood group.",
+        });
+      }
 
-        request.status = next;
-        await request.save({ session });
+      if (input.patientName !== undefined) request.patientName = input.patientName;
+      if (input.bloodGroup !== undefined) request.bloodGroup = input.bloodGroup;
+      if (input.units !== undefined) request.units = input.units;
+      if (input.hospital !== undefined) request.hospital = input.hospital;
+      if (input.contactName !== undefined) request.contactName = input.contactName;
+      if (input.contactMobile !== undefined) request.contactMobile = input.contactMobile;
+      if (input.urgency !== undefined) request.urgency = input.urgency;
+      if (input.notes !== undefined) request.notes = input.notes ?? null;
 
-        if (next === "verified") {
-          await notifyCompatibleDonors(request, session);
-        }
+      if (input.status === undefined) {
+        await request.save();
+        return res.json({ request: requestRow(request) });
+      }
 
-        await notifyRequesterOfStatus(request, next, session);
-        await notifyAcceptedDonorOfStatus(request, next, session);
+      await request.save();
+    }
 
-        return request;
-      });
+    if (input.status !== undefined) {
+      const next = input.status;
+      const session = await mongoose.startSession();
 
-      res.json({ request: requestRow(updated) });
-    } finally {
-      await session.endSession();
+      try {
+        const updated = await session.withTransaction(async () => {
+          const request = await findRequest(param(req, "id"), session);
+
+          const ownerMayCancel = next === "cancelled" && ownsRequest(user, request.requester);
+
+          if (!ownerMayCancel) {
+            assertStaff(user);
+          }
+
+          assertTransition(request.status, next);
+
+          request.status = next;
+          await request.save({ session });
+
+          if (next === "verified") {
+            await notifyCompatibleDonors(request, session);
+          }
+
+          await notifyRequesterOfStatus(request, next, session);
+          await notifyAcceptedDonorOfStatus(request, next, session);
+
+          return request;
+        });
+
+        res.json({ request: requestRow(updated) });
+      } finally {
+        await session.endSession();
+      }
     }
   }),
 );
@@ -344,6 +520,97 @@ emergencyRouter.post(
   }),
 );
 
+/**
+ * Records a response for a donor whose pass the caller just scanned.
+ *
+ * A recipient gets the read-only match list but not this: a third party
+ * committing someone else to a donation is a hospital desk action, which is why
+ * the role check below is `hospital` and not `assertStaff` (the latter also lets
+ * an admin through, since `isStaff` admits `admin`).
+ *
+ * The donor is resolved from the pass rather than named by the client, so this
+ * cannot be used to act for anyone whose pass the caller has not read. The donor
+ * themself is never told — an acceptance recorded here shows up in their journey
+ * and on the requester's dashboard, which is the honest record of what happened.
+ */
+emergencyRouter.post(
+  "/:id/response/on-behalf",
+  requireAuth,
+  validateBody(onBehalfResponseSchema),
+  asyncHandler(async (req, res) => {
+    const user = currentUser(req);
+    const { tokenHash, response: decision } = req.body as z.infer<typeof onBehalfResponseSchema>;
+
+    if (user.role !== "hospital") {
+      throw fail.conflict("Only hospital staff can record a response on a donor's behalf.");
+    }
+
+    assertStaff(user);
+
+    const session = await mongoose.startSession();
+
+    try {
+      const created = await session.withTransaction(async () => {
+        const request = await findRequest(param(req, "id"), session);
+
+        // Same coarse failure as `/pass/resolve`: a wrong, retired and expired
+        // pass are indistinguishable, so this cannot enumerate pass secrets.
+        const donor = await User.findOne({ passTokenHash: tokenHash })
+          .select("+passTokenHash")
+          .session(session);
+
+        if (
+          donor === null ||
+          donor.passTokenExpiresAt === null ||
+          donor.passTokenExpiresAt.getTime() <= Date.now()
+        ) {
+          throw fail.conflict("This pass is invalid or has expired.");
+        }
+
+        if (String(donor._id) === String(user._id)) {
+          throw fail.conflict("That is your own pass — respond to the request from your dashboard.");
+        }
+
+        await assertCanRespond(donor, request, decision, session, undefined, false);
+
+        const existing = await DonorRequestResponse.findOne({
+          request: request._id,
+          donor: donor._id,
+        }).session(session);
+
+        if (existing !== null) {
+          throw fail.conflict("That donor has already responded to this request.");
+        }
+
+        const [row] = await DonorRequestResponse.create(
+          [
+            {
+              request: request._id,
+              donor: donor._id,
+              response: decision,
+              stage: "accepted",
+              recordedBy: user._id,
+            },
+          ],
+          { session },
+        );
+
+        if (decision === "accepted") {
+          // The donor, not the staff member — the requester is being told who is
+          // coming, and the alert body already names them.
+          await notifyRequesterOfAcceptance(request, donor, session);
+        }
+
+        return { response: row.response };
+      });
+
+      res.status(201).json({ created });
+    } finally {
+      await session.endSession();
+    }
+  }),
+);
+
 /** Changes an existing response, while the donor has not started travelling. */
 emergencyRouter.put(
   "/:id/response",
@@ -368,7 +635,7 @@ emergencyRouter.put(
           throw fail.conflict("You have not responded to this request yet.");
         }
 
-        if (existing.stage !== "accepted") {
+        if (!isResponseMutable(existing.stage)) {
           throw fail.conflict("You have already started travelling for this request.");
         }
 
@@ -408,7 +675,7 @@ emergencyRouter.delete(
       throw fail.conflict("You have not responded to this request.");
     }
 
-    if (existing.stage !== "accepted") {
+    if (!isResponseMutable(existing.stage)) {
       throw fail.conflict("A response cannot be removed once you have started travelling.");
     }
 
@@ -439,25 +706,32 @@ async function findRequest(
 }
 
 /**
- * Everything that has to hold before a donor's decision can be stored.
+ * Whether `donor` may put `decision` on `request`.
  *
- * `ignoreResponseId` is how an update excludes the row being changed from the
- * "another donor already accepted" test — without it, re-saving an existing
- * acceptance would find itself and refuse.
+ * Takes the donor as an argument rather than reading `currentUser(req)`, because
+ * two callers act for different people: a donor responding for themselves, and
+ * hospital staff recording a response for a donor whose pass they scanned. Every
+ * check below therefore has to be about `donor`, never about the caller — the
+ * whole point of the on-behalf route is that the caller's own blood group is
+ * irrelevant.
  */
 async function assertCanRespond(
-  user: UserDoc,
+  donor: UserDoc,
   request: EmergencyRequestDoc,
   decision: "accepted" | "declined",
   session: mongoose.ClientSession,
   ignoreResponseId?: unknown,
+  /** Whether `donor` is the caller. Only picks the wording of the messages — the checks are identical either way. */
+  isSelf = true,
 ): Promise<void> {
   if (request.status !== "pending" && request.status !== "verified") {
     throw fail.conflict("This request is no longer accepting responses.");
   }
 
-  if (!isDonorEligible(user.role, user.bloodGroup)) {
-    throw fail.conflict("Only donors can respond to a request.");
+  if (!isDonorEligible(donor.role, donor.bloodGroup)) {
+    throw fail.conflict(
+      isSelf ? "Only donors can respond to a request." : "That account is not a donor, so it cannot be recorded.",
+    );
   }
 
   // Declining is always allowed once eligible — the rules below exist to stop an
@@ -466,14 +740,22 @@ async function assertCanRespond(
     return;
   }
 
-  const availability = await DonorAvailability.findOne({ userId: user._id }).session(session);
+  const availability = await DonorAvailability.findOne({ userId: donor._id }).session(session);
 
   if (availability?.isAvailable !== true) {
-    throw fail.conflict("Turn your availability back on to accept a request.");
+    throw fail.conflict(
+      isSelf
+        ? "Turn your availability back on to accept a request."
+        : "That donor has their availability switched off, so they cannot be recorded as accepted.",
+    );
   }
 
-  if (!isBloodGroup(user.bloodGroup) || !donorsForRecipient(request.bloodGroup).includes(user.bloodGroup)) {
-    throw fail.conflict("This request is not compatible with your blood group.");
+  if (!isBloodGroup(donor.bloodGroup) || !donorsForRecipient(request.bloodGroup).includes(donor.bloodGroup)) {
+    throw fail.conflict(
+      isSelf
+        ? "This request is not compatible with your blood group."
+        : "This request is not compatible with that donor's blood group.",
+    );
   }
 
   const accepted = await DonorRequestResponse.findOne({

@@ -3,7 +3,6 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ComponentProps } from "react";
 import {
-  Alert,
   Image,
   Linking,
   Modal,
@@ -19,10 +18,10 @@ import { DashboardTabBar, type DashboardTabKey } from "@/components/dashboard/da
 import { MapPreview } from "@/components/emergency/map-preview";
 import { StepHeader } from "@/components/emergency/step-header";
 import { AsyncState } from "@/components/ui/async-state";
-import type { BloodGroup } from "@/constants/blood-groups";
+import { useConfirm } from "@/components/ui/confirm-provider";
 import { REQUEST_STATUS_META, URGENCY_OPTIONS } from "@/constants/emergency";
 import { DASHBOARD_TABS, ROUTES } from "@/constants/routes";
-import { useAuthBack } from "@/hooks/use-auth-back";
+import { useHomeBack } from "@/hooks/use-home-back";
 import { useAuth } from "@/providers/auth-provider";
 import { apiErrorMessage } from "@/services/auth";
 import {
@@ -33,6 +32,8 @@ import {
   type EmergencyRequestDetail,
 } from "@/services/requests/emergency-requests";
 import { buildRequestTimeline, isRequestLive } from "@/utils/request-timeline";
+import { wardOf } from "@/utils/request-ward";
+import type { BloodGroup } from "@/constants/blood-groups";
 import { referenceFor } from "@/utils/reference";
 import { timeAgo } from "@/utils/time";
 
@@ -86,8 +87,9 @@ type Callout = {
 
 export default function RequestStatusScreen() {
   const router = useRouter();
-  const onBack = useAuthBack(DASHBOARD_TABS.requests);
+  const onBack = useHomeBack();
   const { session } = useAuth();
+  const { confirm } = useConfirm();
 
   const params = useLocalSearchParams<{ id?: string }>();
   const initialId = typeof params.id === "string" && params.id !== "" ? params.id : null;
@@ -254,13 +256,7 @@ export default function RequestStatusScreen() {
           ? "FULFILLED REQUEST"
           : "CANCELLED REQUEST";
 
-  const wardLine =
-    request === null
-      ? null
-      : ((request.notes ?? "")
-          .split("\n")
-          .map((line) => line.trim())
-          .find((line) => /^ward\b/i.test(line)) ?? null);
+  const wardLine = request === null ? null : wardOf(request.notes);
 
   const timeline =
     request === null
@@ -286,25 +282,25 @@ export default function RequestStatusScreen() {
     router.push(DASHBOARD_TABS[key]);
   }
 
-  function confirmCancelRequest() {
+  async function confirmCancelRequest() {
     if (detail === null) {
       return;
     }
 
-    Alert.alert(
-      "Cancel Request",
-      `Cancel request #BL-${referenceFor(detail.request.id)}? The hospital and any notified donors will see that it is withdrawn.`,
-      [
-        { text: "Keep Request", style: "cancel" },
-        {
-          text: "Cancel Request",
-          style: "destructive",
-          onPress: () => {
-            void cancelRequest();
-          },
-        },
-      ],
-    );
+    const approved = await confirm({
+      title: "Cancel Request",
+      message: `Cancel request #BL-${referenceFor(detail.request.id)}? The hospital and any notified donors will see that it is withdrawn.`,
+      cancelLabel: "Keep Request",
+      confirmLabel: "Cancel Request",
+      icon: "x-circle",
+      destructive: true,
+    });
+
+    if (!approved) {
+      return;
+    }
+
+    await cancelRequest();
   }
 
   async function cancelRequest() {
@@ -805,7 +801,9 @@ export default function RequestStatusScreen() {
                 {canCancel ? (
                   <Pressable
                     accessibilityRole="button"
-                    onPress={confirmCancelRequest}
+                    onPress={() => {
+                      void confirmCancelRequest();
+                    }}
                     style={({ pressed }) => [styles.dangerAction, pressed && styles.pressed]}
                   >
                     <Feather name="x-circle" size={11} color={C.primary} />
@@ -852,7 +850,12 @@ export default function RequestStatusScreen() {
         onRequestClose={() => setInfo(null)}
       >
         <Pressable style={styles.modalBackdrop} onPress={() => setInfo(null)}>
-          <Pressable style={styles.modalCard} onPress={(event) => event.stopPropagation()}>
+          {/* `Pressable`, not `View` — the card has to swallow the backdrop's
+              tap, and only a touchable receives the event to stop. */}
+          <Pressable
+            style={styles.modalCard}
+            onPress={(event) => event.stopPropagation()}
+          >
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle} numberOfLines={1}>
                 {info?.title ?? ""}

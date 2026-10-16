@@ -13,7 +13,7 @@ import {
   isBloodGroup,
 } from "@/constants/blood-groups";
 import { DASHBOARD_TABS, ROUTES } from "@/constants/routes";
-import { useAuthBack } from "@/hooks/use-auth-back";
+import { useHomeBack } from "@/hooks/use-home-back";
 import { useAuth } from "@/providers/auth-provider";
 
 /**
@@ -63,7 +63,7 @@ type InfoSheet = {
 export default function CompatibilityScreen() {
   const router = useRouter();
   const { session } = useAuth();
-  const onBack = useAuthBack(DASHBOARD_TABS.home);
+  const onBack = useHomeBack();
 
   const rawProfileGroup = session?.user.bloodGroup;
   const profileGroup: BloodGroup | null = isBloodGroup(rawProfileGroup) ? rawProfileGroup : null;
@@ -477,7 +477,12 @@ export default function CompatibilityScreen() {
         onRequestClose={() => setInfo(null)}
       >
         <Pressable style={styles.modalBackdrop} onPress={() => setInfo(null)}>
-          <Pressable style={styles.modalCard} onPress={(event) => event.stopPropagation()}>
+          {/* `Pressable`, not `View` — the card has to swallow the backdrop's
+              tap, and only a touchable receives the event to stop. */}
+          <Pressable
+            style={styles.modalCard}
+            onPress={(event) => event.stopPropagation()}
+          >
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle} numberOfLines={1}>
                 {info?.title ?? ""}

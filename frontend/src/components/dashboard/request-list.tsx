@@ -16,25 +16,20 @@ type RequestListProps = {
    * treatment. Presentation only — the server already decided what to return.
    */
   donorGroup?: BloodGroup | null;
-  /**
-   * Enables the Manage / Cancel actions on each card, for a recipient's own
-   * requests. Left off for donor and admin lists, which only read the queue.
-   */
+  canAccept?: boolean;
+  onDonorResponse?: (id: string, response: DonorResponse, isUpdate: boolean) => Promise<DonorResponse>;
+  onRemoveDonorResponse?: (id: string) => Promise<void>;
+  /** Forwarded to each card's trailing "Manage" affordance. */
+  onManage?: (request: EmergencyRequest) => void;
+  /** Forwarded to each card, which fires it after the server confirms an
+   *  accept. Donor screens point this at the journey tab. */
+  onAccepted?: () => void;
+  /** Adds the staff manage/edit/cancel affordances to each card. */
   isManageable?: boolean;
   /** Opens the edit form for a request. */
   onEdit?: (request: EmergencyRequest) => void;
   /** Cancels a request after confirmation; the list reports the outcome. */
   onCancel?: (request: EmergencyRequest) => Promise<void>;
-  /** Offers the accept/decline actions to a donor working the queue. */
-  canAccept?: boolean;
-  onDonorResponse?: (
-    id: string,
-    response: DonorResponse,
-    isUpdate: boolean,
-  ) => Promise<DonorResponse>;
-  onRemoveDonorResponse?: (id: string) => Promise<void>;
-  /** Forwarded to each card's trailing "Manage" affordance. */
-  onManage?: (request: EmergencyRequest) => void;
 };
 
 /** A triage list, or the "nothing here" note when it is empty. */
@@ -43,13 +38,14 @@ export function RequestList({
   emptyTitle = "Nothing to show",
   emptyMessage = "There are no requests here right now.",
   donorGroup = null,
-  isManageable = false,
-  onEdit,
-  onCancel,
   canAccept = true,
   onDonorResponse,
   onRemoveDonorResponse,
   onManage,
+  onAccepted,
+  isManageable = false,
+  onEdit,
+  onCancel,
 }: RequestListProps) {
   if (requests.length === 0) {
     return <EmptyNote title={emptyTitle} message={emptyMessage} />;
@@ -64,13 +60,14 @@ export function RequestList({
           key={request.id}
           request={request}
           matchesDonor={servable?.includes(request.bloodGroup) ?? false}
-          isManageable={isManageable}
-          onEdit={onEdit}
-          onCancel={onCancel}
           canAccept={canAccept}
           onDonorResponse={onDonorResponse}
           onRemoveDonorResponse={onRemoveDonorResponse}
           onManage={onManage === undefined ? undefined : () => onManage(request)}
+          onAccepted={onAccepted}
+          isManageable={isManageable}
+          onEdit={onEdit}
+          onCancel={onCancel}
         />
       ))}
     </View>

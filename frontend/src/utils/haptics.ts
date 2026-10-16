@@ -25,6 +25,13 @@ export const haptics = {
   /** Heavy confirmations — extraction complete, case completion. */
   heavy: () => fire(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy)),
 
+  /** Light tick for selection changes like tabs or segmented controls. */
+  selection: () => fire(() => Haptics.selectionAsync()),
+
+  /** Notification feedback — defaults to success. */
+  notification: (type: Haptics.NotificationFeedbackType = Haptics.NotificationFeedbackType.Success) =>
+    fire(() => Haptics.notificationAsync(type)),
+
   success: () => fire(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)),
 
   warning: () => fire(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning)),

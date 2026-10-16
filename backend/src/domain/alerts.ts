@@ -127,6 +127,7 @@ export async function notifyRequesterOfStatus(
   }
 
   const fulfilled = status === "fulfilled";
+  const verified = status === "verified";
 
   return insertAlerts(
     [
@@ -134,10 +135,16 @@ export async function notifyRequesterOfStatus(
         user: request.requester,
         type: fulfilled ? "request_fulfilled" : "status_change",
         request: request._id,
-        title: fulfilled ? "Request fulfilled" : "Request updated",
-        body: fulfilled
-          ? `${request.patientName}'s request was marked fulfilled. Thank you.`
-          : `${request.patientName}'s request is now ${status}.`,
+        title: verified
+          ? "Request Verified & Broadcast"
+          : fulfilled
+            ? "Request fulfilled"
+            : "Request updated",
+        body: verified
+          ? `${request.patientName}'s blood request has been verified by the hospital and broadcast to compatible donors.`
+          : fulfilled
+            ? `${request.patientName}'s request was marked fulfilled. Thank you.`
+            : `${request.patientName}'s request is now ${status}.`,
       },
     ],
     session,

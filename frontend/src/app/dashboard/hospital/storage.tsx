@@ -8,14 +8,15 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AsyncState } from "@/components/ui/async-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Blood, Elevation, Surface } from "@/constants/colors";
-import { BLOOD_STORAGE } from "@/constants/hospital-demo";
 import { BLOOD_GROUPS, type BloodGroup } from "@/constants/blood-groups";
+import { BLOOD_STORAGE } from "@/constants/hospital-demo";
 import { Radius } from "@/constants/radius";
 import { ROLE_HOME, ROUTES } from "@/constants/routes";
 import { Typography } from "@/constants/typography";
 import { useAuth } from "@/providers/auth-provider";
 import { useBloodStock } from "@/services/storage/blood-stock";
 import { apiErrorMessage } from "@/services/api/errors";
+import { useBloodStock } from "@/services/storage/blood-stock";
 import {
   type BloodComponent,
   type HospitalInventoryBank,
@@ -73,12 +74,10 @@ function toneFor(units: number): { tone: ReserveTone; tag: string } {
  * immediately. A unit sealed on the collection telemetry surfaces in the
  * fresh-intake strip through `@/services/storage/blood-stock`; the banner's
  * plant telemetry stays fixture copy.
- */
 export default function HospitalStorageScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { session } = useAuth();
-  const stock = useBloodStock();
 
   const [banks, setBanks] = useState<HospitalInventoryBank[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -835,40 +834,6 @@ const styles = StyleSheet.create({
     height: "100%",
     borderRadius: Radius.full,
     backgroundColor: Blood.primary,
-  },
-
-  /* ================= FRESH INTAKE ================= */
-
-  intake: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 10,
-    padding: 12,
-    borderRadius: Radius.field,
-    borderWidth: 1,
-    borderColor: Surface.softGreenBorder,
-    backgroundColor: Surface.softGreen,
-  },
-
-  intakeIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: Radius.sm - 4,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: Surface.card,
-  },
-
-  intakeText: {
-    flex: 1,
-    ...Typography.small,
-    lineHeight: 17,
-    color: Surface.textSecondary,
-  },
-
-  intakeLead: {
-    fontWeight: "700",
-    color: Surface.text,
   },
 
   /* ================= SECTIONS ================= */

@@ -1,3 +1,4 @@
+import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
@@ -93,6 +94,10 @@ export default function HospitalRequestsScreen() {
     ? `${session.user.district} District`
     : "Your station";
 
+  // Only the unverified rows are waiting on the hospital, so the nudge counts
+  // those rather than the whole board.
+  const pendingCount = requests.filter((item) => item.status === "pending").length;
+
   return (
     <View style={styles.root}>
       <StatusBar style="dark" />
@@ -146,12 +151,22 @@ export default function HospitalRequestsScreen() {
                 item={toRequisition(request)}
                 onManage={() => {
                   router.push({
-                    pathname: ROUTES.manageRequest,
-                    params: { id: request.id },
+                    pathname: ROUTES.hospitalVerifyDonor,
+                    params: { requestId: request.id },
                   });
                 }}
               />
             ))}
+
+            {pendingCount > 0 ? (
+              <View style={styles.pendingBroadcast}>
+                <Feather name="radio" size={15} color={Surface.accentBlue} />
+                <Text style={styles.pendingBroadcastText}>
+                  {pendingCount} request{pendingCount === 1 ? "" : "s"} awaiting hospital
+                  verification. Verify to broadcast to matching donors.
+                </Text>
+              </View>
+            ) : null}
           </View>
         </AsyncState>
       </ScrollView>
@@ -216,5 +231,22 @@ const styles = StyleSheet.create({
 
   list: {
     gap: 10,
+  },
+
+  pendingBroadcast: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    padding: 13,
+    borderRadius: Radius.field,
+    backgroundColor: Surface.softBlue,
+    borderWidth: 1,
+    borderColor: Surface.softBlueBorder,
+  },
+
+  pendingBroadcastText: {
+    ...Typography.small,
+    flex: 1,
+    color: Surface.accentBlue,
   },
 });

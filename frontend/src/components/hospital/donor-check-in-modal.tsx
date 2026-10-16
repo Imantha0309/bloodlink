@@ -12,12 +12,14 @@ import {
 } from "react-native";
 
 import { QrCodeScanner } from "@/components/qr-code-scanner";
+import { KeyboardDismissView } from "@/components/ui/keyboard-dismiss";
 import { Blood, Surface } from "@/constants/colors";
 import { Radius } from "@/constants/radius";
 import { Typography } from "@/constants/typography";
 import { apiErrorMessage } from "@/services/auth";
 import { completeDonationCase, verifyDonorCheckIn } from "@/services/donors/donor-workflow";
 import { getEmergencyRequest } from "@/services/requests/emergency-requests";
+import { intakePayloadOf } from "@/utils/qr-payload";
 
 type VerifiedPass = {
   requestId: string;
@@ -73,26 +75,22 @@ export function DonorCheckInModal({ visible, onClose }: DonorCheckInModalProps) 
     setCompleteSuccess(false);
 
     try {
-      // Parse token and requestId from raw string (supports plain token or formatted pass text)
-      let requestId = "";
-      let token = "";
+      // One decoder, same as every other scanner. This used to fall back to
+      // `requestId = raw; token = "scanned"`, which turned any stray string into
+      // a check-in attempt against an invented request — the server rejected it,
+      // but the desk was shown a verification error instead of "that is not a
+      // BloodLink pass", and a code with a typo in the prefix parsed as a
+      // different request entirely.
+      const ticket = intakePayloadOf(raw);
 
-      if (raw.includes("bloodlink-intake:")) {
-        const match = raw.match(/bloodlink-intake:([^:\s]+):([^:\s]+)/);
-        if (match) {
-          requestId = match[1];
-          token = match[2];
-        }
-      } else if (raw.includes(":")) {
-        const parts = raw.split(":");
-        requestId = parts[0];
-        token = parts[1];
-      } else {
-        requestId = raw;
-        token = "scanned";
+      if (ticket === null) {
+        setVerifyError("That is not a BloodLink intake pass.");
+        return;
       }
 
-      await verifyDonorCheckIn(requestId, token);
+      const { requestId, secret } = ticket;
+
+      await verifyDonorCheckIn(requestId, secret);
 
       // Enrich the pass card from the request itself; the display fields are
       // best-effort, so a lookup failure must not hide a successful check-in.
@@ -114,7 +112,7 @@ export function DonorCheckInModal({ visible, onClose }: DonorCheckInModalProps) 
 
       setVerifiedPass({
         requestId,
-        token,
+        token: secret,
         stage: "arrived",
         donorName,
         bloodGroup,
@@ -148,7 +146,11 @@ export function DonorCheckInModal({ visible, onClose }: DonorCheckInModalProps) 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={handleClose}>
       <View style={styles.modalOverlay}>
-        <View style={styles.modalContent}>
+        {/* Wraps the card, not the overlay: the dimmed backdrop is already the
+            "cancel this" target, and putting the keyboard catcher on the card
+            means a tap on a field's surroundings dismisses without also
+            dismissing the whole sheet. */}
+        <KeyboardDismissView style={styles.modalContent}>
           <View style={styles.modalHeader}>
             <View style={styles.modalHeaderLeft}>
               <Feather name="shield" size={18} color={Blood.primary} />
@@ -201,7 +203,7 @@ export function DonorCheckInModal({ visible, onClose }: DonorCheckInModalProps) 
                   <TextInput
                     value={scanInput}
                     onChangeText={setScanInput}
-                    placeholder="Paste QR scan or e.g. bloodlink-intake:req_123:token..."
+                    placeholder="Paste QR scan or e.g. bloodlink-intake:v1:req_123:token..."
                     placeholderTextColor={Surface.textMuted}
                     style={styles.scanInput}
                     multiline
@@ -310,7 +312,7 @@ export function DonorCheckInModal({ visible, onClose }: DonorCheckInModalProps) 
               </Pressable>
             </View>
           )}
-        </View>
+        </KeyboardDismissView>
       </View>
     </Modal>
   );

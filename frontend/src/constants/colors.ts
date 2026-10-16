@@ -20,8 +20,6 @@ export const Colors = {
   },
 } as const;
 
-export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
-
 export const Blood = {
   primary: "#C8102E",
   dark: "#B51224",
@@ -29,18 +27,6 @@ export const Blood = {
   glow: "rgba(200, 16, 46, 0.30)",
   ripple: "rgba(200, 16, 46, 0.35)",
 } as const;
-
-export const Spacing = {
-  half: 2,
-  one: 4,
-  two: 8,
-  three: 16,
-  four: 24,
-  five: 32,
-  six: 64,
-} as const;
-
-export const MaxContentWidth = 800;
 
 /**
  * Neutral surface palette for application screens (splash excluded).

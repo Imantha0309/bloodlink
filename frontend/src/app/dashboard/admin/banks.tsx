@@ -114,7 +114,11 @@ export default function AdminBanksScreen() {
         ]}
         showsVerticalScrollIndicator={false}
       >
-        <AdminHeader subtitle="National Blood Registry" fullName={session?.user.fullName} />
+        <AdminHeader
+          subtitle="National Blood Registry"
+          fullName={session?.user.fullName}
+          onOpenProfile={() => router.push(ROUTES.adminProfile)}
+        />
 
         <View style={styles.headingRow}>
           <View style={styles.headingText}>

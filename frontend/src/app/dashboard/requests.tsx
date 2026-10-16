@@ -7,9 +7,8 @@ import { RequestCard } from "@/components/dashboard/request-card";
 import { StepHeader } from "@/components/emergency/step-header";
 import { AsyncState } from "@/components/ui/async-state";
 import { Blood, Surface } from "@/constants/colors";
-import { DASHBOARD_TABS, ROLE_HOME, ROUTES } from "@/constants/routes";
-import { useAuthBack } from "@/hooks/use-auth-back";
-import { useAuth } from "@/providers/auth-provider";
+import { DASHBOARD_TABS, ROUTES } from "@/constants/routes";
+import { useHomeBack } from "@/hooks/use-home-back";
 import { apiErrorMessage } from "@/services/auth";
 import {
   cancelEmergencyRequest,
@@ -27,9 +26,8 @@ import {
  */
 export default function RequestsScreen() {
   const router = useRouter();
-  const { session } = useAuth();
   // Fall back to the signed-in user's own home, not always the recipient one.
-  const onBack = useAuthBack(ROLE_HOME[session?.user.role ?? "recipient"]);
+  const onBack = useHomeBack();
 
   const [requests, setRequests] = useState<EmergencyRequest[] | null>(null);
   const [isLoading, setIsLoading] = useState(true);

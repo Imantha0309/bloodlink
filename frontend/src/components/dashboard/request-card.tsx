@@ -1,14 +1,8 @@
 import { Feather } from "@expo/vector-icons";
 import { useState } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 
+import { useConfirm } from "@/components/ui/confirm-provider";
 import { Blood, Surface } from "@/constants/colors";
 import {
   REQUEST_STATUS_META,
@@ -18,11 +12,8 @@ import {
 } from "@/constants/emergency";
 import { Radius } from "@/constants/radius";
 import { Typography } from "@/constants/typography";
+import type { DonorResponse, EmergencyRequest } from "@/services/requests/emergency-requests";
 import { apiErrorMessage } from "@/services/auth";
-import type {
-  DonorResponse,
-  EmergencyRequest,
-} from "@/services/requests/emergency-requests";
 import { timeAgo } from "@/utils/time";
 
 // Keyed lookup so the card can colour itself from the same catalogue the form
@@ -35,16 +26,6 @@ type RequestCardProps = {
   request: EmergencyRequest;
   /** Adds the shared "compatible with you" treatment on the donor dashboard. */
   matchesDonor?: boolean;
-  /**
-   * Shows the Manage / Cancel actions. Set only for a recipient's own requests
-   * that are still open — the server refuses edits to anything closed, and a
-   * donor or admin only reads the queue.
-   */
-  isManageable?: boolean;
-  /** Opens the edit form for this request. */
-  onEdit?: (request: EmergencyRequest) => void;
-  /** Cancels the request after a confirmation; receives the live request. */
-  onCancel?: (request: EmergencyRequest) => Promise<void>;
   /** Offers the accept/decline actions to a donor working the queue. */
   canAccept?: boolean;
   onDonorResponse?: (
@@ -61,20 +42,37 @@ type RequestCardProps = {
    * footer stays exactly as it was.
    */
   onManage?: () => void;
+  /**
+   * Fired once a response of `accepted` has been confirmed by the server.
+   *
+   * The donor surfaces use it to send the donor straight to the journey tab,
+   * because accepting is what creates the commitment that tab lists. It runs
+   * only on success — a rejected write must leave the donor on the list where
+   * the error is visible, not parked on an empty journey.
+   */
+  onAccepted?: () => void;
+  /** Adds the staff manage/edit/cancel affordances. */
+  isManageable?: boolean;
+  /** Opens the edit form for this request. */
+  onEdit?: (request: EmergencyRequest) => void;
+  /** Cancels the request after a confirmation; receives the live request. */
+  onCancel?: (request: EmergencyRequest) => Promise<void>;
 };
 
 /** One emergency request, as it appears in every dashboard's triage list. */
 export function RequestCard({
   request,
   matchesDonor = false,
-  isManageable = false,
-  onEdit,
-  onCancel,
   canAccept = true,
   onDonorResponse,
   onRemoveDonorResponse,
   onManage,
+  onAccepted,
+  isManageable = false,
+  onEdit,
+  onCancel,
 }: RequestCardProps) {
+  const { confirm } = useConfirm();
   const [localResponse, setLocalResponse] = useState<{
     basedOn: DonorResponse | null;
     value: DonorResponse | null;
@@ -90,8 +88,14 @@ export function RequestCard({
   const canEditResponse = donorResponse !== null &&
     (donorResponse === "declined" || request.donorStage === null || request.donorStage === "accepted");
 
-  async function handleDonorResponse(next: DonorResponse) {
-    if (!onDonorResponse || isResponding) return;
+  /**
+   * Posts a donor response.
+   *
+   * Resolves `true` only when the server took it, so `onAccepted` can be gated
+   * on the write actually landing rather than on the tap.
+   */
+  async function handleDonorResponse(next: DonorResponse): Promise<boolean> {
+    if (!onDonorResponse || isResponding) return false;
 
     setIsResponding(true);
     setResponseError(null);
@@ -101,20 +105,40 @@ export function RequestCard({
         basedOn: request.donorResponse,
         value: await onDonorResponse(request.id, next, donorResponse !== null),
       });
+      return true;
     } catch (caught) {
       setResponseError(apiErrorMessage(caught));
+      return false;
     } finally {
       setIsResponding(false);
+    }
+  }
+
+  /** Accepts, then hands off to the journey if the write landed. */
+  async function handleAccept() {
+    if (await handleDonorResponse("accepted")) {
+      onAccepted?.();
     }
   }
 
   async function handleRemoveResponse() {
     if (!onRemoveDonorResponse || isResponding) return;
+
+    const approved = await confirm({
+      title: "Remove response",
+      message: "Are you sure you want to remove your donor response?",
+      confirmLabel: "Remove",
+      icon: "trash-2",
+      destructive: true,
+    });
+
+    if (!approved) return;
+
     setIsResponding(true);
     setResponseError(null);
+
     try {
       await onRemoveDonorResponse(request.id);
-      setLocalResponse({ basedOn: request.donorResponse, value: null });
     } catch (caught) {
       setResponseError(apiErrorMessage(caught));
     } finally {
@@ -122,29 +146,20 @@ export function RequestCard({
     }
   }
 
-  function confirmCancel() {
-    if (onCancel === undefined) {
-      return;
-    }
+  async function confirmCancel() {
+    if (!onCancel) return;
 
-    // Cancelling stops donors being matched to this request, so it takes an
-    // explicit confirmation — an accidental tap must not close a live case.
-    Alert.alert(
-      "Cancel this request?",
-      `The ${request.bloodGroup} request for ${request.units} ${
-        request.units === 1 ? "unit" : "units"
-      } will be withdrawn and donors will no longer be alerted.`,
-      [
-        { text: "Keep Request", style: "cancel" },
-        {
-          text: "Cancel Request",
-          style: "destructive",
-          onPress: () => {
-            void onCancel(request);
-          },
-        },
-      ],
-    );
+    const approved = await confirm({
+      title: "Cancel request",
+      message: "Are you sure you want to cancel this request?",
+      confirmLabel: "Cancel",
+      icon: "x-circle",
+      destructive: true,
+    });
+
+    if (approved) {
+      await onCancel(request);
+    }
   }
 
   return (
@@ -281,7 +296,7 @@ export function RequestCard({
             <Pressable
               accessibilityRole="button"
               disabled={isResponding}
-              onPress={() => void handleDonorResponse("accepted")}
+              onPress={() => void handleAccept()}
               style={({ pressed }) => [styles.acceptButton, pressed && styles.pressed, isResponding && styles.disabled]}
             >
               <Feather name="check" size={14} color={Surface.card} />
@@ -327,7 +342,7 @@ export function RequestCard({
                 accessibilityRole="button"
                 accessibilityLabel={`Accept request for ${request.patientName}`}
                 disabled={isResponding}
-                onPress={() => void handleDonorResponse("accepted")}
+                onPress={() => void handleAccept()}
                 style={({ pressed }) => [styles.acceptButton, pressed && styles.pressed, isResponding && styles.disabled]}
               >
                 {isResponding ? (

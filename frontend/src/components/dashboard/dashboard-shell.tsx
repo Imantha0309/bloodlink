@@ -1,16 +1,18 @@
 import { Feather } from "@expo/vector-icons";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect, usePathname, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { AppState, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AsyncState } from "@/components/ui/async-state";
+import { useConfirm } from "@/components/ui/confirm-provider";
 import { Blood, Surface } from "@/constants/colors";
 import { Radius } from "@/constants/radius";
 import { ROLE_NAME } from "@/constants/roles";
-import { ROUTES } from "@/constants/routes";
+import { ROLE_HOME, ROUTES } from "@/constants/routes";
 import { Typography } from "@/constants/typography";
+import { useBack } from "@/hooks/use-back";
 import { useAuth } from "@/providers/auth-provider";
 import { apiErrorMessage } from "@/services/auth";
 import {
@@ -77,7 +79,9 @@ export function DashboardShell({
 }: DashboardShellProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const pathname = usePathname();
   const { session, signOut } = useAuth();
+  const { confirm, alert: notify } = useConfirm();
 
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -193,45 +197,57 @@ export function DashboardShell({
       return;
     }
 
-    setIsSigningOut(true);
+    const approved = await confirm({
+      title: "Sign out",
+      message: "Are you sure you want to sign out?",
+      confirmLabel: "Sign out",
+      icon: "log-out",
+      destructive: true,
+    });
 
-    try {
-      // The session has to be gone before navigating: the login screen is
-      // guarded off while authenticated, so navigating first bounces back here.
-      await signOut();
-      router.replace(ROUTES.login);
-    } finally {
-      setIsSigningOut(false);
-    }
-  }
-
-  /**
-   * Back to the start of the sign-up journey.
-   *
-   * `role-select` is part of the auth group, which `_layout.tsx` keeps behind
-   * the unauthenticated guard — so leaving a dashboard for it means ending the
-   * session first. Without that the guarded screen is not in the tree and the
-   * navigation is dropped, leaving the button apparently dead.
-   */
-  async function handleBack() {
-    if (isSigningOut) {
+    if (!approved) {
       return;
     }
 
+    // The session has to be gone before navigating: the login screen is
+    // guarded off while authenticated, so navigating first bounces back here.
     setIsSigningOut(true);
 
     try {
-      if (session !== null) {
-        await signOut();
-      }
-
-      router.replace(ROUTES.roleSelect);
+      await signOut();
+      router.replace(ROUTES.login);
+    } catch (error) {
+      console.error("Failed to sign out:", error);
+      await notify({
+        title: "Sign out failed",
+        message: "There was an error signing out. Please try again.",
+        icon: "alert-triangle",
+        destructive: true,
+      });
     } finally {
       setIsSigningOut(false);
     }
   }
 
   const role = summary?.role ?? session?.user.role ?? "recipient";
+  const roleHome = ROLE_HOME[role];
+  const isRoleHome = pathname === roleHome;
+
+  /**
+   * Back means this role's home tab.
+   *
+   * The tab bars navigate with `router.replace`, so switching tabs never builds
+   * a stack and there is no previous tab to pop; `router.back()` from here
+   * would leave the app. That is why this used to sign the user out and go to
+   * `role-select`: the reasoning about the auth guard was sound, the conclusion
+   * was not. Ending a session is never the answer to "back", and it shipped on
+   * six screens where one stray tap lost the session.
+   *
+   * `useBack` rather than a bare arrow, so the Android button and the iOS swipe
+   * agree with it. Without that they pop the whole stack and leave the app,
+   * which is the same bug arriving from the other direction.
+   */
+  const handleBack = useBack(() => false, roleHome);
 
   return (
     <View style={styles.root}>
@@ -239,23 +255,26 @@ export function DashboardShell({
 
       {header ?? (
         <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-          <Pressable
-            onPress={() => {
-              void handleBack();
-            }}
-            disabled={isSigningOut}
-            accessibilityRole="button"
-            accessibilityLabel="Back to choose your role"
-            accessibilityState={{ disabled: isSigningOut }}
-            hitSlop={6}
-            style={({ pressed }) => [
-              styles.iconButton,
-              pressed && styles.iconButtonPressed,
-              isSigningOut && styles.iconButtonDisabled,
-            ]}
-          >
-            <Feather name="arrow-left" size={20} color={Surface.text} />
-          </Pressable>
+          {/* On the role's own home there is no previous tab, so the arrow would
+              only ever self-navigate. A spacer the width of the button keeps
+              the title aligned with the screens that do have one, without
+              drawing a phantom circle. */}
+          {isRoleHome ? (
+            <View style={styles.headerSpacer} />
+          ) : (
+            <Pressable
+              onPress={handleBack}
+              accessibilityRole="button"
+              accessibilityLabel={`Back to ${ROLE_NAME[role]} dashboard`}
+              hitSlop={6}
+              style={({ pressed }) => [
+                styles.iconButton,
+                pressed && styles.iconButtonPressed,
+              ]}
+            >
+              <Feather name="arrow-left" size={20} color={Surface.text} />
+            </Pressable>
+          )}
 
           <View style={styles.headerText}>
             <Text style={styles.eyebrow}>{ROLE_NAME[role].toUpperCase()}</Text>
@@ -265,23 +284,38 @@ export function DashboardShell({
             </Text>
           </View>
 
-          <Pressable
-            onPress={() => {
-              void handleSignOut();
-            }}
-            disabled={isSigningOut}
-            accessibilityRole="button"
-            accessibilityLabel="Sign out"
-            accessibilityState={{ disabled: isSigningOut }}
-            hitSlop={6}
-            style={({ pressed }) => [
-              styles.iconButton,
-              pressed && styles.iconButtonPressed,
-              isSigningOut && styles.iconButtonDisabled,
-            ]}
-          >
-            <Feather name="log-out" size={18} color={Surface.text} />
-          </Pressable>
+          <View style={styles.headerRight}>
+            <Pressable
+              onPress={() => router.push(ROUTES.settings)}
+              accessibilityRole="button"
+              accessibilityLabel="Settings"
+              hitSlop={6}
+              style={({ pressed }) => [
+                styles.iconButton,
+                pressed && styles.iconButtonPressed,
+              ]}
+            >
+              <Feather name="settings" size={18} color={Surface.text} />
+            </Pressable>
+
+            <Pressable
+              hitSlop={6}
+              onPress={() => {
+                void handleSignOut();
+              }}
+              disabled={isSigningOut}
+              accessibilityRole="button"
+              accessibilityLabel="Sign out"
+              accessibilityState={{ disabled: isSigningOut }}
+              style={({ pressed }) => [
+                styles.iconButton,
+                pressed && styles.iconButtonPressed,
+                isSigningOut && styles.iconButtonDisabled,
+              ]}
+            >
+              <Feather name="log-out" size={18} color={Surface.text} />
+            </Pressable>
+          </View>
         </View>
       )}
 
@@ -289,6 +323,9 @@ export function DashboardShell({
         style={styles.flex}
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 28 }]}
         showsVerticalScrollIndicator={false}
+        // A tap that lands on a control while the keyboard is up must reach that
+        // control, not be spent on dismissing the keyboard first.
+        keyboardShouldPersistTaps="handled"
         refreshControl={
           <RefreshControl
             refreshing={isRefreshing}
@@ -329,9 +366,19 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
   },
 
+  headerSpacer: {
+    width: 44,
+    height: 44,
+  },
+
   headerText: {
     flex: 1,
     gap: 2,
+  },
+  headerRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
 
   eyebrow: {

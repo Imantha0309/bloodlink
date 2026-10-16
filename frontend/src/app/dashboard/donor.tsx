@@ -1,4 +1,5 @@
 import { Feather } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import { useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
@@ -15,6 +16,7 @@ import { StatGrid } from "@/components/dashboard/stat-grid";
 import { CAN_DONATE_TO, isBloodGroup } from "@/constants/blood-groups";
 import { Blood, Surface } from "@/constants/colors";
 import { Radius } from "@/constants/radius";
+import { ROUTES } from "@/constants/routes";
 import { Typography } from "@/constants/typography";
 import { useAuth } from "@/providers/auth-provider";
 import type { DashboardSummary } from "@/services/dashboard/dashboard";
@@ -24,9 +26,9 @@ import {
   updateEmergencyResponse,
 } from "@/services/requests/emergency-requests";
 
-/** Requests nobody has closed yet — the ones a donor can still act on. */
+/** Requests verified by hospital/blood bank — the ones a donor can act on. */
 function isOpen(status: string): boolean {
-  return status === "pending" || status === "verified";
+  return status === "verified";
 }
 
 type FilterMode = "all" | "critical" | "district";
@@ -46,6 +48,7 @@ function DonorContent({
   summary: DashboardSummary;
   helpers: DashboardHelpers;
 }) {
+  const router = useRouter();
   const { session } = useAuth();
   const [filterMode, setFilterMode] = useState<FilterMode>("all");
   const [showOthers, setShowOthers] = useState(false);
@@ -218,6 +221,10 @@ function DonorContent({
             await deleteEmergencyResponse(id);
             helpers.reload();
           }}
+          // Accepting is what creates the commitment, so the journey tab has
+          // something to show the moment this lands. Pushed rather than
+          // replaced, so back still reaches the list for a second accept.
+          onAccepted={() => router.push(ROUTES.donorTransit)}
           emptyTitle={
             donorGroup === null
               ? "No blood group on your profile"

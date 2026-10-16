@@ -10,11 +10,11 @@ import { AsyncState } from "@/components/ui/async-state";
 import { OptionChips } from "@/components/ui/option-chips";
 import { SkeletonCard } from "@/components/ui/skeleton";
 import { TextField } from "@/components/ui/text-field";
+import { KeyboardDismissView } from "@/components/ui/keyboard-dismiss";
 import { Blood, Surface } from "@/constants/colors";
 import { Radius } from "@/constants/radius";
-import { ROUTES } from "@/constants/routes";
 import { Typography } from "@/constants/typography";
-import { useAuthBack } from "@/hooks/use-auth-back";
+import { useHomeBack } from "@/hooks/use-home-back";
 import { useAuth } from "@/providers/auth-provider";
 import { apiErrorMessage } from "@/services/api/errors";
 import {
@@ -59,7 +59,7 @@ function isUrgent(severity: DiscrepancySeverity): boolean {
  */
 export default function HospitalDiscrepancyScreen() {
   const insets = useSafeAreaInsets();
-  const onBack = useAuthBack(ROUTES.hospitalProfile);
+  const onBack = useHomeBack();
   const { session } = useAuth();
 
   const [includeResolved, setIncludeResolved] = useState(false);
@@ -173,7 +173,7 @@ export default function HospitalDiscrepancyScreen() {
   const openCount = (reports ?? []).filter((report) => !report.resolved).length;
 
   return (
-    <View style={styles.root}>
+    <KeyboardDismissView style={styles.root}>
       <StepHeader title="Report Discrepancy" onBack={onBack} />
 
       <ScrollView
@@ -331,7 +331,7 @@ export default function HospitalDiscrepancyScreen() {
           </View>
         </AsyncState>
       </ScrollView>
-    </View>
+    </KeyboardDismissView>
   );
 }
 

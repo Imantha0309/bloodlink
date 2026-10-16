@@ -45,12 +45,20 @@ export type EmergencyRequest = {
   updatedAt: string;
   /** True when it came through the account-free urgent path. */
   isAnonymous: boolean;
+  /** Who raised it, when known — drives owner-only affordances like editing. */
+  requesterId: string | null;
   /** This donor's persisted decision, null until they respond. */
   donorResponse: DonorResponse | null;
   /** Progress from acceptance through hospital intake. */
   donorStage: DonationStage | null;
   /** True when another donor has already accepted this request. */
   acceptedByOtherDonor?: boolean;
+  /**
+   * True when hospital staff accepted a donor for this request from a scanned
+   * pass. Only ever set on a requester's own list, and only tells them a donor
+   * was matched — the donor's name reaches them through the acceptance alert.
+   */
+  donorMatchedOnBehalf?: boolean;
 };
 
 export type EmergencyRequestInput = {
@@ -134,10 +142,13 @@ export function readEmergencyRequest(row: unknown): EmergencyRequest | null {
     createdAt: candidate.createdAt,
     updatedAt: candidate.updatedAt,
     isAnonymous: candidate.isAnonymous,
+    requesterId: typeof candidate.requesterId === "string" ? candidate.requesterId : null,
     donorResponse: candidate.donorResponse,
     donorStage: candidate.donorStage,
     acceptedByOtherDonor:
       typeof candidate.acceptedByOtherDonor === "boolean" ? candidate.acceptedByOtherDonor : false,
+    donorMatchedOnBehalf:
+      typeof candidate.donorMatchedOnBehalf === "boolean" ? candidate.donorMatchedOnBehalf : false,
   };
 }
 
@@ -259,6 +270,39 @@ export async function updateEmergencyRequestStatus(
     const { request } = await apiRequest<{ request: unknown }>(`/emergency/${id}`, {
       method: "PATCH",
       body: { status },
+    });
+
+    const updated = readEmergencyRequest(request);
+
+    if (updated === null) {
+      throw new ApiError("unknown", "The server returned an unexpected response.");
+    }
+
+    return updated;
+  } catch (error) {
+    throw toApiError(error);
+  }
+}
+
+/** Updates clinical fields on a pending request owned by the current user. */
+export async function updateEmergencyRequest(
+  id: string,
+  input: Partial<EmergencyRequestInput>,
+): Promise<EmergencyRequest> {
+  try {
+    const body: Record<string, unknown> = {};
+    if (input.patientName !== undefined) body.patientName = input.patientName.trim();
+    if (input.bloodGroup !== undefined) body.bloodGroup = input.bloodGroup;
+    if (input.units !== undefined) body.units = input.units;
+    if (input.hospital !== undefined) body.hospital = input.hospital.trim();
+    if (input.contactName !== undefined) body.contactName = input.contactName.trim();
+    if (input.contactMobile !== undefined) body.contactMobile = input.contactMobile.trim();
+    if (input.urgency !== undefined) body.urgency = input.urgency;
+    if (input.notes !== undefined) body.notes = input.notes?.trim() || null;
+
+    const { request } = await apiRequest<{ request: unknown }>(`/emergency/${id}`, {
+      method: "PATCH",
+      body,
     });
 
     const updated = readEmergencyRequest(request);

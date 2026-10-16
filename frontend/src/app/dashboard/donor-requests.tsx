@@ -1,4 +1,5 @@
 import { Feather } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import { useMemo } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
@@ -7,6 +8,7 @@ import { DashboardShell, type DashboardHelpers } from "@/components/dashboard/da
 import { DonorTabBar } from "@/components/dashboard/donor-tab-bar";
 import { RequestList } from "@/components/dashboard/request-list";
 import { Blood, Surface } from "@/constants/colors";
+import { ROUTES } from "@/constants/routes";
 import { useAuth } from "@/providers/auth-provider";
 import type { DashboardSummary } from "@/services/dashboard/dashboard";
 import { isBloodGroup } from "@/constants/blood-groups";
@@ -25,10 +27,11 @@ export default function DonorRequestsScreen() {
 }
 
 function RequestsContent({ summary, helpers }: { summary: DashboardSummary; helpers: DashboardHelpers }) {
+  const router = useRouter();
   const { session } = useAuth();
   const donorGroup = isBloodGroup(session?.user.bloodGroup) ? session.user.bloodGroup : null;
   const open = useMemo(
-    () => summary.requests.filter((item) => item.status === "pending" || item.status === "verified"),
+    () => summary.requests.filter((item) => item.status === "verified"),
     [summary.requests],
   );
   const newCount = open.filter((item) => item.donorResponse === null).length;
@@ -84,6 +87,7 @@ function RequestsContent({ summary, helpers }: { summary: DashboardSummary; help
           await deleteEmergencyResponse(id);
           helpers.reload();
         }}
+        onAccepted={() => router.push(ROUTES.donorTransit)}
         emptyTitle={donorGroup ? "No matching requests" : "Add your blood group"}
         emptyMessage={donorGroup ? "We refresh this list automatically when a compatible request arrives." : "Set your blood group in your donor profile to receive matches."}
       />

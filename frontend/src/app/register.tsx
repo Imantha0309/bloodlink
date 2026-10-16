@@ -25,6 +25,7 @@ import { StepProgress } from "@/components/auth/step-progress";
 import { OptionChips } from "@/components/ui/option-chips";
 import { SelectField } from "@/components/ui/select-field";
 import { TextField } from "@/components/ui/text-field";
+import { KeyboardDismissView } from "@/components/ui/keyboard-dismiss";
 import { BLOOD_GROUP_NOTES, BLOOD_GROUPS } from "@/constants/blood-groups";
 import { Blood, Surface } from "@/constants/colors";
 import { DISTRICTS } from "@/constants/districts";
@@ -32,6 +33,7 @@ import { Radius } from "@/constants/radius";
 import { isSelfRegisterRole, ROLE_LABEL, type SelfRegisterRole } from "@/constants/roles";
 import { ROLE_HOME, ROUTES } from "@/constants/routes";
 import { Typography } from "@/constants/typography";
+import { useBack } from "@/hooks/use-back";
 import { useAuth } from "@/providers/auth-provider";
 import { apiErrorMessage } from "@/services/auth";
 import {
@@ -89,6 +91,22 @@ export default function RegisterScreen() {
   const [errors, setErrors] = useState<RegisterFormErrors>(NO_ERRORS);
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Above the `role === null` guard below, so the hook count cannot change
+  // between renders.
+  //
+  // Step one is role selection, reached from the role picker, so back leaves
+  // from there and only the later steps step. Without the hardware back being
+  // wired up, a press mid registration discarded the account details already
+  // entered; `roleSelect` is the fallback for a deep link to `/register`.
+  const handleBack = useBack(() => {
+    if (step <= 1) {
+      return false;
+    }
+
+    setStep((current) => Math.max(1, current - 1));
+    return true;
+  }, ROUTES.roleSelect);
 
   // No role -> send them to pick one. Replaces rather than pushes so back does
   // not return to an unusable form.
@@ -195,19 +213,6 @@ export default function RegisterScreen() {
     }
   }
 
-  function handleBack() {
-    if (step > 1) {
-      setStep(step - 1);
-      return;
-    }
-
-    if (router.canGoBack()) {
-      router.back();
-    } else {
-      router.replace(ROUTES.roleSelect);
-    }
-  }
-
   const stepTitles = [
     { badge: "2", label: "STEP 2 OF 4 • YOUR DETAILS" },
     { badge: "3", label: `STEP 3 OF 4 • ${isHospital ? "HOSPITAL" : isDonor ? "BLOOD PROFILE" : "BLOOD GROUP (OPTIONAL)"}` },
@@ -217,7 +222,7 @@ export default function RegisterScreen() {
   const indicator = stepTitles[step - 1] ?? stepTitles[0];
 
   return (
-    <View style={styles.root}>
+    <KeyboardDismissView style={styles.root}>
       <StatusBar style="dark" />
 
       <SafeAreaView style={styles.safeArea} edges={["left", "right"]}>
@@ -452,7 +457,7 @@ export default function RegisterScreen() {
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
-    </View>
+    </KeyboardDismissView>
   );
 }
 

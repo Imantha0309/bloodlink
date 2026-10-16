@@ -4,6 +4,7 @@ import { Stack, useRouter, type Href } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
 
+import { ConfirmProvider } from "@/components/ui/confirm-provider";
 import { Surface } from "@/constants/colors";
 import { ROLE_HOME, ROUTES } from "@/constants/routes";
 import { QueryCacheProvider } from "@/data/provider";
@@ -23,10 +24,10 @@ const INTAKE_SCHEME = "bloodlink-intake:";
  * Maps the intake QR payload onto the pass screen.
  *
  * `bloodlink://...` is expo-router's own job. The intake QR is the exception: it
- * packs the ticket into a custom scheme (`bloodlink-intake:<requestId>:<token>`)
+ * packs the ticket into a custom scheme (`bloodlink-intake:v1:<requestId>:<secret>`)
  * rather than a path, so nothing in the router knows to send it to
- * `pass-details`. The URL is forwarded whole as `raw` — `pass-details` already
- * parses this exact format — rather than being decoded a second time here.
+ * `pass-details`. The payload is forwarded whole as `raw` and read there by the
+ * one canonical decoder, rather than being split into pieces a second time here.
  */
 function routeForIntakeUrl(url: string): Href | null {
   if (!url.startsWith(INTAKE_SCHEME)) {
@@ -42,7 +43,12 @@ export default function RootLayout() {
       {/* Inside AuthProvider: the cache resets when the signed-in account
           changes, which it can only observe from there. */}
       <QueryCacheProvider>
-        <AppNavigator />
+        {/* Above the navigator so `ConfirmDialog` overlays every screen, and
+            above `QueryCacheProvider` so a prompt raised by a screen survives
+            the sign-out that navigates it away. */}
+        <ConfirmProvider>
+          <AppNavigator />
+        </ConfirmProvider>
       </QueryCacheProvider>
     </AuthProvider>
   );
@@ -159,33 +165,31 @@ function AppNavigator() {
         {/* Admin tabs: queue, banks and accounts. */}
         <Stack.Screen name="dashboard/admin" options={{ contentStyle: screenBackground }} />
 
-<<<<<<< HEAD:src/app/_layout.tsx
-        {/* Destinations the recipient home links to. */}
-=======
         {/* Recipient destinations the home screen links to. */}
->>>>>>> origin/feature/recipient-module:frontend/src/app/_layout.tsx
         <Stack.Screen name="dashboard/requests" options={{ contentStyle: screenBackground }} />
         <Stack.Screen name="dashboard/alerts" options={{ contentStyle: screenBackground }} />
         <Stack.Screen name="dashboard/profile" options={{ contentStyle: screenBackground }} />
         <Stack.Screen name="dashboard/request-status" options={{ contentStyle: screenBackground }} />
-        <Stack.Screen name="donors" options={{ contentStyle: screenBackground }} />
-        <Stack.Screen name="compatibility" options={{ contentStyle: screenBackground }} />
-        <Stack.Screen name="blood-bank-detail" options={{ contentStyle: screenBackground }} />
-        <Stack.Screen name="location" options={{ contentStyle: screenBackground }} />
 
-<<<<<<< HEAD:src/app/_layout.tsx
         {/* Edit form for a recipient's own emergency request — only reachable
             while signed in, since it loads and updates the caller's record. */}
         <Stack.Screen
           name="manage-request"
           options={{ contentStyle: screenBackground }}
         />
-=======
+
         {/* The Donate tab is a route so it can be linked to directly. */}
         <Stack.Screen name="dashboard/donate" options={{ contentStyle: screenBackground }} />
 
-        <Stack.Screen name="dashboard/request-status" options={{ contentStyle: screenBackground }} />
->>>>>>> origin/feature/recipient-module:frontend/src/app/_layout.tsx
+        {/* The pass scanner, plus the admin profile that hosts one. */}
+        <Stack.Screen name="scan" options={{ contentStyle: screenBackground }} />
+        <Stack.Screen name="dashboard/admin-profile" options={{ contentStyle: screenBackground }} />
+        <Stack.Screen name="settings" options={{ contentStyle: screenBackground }} />
+
+        <Stack.Screen name="donors" options={{ contentStyle: screenBackground }} />
+        <Stack.Screen name="compatibility" options={{ contentStyle: screenBackground }} />
+        <Stack.Screen name="blood-bank-detail" options={{ contentStyle: screenBackground }} />
+        <Stack.Screen name="location" options={{ contentStyle: screenBackground }} />
       </Stack.Protected>
 
       <Stack.Protected guard={status === "unauthenticated"}>

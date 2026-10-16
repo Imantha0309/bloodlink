@@ -26,11 +26,12 @@ export function RequisitionCard({
   onManage,
 }: {
   item: Requisition;
-  /** Opens the manage screen for this request. */
+  /** Opens the manage screen for this request; falls back to the generic verify screen. */
   onManage?: () => void;
 }) {
   const router = useRouter();
   const isTransit = item.status === "in-transit";
+  const isPending = item.rawStatus === "pending";
 
   return (
     <View style={styles.card}>
@@ -56,14 +57,30 @@ export function RequisitionCard({
         {item.subtitle}
       </Text>
 
-      <View style={[styles.panel, isTransit ? styles.panelTransit : styles.panelBroadcast]}>
-        <View style={styles.panelBadge}>
-          <Feather name={isTransit ? "navigation" : "radio"} size={13} color={Surface.online} />
+      <View
+        style={[
+          styles.panel,
+          isTransit
+            ? styles.panelTransit
+            : isPending
+              ? styles.panelPending
+              : styles.panelBroadcast,
+        ]}
+      >
+        <View style={[styles.panelBadge, isPending && styles.panelBadgePending]}>
+          <Feather
+            name={isTransit ? "navigation" : isPending ? "clock" : "radio"}
+            size={13}
+            color={isPending ? Blood.primary : Surface.online}
+          />
         </View>
 
         <View style={styles.panelText}>
-          <Text style={styles.panelTitle} numberOfLines={1}>
-            {item.statusTitle}
+          <Text
+            style={[styles.panelTitle, isPending && styles.panelTitlePending]}
+            numberOfLines={1}
+          >
+            {isPending ? "Pending Verification" : item.statusTitle}
           </Text>
 
           <Text style={styles.panelDetail} numberOfLines={1}>
@@ -110,7 +127,9 @@ export function RequisitionCard({
             router.push(ROUTES.hospitalVerifyDonor);
           }}
         >
-          <Text style={styles.manageText}>Manage Requisition</Text>
+          <Text style={styles.manageText}>
+            {isPending ? "Review & Verify" : "Manage Requisition"}
+          </Text>
           <Feather name="arrow-right" size={13} color={Blood.primary} />
         </Pressable>
       </View>
@@ -186,6 +205,11 @@ const styles = StyleSheet.create({
     borderColor: Surface.softGreenBorder,
   },
 
+  panelPending: {
+    backgroundColor: Surface.softRed,
+    borderColor: Surface.softRedBorder,
+  },
+
   panelBroadcast: {
     backgroundColor: Surface.softBlue,
     borderColor: Surface.softBlueBorder,
@@ -200,6 +224,10 @@ const styles = StyleSheet.create({
     backgroundColor: Surface.softGreen,
   },
 
+  panelBadgePending: {
+    backgroundColor: Surface.softRed,
+  },
+
   panelText: {
     flex: 1,
     gap: 2,
@@ -208,6 +236,10 @@ const styles = StyleSheet.create({
   panelTitle: {
     ...Typography.label,
     color: Surface.online,
+  },
+
+  panelTitlePending: {
+    color: Blood.primary,
   },
 
   panelDetail: {

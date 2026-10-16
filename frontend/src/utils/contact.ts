@@ -17,10 +17,6 @@ export function stripFormatting(value: string): string {
   return value.replace(/[\s\-().]/g, "");
 }
 
-export function isEmail(value: string): boolean {
-  return EMAIL_PATTERN.test(value.trim());
-}
-
 /**
  * True when the input cannot possibly be a mobile number, i.e. it should be
  * treated as an email. Drives whether the country-code prefix is shown in the
@@ -56,32 +52,9 @@ export function normalizeMobile(value: string): string | null {
   return /^07\d{8}$/.test(local) ? local : null;
 }
 
-export function isMobile(value: string): boolean {
-  return normalizeMobile(value) !== null;
-}
-
 /** Lowercased and trimmed email, or `null` if the value is not one. */
 export function normalizeEmail(value: string): string | null {
   const trimmed = value.trim().toLowerCase();
 
   return EMAIL_PATTERN.test(trimmed) ? trimmed : null;
-}
-
-/**
- * Canonical form of either identifier type — used for credential comparison so
- * `+94 77 123 4567` and `0771234567` resolve to the same account.
- */
-export function normalizeContact(value: string): string | null {
-  return normalizeEmail(value) ?? normalizeMobile(value);
-}
-
-/** Groups a local mobile for display: `0771234567` -> `077 123 4567`. */
-export function formatMobile(value: string): string | null {
-  const local = normalizeMobile(value);
-
-  if (local === null) {
-    return null;
-  }
-
-  return `${local.slice(0, 3)} ${local.slice(3, 6)} ${local.slice(6)}`;
 }

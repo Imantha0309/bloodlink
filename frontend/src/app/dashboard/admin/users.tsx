@@ -1,4 +1,5 @@
 import { Feather } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
@@ -7,10 +8,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AdminHeader } from "@/components/admin/admin-header";
 import { AsyncState } from "@/components/ui/async-state";
 import { OptionChips } from "@/components/ui/option-chips";
+import { KeyboardDismissView } from "@/components/ui/keyboard-dismiss";
 import { SkeletonCard } from "@/components/ui/skeleton";
 import { TextField } from "@/components/ui/text-field";
 import { Blood, Surface } from "@/constants/colors";
 import { Radius } from "@/constants/radius";
+import { ROUTES } from "@/constants/routes";
 import { Typography } from "@/constants/typography";
 import { useAuth } from "@/providers/auth-provider";
 import { apiErrorMessage } from "@/services/api/errors";
@@ -44,6 +47,10 @@ const ROLE_LABELS: Record<UserRole, string> = {
  * cannot touch stock or patients.
  */
 export default function AdminUsersScreen() {
+<<<<<<< HEAD
+=======
+  const router = useRouter();
+>>>>>>> origin/feature/recipient-module
   const insets = useSafeAreaInsets();
   const { session } = useAuth();
   const selfUid = session?.user.id ?? null;
@@ -145,7 +152,11 @@ export default function AdminUsersScreen() {
   }
 
   return (
+<<<<<<< HEAD
     <View style={styles.root}>
+=======
+    <KeyboardDismissView style={styles.root}>
+>>>>>>> origin/feature/recipient-module
       <StatusBar style="dark" />
 
       <ScrollView
@@ -157,7 +168,15 @@ export default function AdminUsersScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
+<<<<<<< HEAD
         <AdminHeader subtitle="Account Administration" fullName={session?.user.fullName} />
+=======
+        <AdminHeader
+          subtitle="Account Administration"
+          fullName={session?.user.fullName}
+          onOpenProfile={() => router.push(ROUTES.adminProfile)}
+        />
+>>>>>>> origin/feature/recipient-module
 
         <View style={styles.headingText}>
           <Text style={styles.title} accessibilityRole="header">
@@ -326,7 +345,11 @@ export default function AdminUsersScreen() {
           </View>
         </AsyncState>
       </ScrollView>
+<<<<<<< HEAD
     </View>
+=======
+    </KeyboardDismissView>
+>>>>>>> origin/feature/recipient-module
   );
 }
 

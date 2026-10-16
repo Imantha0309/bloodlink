@@ -19,6 +19,8 @@ import { timeAgo } from "@/utils/time";
 export type RequisitionStatus = "in-transit" | "broadcast";
 
 export type Requisition = {
+  /** Internal request ID */
+  id: string;
   /** Human reference shown at the top of the card, e.g. `#REQ-2094`. */
   reference: string;
   ward: string;
@@ -29,6 +31,8 @@ export type Requisition = {
   status: RequisitionStatus;
   statusTitle: string;
   statusDetail: string;
+  /** The raw database status (e.g. pending, verified) */
+  rawStatus: RequestStatus;
   /** Monograms for the overlapping avatars; only the transit state shows them. */
   donorInitials: readonly string[];
   /** Red attention pill on the panel; `null` when there is nothing to flag. */
@@ -66,12 +70,14 @@ export function toRequisition(request: EmergencyRequest): Requisition {
   const accepted = request.donorStage === "accepted";
 
   return {
+    id: request.id,
     reference: `#REQ-${referenceFor(request.id)}`,
     ward: request.patientName,
     bloodGroup: request.bloodGroup,
     units: request.units,
     subtitle: request.notes ?? `Reported by ${request.contactName}`,
     status: enRoute || accepted ? "in-transit" : "broadcast",
+    rawStatus: request.status,
     statusTitle:
       enRoute || accepted
         ? STAGE_TITLES[request.donorStage as keyof typeof STAGE_TITLES]

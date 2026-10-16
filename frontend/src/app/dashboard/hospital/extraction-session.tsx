@@ -2,6 +2,7 @@ import { Feather } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
+<<<<<<< HEAD
 import {
   Animated,
   Easing,
@@ -11,11 +12,15 @@ import {
   Text,
   View,
 } from "react-native";
+=======
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+>>>>>>> origin/feature/recipient-module
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AsyncState } from "@/components/ui/async-state";
 import { SkeletonCard } from "@/components/ui/skeleton";
 import { TextField } from "@/components/ui/text-field";
+import { KeyboardDismissView } from "@/components/ui/keyboard-dismiss";
 import { Blood, Elevation, Surface } from "@/constants/colors";
 import { EXTRACTION } from "@/constants/hospital-demo";
 import { Radius } from "@/constants/radius";
@@ -30,11 +35,15 @@ import {
   startExtraction,
   type RequestWorkflow,
 } from "@/services/hospital";
+<<<<<<< HEAD
 import { recordDonatedUnit } from "@/services/storage/blood-stock";
+=======
+>>>>>>> origin/feature/recipient-module
 import { haptics } from "@/utils/haptics";
 import { initialsOf } from "@/utils/initials";
 import { referenceFor } from "@/utils/reference";
 
+<<<<<<< HEAD
 /* ================= COLLECTION CLOCK ================= */
 
 /** Cadence of the pump readout â€” also how often the ring repaints. */
@@ -63,6 +72,8 @@ function formatEta(secondsRemaining: number): string {
   return `~${minutes}m ${String(seconds).padStart(2, "0")}s left`;
 }
 
+=======
+>>>>>>> origin/feature/recipient-module
 /* ================= COLLECTION RING ================= */
 
 const RING_SIZE = 172;
@@ -84,8 +95,12 @@ const SEGMENT_RADIUS = Math.min(SEGMENT_LENGTH, RING_THICKNESS) / 2;
  * Live collection dial for the phlebotomy session.
  *
  * `fraction` is the share of the unit already drawn; the remainder is the
+<<<<<<< HEAD
  * light track. The droplet badge beats while the pump is running and holds
  * still once the unit is full.
+=======
+ * light track.
+>>>>>>> origin/feature/recipient-module
  */
 function CollectionRing({
   fraction,
@@ -98,6 +113,7 @@ function CollectionRing({
   volumeLabel: string;
   elapsedLabel: string;
 }) {
+<<<<<<< HEAD
 <<<<<<< HEAD:src/app/dashboard/hospital/extraction-session.tsx
   const filled = Math.round(fraction * RING_SEGMENTS);
   const percent = Math.round(fraction * 100);
@@ -141,6 +157,9 @@ function CollectionRing({
 =======
   const filled = fraction >= 1 ? RING_SEGMENTS : 0;
 >>>>>>> origin/feature/recipient-module:frontend/src/app/dashboard/hospital/extraction-session.tsx
+=======
+  const filled = fraction >= 1 ? RING_SEGMENTS : 0;
+>>>>>>> origin/feature/recipient-module
 
   return (
     <View
@@ -172,9 +191,7 @@ function CollectionRing({
 
       <View style={styles.ringCenter} pointerEvents="none">
         <View style={styles.dropBadge}>
-          <Animated.View style={{ opacity: dropPulse }}>
-            <Feather name="droplet" size={15} color={Blood.primary} />
-          </Animated.View>
+          <Feather name="droplet" size={15} color={Blood.primary} />
         </View>
 
         <View style={styles.amountRow}>
@@ -184,6 +201,7 @@ function CollectionRing({
 
         <Text style={styles.amountPercent}>{volumeLabel}</Text>
 
+<<<<<<< HEAD
 <<<<<<< HEAD:src/app/dashboard/hospital/extraction-session.tsx
         <View style={[styles.etaPill, isComplete && styles.etaPillComplete]}>
           <Text style={styles.etaText}>{eta}</Text>
@@ -191,6 +209,10 @@ function CollectionRing({
         <View style={styles.etaPill}>
           <Text style={styles.etaText}>{elapsedLabel}</Text>
 >>>>>>> origin/feature/recipient-module:frontend/src/app/dashboard/hospital/extraction-session.tsx
+=======
+        <View style={styles.etaPill}>
+          <Text style={styles.etaText}>{elapsedLabel}</Text>
+>>>>>>> origin/feature/recipient-module
         </View>
       </View>
     </View>
@@ -214,10 +236,15 @@ function SessionSkeleton() {
  * Collection telemetry for the unit being drawn.
  *
  * Loads the real workflow: the dial tracks elapsed time while the extraction
+<<<<<<< HEAD
  * session runs â€” millilitre readout, percentage and ETA pill all advancing off
  * the same clock, with the droplet badge beating until the unit is full â€” and
  * sealing submits the drawn volume through `completeExtraction`, banks the
  * unit into the station's stock, and unlocks the donor's case completion.
+=======
+ * session runs, and sealing submits the drawn volume through
+ * `completeExtraction`, which unlocks the donor's case completion.
+>>>>>>> origin/feature/recipient-module
  */
 export default function HospitalExtractionSessionScreen() {
   const router = useRouter();
@@ -360,7 +387,10 @@ export default function HospitalExtractionSessionScreen() {
 =======
       setWorkflow({ ...workflow, extraction: completed });
       await finalizeCase();
+<<<<<<< HEAD
 >>>>>>> origin/feature/recipient-module:frontend/src/app/dashboard/hospital/extraction-session.tsx
+=======
+>>>>>>> origin/feature/recipient-module
     } catch (caught) {
       haptics.error();
       setSubmitError(apiErrorMessage(caught));
@@ -425,6 +455,7 @@ export default function HospitalExtractionSessionScreen() {
     extraction === null
       ? "Session not started"
       : extraction.status === "completed"
+<<<<<<< HEAD
 <<<<<<< HEAD:src/app/dashboard/hospital/extraction-session.tsx
         ? "Unit sealed"
         : remaining > 0
@@ -434,9 +465,13 @@ export default function HospitalExtractionSessionScreen() {
         ? "Collection completed"
         : `${Math.floor(elapsedSeconds / 60)}m ${Math.floor(elapsedSeconds % 60)}s elapsed`;
 >>>>>>> origin/feature/recipient-module:frontend/src/app/dashboard/hospital/extraction-session.tsx
+=======
+        ? "Collection completed"
+        : `${Math.floor(elapsedSeconds / 60)}m ${Math.floor(elapsedSeconds % 60)}s elapsed`;
+>>>>>>> origin/feature/recipient-module
 
   return (
-    <View style={styles.root}>
+    <KeyboardDismissView style={styles.root}>
       <StatusBar style="dark" />
 
       <ScrollView
@@ -446,6 +481,7 @@ export default function HospitalExtractionSessionScreen() {
           { paddingTop: insets.top + 6, paddingBottom: insets.bottom + 24 },
         ]}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
         {/* ================= BACK ================= */}
 
@@ -541,6 +577,7 @@ export default function HospitalExtractionSessionScreen() {
                         ? `Collection started ${new Date(extraction.startedAt).toLocaleTimeString(
                             "en-GB",
                             { hour: "2-digit", minute: "2-digit" },
+<<<<<<< HEAD
 <<<<<<< HEAD:src/app/dashboard/hospital/extraction-session.tsx
                           )} â€¢ Tri-pack Bag`
                         : EXTRACTION.rfidDetail}
@@ -548,6 +585,10 @@ export default function HospitalExtractionSessionScreen() {
                           )}`
                         : "Collection has not started"}
 >>>>>>> origin/feature/recipient-module:frontend/src/app/dashboard/hospital/extraction-session.tsx
+=======
+                          )}`
+                        : "Collection has not started"}
+>>>>>>> origin/feature/recipient-module
                     </Text>
                   </View>
 
@@ -763,7 +804,7 @@ export default function HospitalExtractionSessionScreen() {
           )}
         </AsyncState>
       </ScrollView>
-    </View>
+    </KeyboardDismissView>
   );
 }
 
@@ -978,12 +1019,15 @@ const styles = StyleSheet.create({
     borderColor: Surface.softBlueBorder,
   },
 
+<<<<<<< HEAD
   /** Full unit â€” the countdown gives way to a completed state. */
   etaPillComplete: {
     backgroundColor: Surface.softGreen,
     borderColor: Surface.softGreenBorder,
   },
 
+=======
+>>>>>>> origin/feature/recipient-module
   etaText: {
     ...Typography.micro,
     fontSize: 9.5,

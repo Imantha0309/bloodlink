@@ -20,7 +20,16 @@ import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 
 import { isBloodGroup, isDonorEligible } from "../domain/compatibility";
-import { authUserRow } from "../domain/serialize";
+import { authUserRow, passOwnerRow } from "../domain/serialize";
+import {
+  MAX_AVATAR_BYTES,
+  readUploadedAvatar,
+  removeStoredAvatar,
+  storeAvatar,
+  uploadAvatar,
+  uploadErrorMessage,
+  type UploadedAvatar,
+} from "../avatar";
 import { env } from "../env";
 import { asyncHandler, fail } from "../http";
 import { currentUser, requireAuth } from "../middleware/auth";
@@ -293,9 +302,15 @@ authRouter.get("/me", requireAuth, (req, res) => {
 /**
  * Profile edits.
  *
- * Two app calls land here: a donor editing everything, and a recipient moving
- * their district. Which fields are honoured depends on the role, because the old
- * SQL had two separate guarded mutations for exactly that reason.
+ * Donors, recipients and hospitals all edit the same set of contact fields —
+ * name, email, mobile, district. The route used to reject everyone but donors,
+ * which meant a hospital could never correct a typo in its own name and a
+ * recipient could not change a phone number. Blood group stays donor-only: it is
+ * a clinical value that drives donation compatibility, so it is not something a
+ * recipient should be able to set to widen who can donate to them.
+ *
+ * Admin stays locked: accounts there are provisioned by seed, and the route is
+ * the same one every self-service edit goes through.
  */
 authRouter.patch(
   "/me",
@@ -305,25 +320,30 @@ authRouter.patch(
     const user = currentUser(req);
     const input = req.body as z.infer<typeof updateMeSchema>;
 
-    if (user.role === "donor") {
-      if (input.bloodGroup !== undefined && input.bloodGroup !== null && !isBloodGroup(input.bloodGroup)) {
-        throw fail.validation("Choose a valid blood group.", {
-          bloodGroup: "Choose a valid blood group.",
-        });
-      }
+    if (user.role === "admin") {
+      throw fail.conflict("Administrator profiles are managed by the seed script, not edited here.");
+    }
 
-      await assertContactDetailsFree(user, input.email, input.mobile);
+    if (input.bloodGroup !== undefined && input.bloodGroup !== null && user.role !== "donor") {
+      throw fail.conflict("Only a donor can set a blood group.");
+    }
 
-      if (input.fullName !== undefined) user.fullName = input.fullName;
-      if (input.district !== undefined) user.district = input.district;
-      if (input.bloodGroup !== undefined) user.bloodGroup = input.bloodGroup;
-      if (input.email !== undefined) user.email = input.email;
-      if (input.mobile !== undefined) user.mobile = input.mobile;
-    } else if (user.role === "recipient") {
-      // The location screen only ever moves the district.
-      if (input.district !== undefined) user.district = input.district;
-    } else {
-      throw fail.conflict("Profile editing is not available for this account type.");
+    if (input.bloodGroup !== undefined && input.bloodGroup !== null && !isBloodGroup(input.bloodGroup)) {
+      throw fail.validation("Choose a valid blood group.", {
+        bloodGroup: "Choose a valid blood group.",
+      });
+    }
+
+    // Checked for every role now, not only donors, so two accounts racing on the
+    // same email still resolves to a conflict rather than a duplicate-key crash.
+    await assertContactDetailsFree(user, input.email, input.mobile);
+
+    if (input.fullName !== undefined) user.fullName = input.fullName;
+    if (input.district !== undefined) user.district = input.district;
+    if (input.email !== undefined) user.email = input.email;
+    if (input.mobile !== undefined) user.mobile = input.mobile;
+    if (user.role === "donor" && input.bloodGroup !== undefined) {
+      user.bloodGroup = input.bloodGroup;
     }
 
     try {
@@ -392,5 +412,132 @@ authRouter.put(
     await user.save();
 
     res.json({ ok: true });
+  }),
+);
+
+/* ------------------------------------------------------------------- avatar */
+
+/**
+ * Replaces the signed-in user's profile picture.
+ *
+ * The old file is deleted before the new path is committed to the database, so a
+ * crash mid-upload leaves an unreferenced file rather than a user with no
+ * avatar. Multer's own errors are mapped rather than allowed through, because an
+ * unhandled rejection from the middleware is a 500 that tells the user nothing.
+ */
+authRouter.post(
+  "/me/avatar",
+  requireAuth,
+  uploadAvatar,
+  asyncHandler(async (req, res) => {
+    const user = currentUser(req);
+
+    const file = (req as { file?: UploadedAvatar }).file;
+
+    try {
+      const buffer = await readUploadedAvatar(file);
+      const avatarUrl = await storeAvatar(String(user._id), buffer);
+      const previous = user.avatarUrl;
+
+      user.avatarUrl = avatarUrl;
+      await user.save();
+
+      await removeStoredAvatar(previous);
+
+      res.json({ user: authUserRow(user) });
+    } catch (error) {
+      throw fail.validation(uploadErrorMessage(error));
+    }
+  }),
+);
+
+/* ------------------------------------------------------------- identity pass */
+
+/**
+ * How long an identity pass stays valid.
+ *
+ * Long enough that nobody re-opens their profile mid-shift to refresh a QR that
+ * a colleague is about to scan, short enough that a lost phone stops being a
+ * permanent exposure. The app re-issues silently on expiry, so this is a ceiling
+ * on staleness rather than something a user has to act on.
+ */
+const PASS_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+const passTokenSchema = z.object({
+  tokenHash: z.string().trim().min(16, "A pass hash is required.").max(128),
+});
+
+/**
+ * Issues (or rotates) the signed-in user's identity pass.
+ *
+ * The device generates the secret and sends only its SHA-256, exactly as the
+ * donor intake ticket does, so the raw value never reaches this process. Issuing
+ * overwrites the stored hash, which retires any pass already in the wild — that
+ * is the whole of "revoke", and it is why rotation needs no extra bookkeeping.
+ */
+authRouter.post(
+  "/me/pass",
+  requireAuth,
+  validateBody(passTokenSchema),
+  asyncHandler(async (req, res) => {
+    const user = currentUser(req);
+    const { tokenHash } = req.body as { tokenHash: string };
+
+    const expiresAt = new Date(Date.now() + PASS_TTL_MS);
+
+    // `passTokenHash` is `select: false`, so the loaded document does not carry
+    // the current value and saving would drop it without this explicit update.
+    await User.updateOne(
+      { _id: user._id },
+      { $set: { passTokenHash: tokenHash, passTokenExpiresAt: expiresAt } },
+    );
+
+    res.json({ pass: { expiresAt } });
+  }),
+);
+
+/**
+ * Resolves a scanned pass to the person who owns it.
+ *
+ * Requires a session, deliberately: an anonymous caller with one phone could
+ * otherwise walk a list of pass hashes off the database and pull a name and role
+ * for each. `requireAuth` alone would allow any registered account to do the
+ * same, so the returned row is the narrow `passOwnerRow` — enough to confirm
+ * identity at a desk, and nothing that turns a pass into a directory.
+ *
+ * A miss is a conflict rather than a 404, so a caller cannot tell "no such pass"
+ * apart from "that pass has expired" and use the difference to probe.
+ */
+authRouter.post(
+  "/pass/resolve",
+  requireAuth,
+  validateBody(passTokenSchema),
+  asyncHandler(async (req, res) => {
+    const scanner = currentUser(req);
+    const { tokenHash } = req.body as { tokenHash: string };
+
+    const owner = await User.findOne({ passTokenHash: tokenHash }).select("+passTokenHash");
+
+    if (
+      owner === null ||
+      owner.passTokenExpiresAt === null ||
+      owner.passTokenExpiresAt.getTime() <= Date.now()
+    ) {
+      throw fail.conflict("This pass is invalid or has expired.");
+    }
+
+    owner.passLastScanBy = scanner._id;
+    owner.passLastScanAt = new Date();
+    await owner.save();
+
+    res.json({
+      pass: {
+        owner: passOwnerRow(owner),
+        expiresAt: owner.passTokenExpiresAt,
+        // Lets the client say "this is you" without a second round trip.
+        isSelf: String(owner._id) === String(scanner._id),
+        scannedAt: owner.passLastScanAt,
+      },
+    });
   }),
 );

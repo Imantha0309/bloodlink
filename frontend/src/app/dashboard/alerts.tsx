@@ -15,7 +15,7 @@ import { Typography } from "@/constants/typography";
 import { queryKeys } from "@/data/keys";
 import { useMutation } from "@/data/use-mutation";
 import { usePollingQuery } from "@/data/use-polling-query";
-import { useAuthBack } from "@/hooks/use-auth-back";
+import { useHomeBack } from "@/hooks/use-home-back";
 import { useAuth } from "@/providers/auth-provider";
 import { listAlerts, markAlertsRead, type Alert } from "@/services/alerts";
 import { haptics } from "@/utils/haptics";
@@ -36,7 +36,7 @@ import { timeAgo } from "@/utils/time";
 export default function AlertsScreen() {
   const router = useRouter();
   const { session } = useAuth();
-  const onBack = useAuthBack(DASHBOARD_TABS.alerts);
+  const onBack = useHomeBack();
 
   const feed = usePollingQuery({
     key: queryKeys.alerts(),

@@ -18,11 +18,19 @@ import { FormAlert } from "@/components/auth/form-alert";
 import { PhoneEmailInput } from "@/components/auth/phone-email-input";
 import { PrimaryAuthButton } from "@/components/auth/primary-auth-button";
 import { StepIndicator } from "@/components/auth/step-indicator";
+<<<<<<< HEAD
+=======
+import { KeyboardDismissView } from "@/components/ui/keyboard-dismiss";
+>>>>>>> origin/feature/recipient-module
 import { Blood, Surface } from "@/constants/colors";
 import { Radius } from "@/constants/radius";
 import { ROUTES } from "@/constants/routes";
 import { Typography } from "@/constants/typography";
+<<<<<<< HEAD
 import { useAuthBack } from "@/hooks/use-auth-back";
+=======
+import { useBack } from "@/hooks/use-back";
+>>>>>>> origin/feature/recipient-module
 import { apiErrorMessage, authService } from "@/services/auth";
 import { validateContact } from "@/utils/validation";
 
@@ -35,7 +43,10 @@ import { validateContact } from "@/utils/validation";
 export default function ForgotPasswordScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+<<<<<<< HEAD
   const handleBack = useAuthBack(ROUTES.login);
+=======
+>>>>>>> origin/feature/recipient-module
 
   const [step, setStep] = useState(0);
   const [identifier, setIdentifier] = useState("");
@@ -47,6 +58,7 @@ export default function ForgotPasswordScreen() {
 
   const meta = step === 0 ? { badge: "1", label: "STEP 1 OF 2 • IDENTIFY" } : { badge: "2", label: "STEP 2 OF 2 • EMAIL SENT" };
 
+<<<<<<< HEAD
   function goBack() {
     if (step > 0 && !isDone) {
       setStep(step - 1);
@@ -57,6 +69,31 @@ export default function ForgotPasswordScreen() {
 
     handleBack();
   }
+=======
+  /**
+   * Back, as one decision for the header arrow, the Android button and the iOS
+   * swipe.
+   *
+   * Step two is a dead end rather than a step to step back off, so `isDone`
+   * sends back out of the screen — the same as the header has always done.
+   * Below that, and with no history behind (deep link to `/forgot-password`),
+   * the fallback is login.
+   *
+   * This has to be one hook rather than a step interceptor plus a separate
+   * fallback listener: two `beforeRemove` listeners on one screen cancel each
+   * other's navigation, and back ends up stuck.
+   */
+  const handleBack = useBack(() => {
+    if (step === 0 || isDone) {
+      return false;
+    }
+
+    setStep(0);
+    setFieldError(null);
+    setFormError(null);
+    return true;
+  }, ROUTES.login);
+>>>>>>> origin/feature/recipient-module
 
   async function handleSendLink() {
     if (isSubmitting) {
@@ -87,14 +124,22 @@ export default function ForgotPasswordScreen() {
   }
 
   return (
+<<<<<<< HEAD
     <View style={styles.root}>
+=======
+    <KeyboardDismissView style={styles.root}>
+>>>>>>> origin/feature/recipient-module
       <StatusBar style="dark" />
 
       <SafeAreaView style={styles.safeArea} edges={["left", "right"]}>
         <AuthHeader
           gap={14}
           title="Reset Password"
+<<<<<<< HEAD
           onBack={goBack}
+=======
+          onBack={handleBack}
+>>>>>>> origin/feature/recipient-module
           backAccessibilityLabel={isDone ? "Back" : "Go back"}
           {...(isDone ? {} : { right: <StepIndicator badge={meta.badge} label={meta.label} /> })}
         />
@@ -174,7 +219,11 @@ export default function ForgotPasswordScreen() {
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
+<<<<<<< HEAD
     </View>
+=======
+    </KeyboardDismissView>
+>>>>>>> origin/feature/recipient-module
   );
 }
 

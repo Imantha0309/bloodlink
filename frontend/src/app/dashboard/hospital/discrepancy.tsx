@@ -86,9 +86,9 @@ export default function HospitalDiscrepancyScreen() {
           setError(null);
         }
       })
-      .catch((caught) => {
+      .catch((error_) => {
         if (!cancelled) {
-          setError(apiErrorMessage(caught));
+          setError(apiErrorMessage(error_));
         }
       })
       .finally(() => {
@@ -109,8 +109,8 @@ export default function HospitalDiscrepancyScreen() {
 
     try {
       setReports(await listDiscrepancyReports(next));
-    } catch (caught) {
-      setError(apiErrorMessage(caught));
+    } catch (error_) {
+      setError(apiErrorMessage(error_));
     } finally {
       setIsLoading(false);
     }
@@ -138,8 +138,8 @@ export default function HospitalDiscrepancyScreen() {
         return includeResolved || !filed.resolved ? [filed, ...rest] : rest;
       });
       setDetail("");
-    } catch (caught) {
-      setFormError(apiErrorMessage(caught));
+    } catch (error_) {
+      setFormError(apiErrorMessage(error_));
     } finally {
       setIsSubmitting(false);
     }
@@ -162,8 +162,8 @@ export default function HospitalDiscrepancyScreen() {
           .map((report) => (report.id === id ? { ...report, resolved: true } : report))
           .filter((report) => includeResolved || !report.resolved),
       );
-    } catch (caught) {
-      setFormError(apiErrorMessage(caught));
+    } catch (error_) {
+      setFormError(apiErrorMessage(error_));
     } finally {
       setBusyId(null);
     }

@@ -156,9 +156,9 @@ export default function HospitalCreateRequestScreen() {
           requestId: created.id,
         },
       });
-    } catch (caught) {
+    } catch (error_) {
       haptics.error();
-      setSubmitError(apiErrorMessage(caught));
+      setSubmitError(apiErrorMessage(error_));
     } finally {
       setIsSubmitting(false);
     }
@@ -220,8 +220,8 @@ export default function HospitalCreateRequestScreen() {
 
           <Text style={styles.fieldLabel}>{CREATE_REQUEST.groupLabel}</Text>
 
-          {GROUP_ROWS.map((row, rowIndex) => (
-            <View key={rowIndex} style={styles.groupRow}>
+          {GROUP_ROWS.map((row) => (
+            <View key={row.join("-")} style={styles.groupRow}>
               {row.map((group) => {
                 const selected = group === bloodGroup;
 

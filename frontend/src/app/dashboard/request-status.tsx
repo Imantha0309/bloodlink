@@ -538,7 +538,7 @@ export default function RequestStatusScreen() {
               </View>
 
               {/* ------------------------------------------------- donor status */}
-              {request.donorResponse !== null ? (
+              {request !== null && request.donorResponse !== null ? (
                 <View style={[styles.card, styles.donorStatusCard]}>
                   <View style={styles.sectionHeader}>
                     <Text style={styles.sectionTitle}>Donor Status</Text>

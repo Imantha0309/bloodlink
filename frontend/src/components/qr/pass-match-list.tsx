@@ -19,6 +19,7 @@
 
 import { Feather } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
+import { useRouter } from "expo-router";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { CAN_DONATE_TO, isBloodGroup } from "@/constants/blood-groups";
@@ -31,6 +32,8 @@ import { respondForScannedPass, type ResolvedPass } from "@/services/auth/pass-s
 import { listEmergencyRequests, type EmergencyRequest } from "@/services/requests/emergency-requests";
 import { haptics } from "@/utils/haptics";
 import { wardOf } from "@/utils/request-ward";
+import { referenceFor } from "@/utils/reference";
+import { ROUTES } from "@/constants/routes";
 
 type MatchListProps = {
   resolved: ResolvedPass;
@@ -44,6 +47,7 @@ type MatchListProps = {
 };
 
 export function PassMatchList({ resolved, secret, canRespond, scope, onBack }: MatchListProps) {
+  const router = useRouter();
   const [requests, setRequests] = useState<EmergencyRequest[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [workingId, setWorkingId] = useState<string | null>(null);
@@ -199,6 +203,8 @@ export function PassMatchList({ resolved, secret, canRespond, scope, onBack }: M
                 </View>
 
                 <View style={styles.facts}>
+                  <Text style={[styles.fact, styles.requestCode]}>Request #{referenceFor(request.id)}</Text>
+                  <Text style={styles.fact}>·</Text>
                   <Text style={styles.fact}>
                     {request.units} {request.units === 1 ? "unit" : "units"}
                   </Text>
@@ -212,13 +218,28 @@ export function PassMatchList({ resolved, secret, canRespond, scope, onBack }: M
                   ) : null}
                 </View>
 
+                {request.notes ? <Text style={styles.requestNotes}>{request.notes}</Text> : null}
+
                 {done === "accepted" ? (
-                  <View style={styles.accepted} accessibilityLiveRegion="polite">
-                    <Feather name="check-circle" size={15} color={Surface.online} />
-                    <Text style={styles.acceptedText}>
-                      {owner.fullName.split(" ")[0]} is recorded as accepted
-                    </Text>
-                  </View>
+                  <>
+                    <View style={styles.accepted} accessibilityLiveRegion="polite">
+                      <Feather name="check-circle" size={15} color={Surface.online} />
+                      <Text style={styles.acceptedText}>
+                        {owner.fullName.split(" ")[0]} is accepted. Go to request #{referenceFor(request.id)}.
+                      </Text>
+                    </View>
+                    {canRespond ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`Go to request ${referenceFor(request.id)}`}
+                        onPress={() => router.push({ pathname: ROUTES.hospitalVerifyDonor, params: { requestId: request.id } })}
+                        style={({ pressed }) => [styles.goToRequest, pressed && styles.pressed]}
+                      >
+                        <Feather name="arrow-right" size={15} color={Surface.onPrimary} />
+                        <Text style={styles.acceptText}>Go to request</Text>
+                      </Pressable>
+                    ) : null}
+                  </>
                 ) : canRespond ? (
                   <Pressable
                     accessibilityRole="button"
@@ -434,6 +455,26 @@ const styles = StyleSheet.create({
   factWard: {
     fontWeight: "700",
     color: Blood.primary,
+  },
+
+  requestCode: {
+    fontWeight: "800",
+    color: Blood.primary,
+  },
+
+  requestNotes: {
+    ...Typography.small,
+    color: Surface.textSecondary,
+  },
+
+  goToRequest: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    minHeight: 42,
+    borderRadius: Radius.sm,
+    backgroundColor: Blood.primary,
   },
 
   accept: {

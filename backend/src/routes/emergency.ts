@@ -288,10 +288,15 @@ emergencyRouter.get(
   optionalAuth,
   asyncHandler(async (req, res) => {
     const request = await findRequest(param(req, "id"));
+    const user = req.user;
+    const isRequester = user !== undefined && request.requester !== null && ownsRequest(user, request.requester);
+    const matchedOnBehalf = isRequester
+      ? await DonorRequestResponse.exists({ request: request._id, recordedBy: { $ne: null } })
+      : null;
 
     res.json({
       request: {
-        ...requestRow(request),
+        ...requestRow(request, { donorMatchedOnBehalf: matchedOnBehalf !== null }),
         compatibleDonorGroups: donorsForRecipient(request.bloodGroup),
       },
     });

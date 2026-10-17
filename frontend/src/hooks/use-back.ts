@@ -33,8 +33,9 @@ import { ROUTES } from "@/constants/routes";
  * dispatches a fresh action which fires `beforeRemove` again, and that second
  * pass-through is what actually navigates. One extra hop, no loop.
  *
- * `router.replace` never fires `beforeRemove`, so the fallback path leaves the
- * flag clear and cannot strand a later press.
+ * A fallback replacement can also emit `beforeRemove` for the route being
+ * replaced. It gets the same one-shot pass-through as a pop so the listener
+ * does not intercept its own fallback navigation.
  *
  * `onStepBack` is read through a ref so the listener is not torn down and
  * re-added on every render just because the caller passed an inline closure.
@@ -59,7 +60,9 @@ export function useBack(onStepBack: () => boolean, fallback: Href = ROUTES.splas
       allowNext.current = true;
       router.back();
     } else {
-      allowNext.current = false;
+      // `replace` removes the current route too. Let that one removal pass
+      // through this listener, or it will call `go` and replace repeatedly.
+      allowNext.current = true;
       router.replace(fallback);
     }
   }, [router, fallback]);

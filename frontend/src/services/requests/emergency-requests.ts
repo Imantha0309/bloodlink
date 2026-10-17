@@ -237,7 +237,9 @@ export type EmergencyRequestDetail = {
 
 export async function getEmergencyRequest(id: string): Promise<EmergencyRequestDetail> {
   try {
-    const { request } = await apiRequest<{ request: unknown }>(`/emergency/${id}`, { auth: false });
+    // Sends an available session token so the API can return recipient-only
+    // tracking details; the same endpoint remains readable without a session.
+    const { request } = await apiRequest<{ request: unknown }>(`/emergency/${id}`);
     const row = request;
 
     if (typeof row !== "object" || row === null) {

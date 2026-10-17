@@ -537,6 +537,63 @@ export default function RequestStatusScreen() {
                 )}
               </View>
 
+              {/* ------------------------------------------------- donor status */}
+              {request.donorResponse !== null ? (
+                <View style={[styles.card, styles.donorStatusCard]}>
+                  <View style={styles.sectionHeader}>
+                    <Text style={styles.sectionTitle}>Donor Status</Text>
+                  </View>
+                  <View style={styles.donorStatusRow}>
+                    <View
+                      style={[
+                        styles.donorStatusBadge,
+                        request.donorStage === "arrived" && styles.donorStatusArrivedBadge,
+                      ]}
+                    >
+                      <Feather
+                        name={
+                          request.donorStage === "arrived"
+                            ? "check-circle"
+                            : request.donorStage === "en_route"
+                              ? "navigation"
+                              : "clock"
+                        }
+                        size={12}
+                        color={
+                          request.donorStage === "arrived"
+                            ? C.green
+                            : request.donorStage === "en_route"
+                              ? C.primary
+                              : C.sub
+                        }
+                      />
+                      <Text
+                        style={[
+                          styles.donorStatusBadgeText,
+                          request.donorStage === "arrived" && styles.donorStatusArrivedText,
+                        ]}
+                      >
+                        {request.donorStage === "arrived"
+                          ? "Arrived at Hospital"
+                          : request.donorStage === "en_route"
+                            ? "En Route to Hospital"
+                            : request.donorResponse === "accepted"
+                              ? "Accepted"
+                              : "Declined"}
+                      </Text>
+                    </View>
+                    {request.donorStage === "arrived" ? (
+                      <Text style={styles.donorArrivedMessage}>
+                        The donor has arrived at the hospital{" "}
+                        {request.donorResponse === "accepted" && request.donorStage === "arrived"
+                          ? `· checked in ${timeAgo(request.updatedAt)}`
+                          : ""}
+                      </Text>
+                    ) : null}
+                  </View>
+                </View>
+              ) : null}
+
               {/* ------------------------------------------------- delivery area */}
               <View style={styles.card}>
                 <View style={styles.sectionHeader}>
@@ -908,6 +965,15 @@ function calloutFor(request: EmergencyRequest, groups: BloodGroup[]): Callout {
   }
 
   if (request.status === "verified") {
+    if (request.donorMatchedOnBehalf) {
+      return {
+        icon: "check-circle",
+        title: "Donor Accepted",
+        message: "A compatible donor accepted at the hospital desk. The donor journey is now active and this screen refreshes as the request progresses.",
+        tone: "good",
+      };
+    }
+
     return {
       icon: "check-circle",
       title: "Verified — Donors Notified",
@@ -1209,6 +1275,54 @@ const styles = StyleSheet.create({
     lineHeight: 12,
     fontWeight: "700",
     color: C.blue,
+  },
+
+  /* ------------------------------------------------- donor status card */
+  donorStatusCard: {
+    backgroundColor: C.paleBlue,
+    borderColor: "#D6E3FF",
+  },
+
+  donorStatusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 8,
+  },
+
+  donorStatusBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#D6E3FF",
+    backgroundColor: "#FFFFFF",
+  },
+
+  donorStatusArrivedBadge: {
+    borderColor: C.green,
+    backgroundColor: C.paleGreen,
+  },
+
+  donorStatusBadgeText: {
+    fontSize: 9.5,
+    lineHeight: 12,
+    fontWeight: "700",
+    color: C.sub,
+  },
+
+  donorStatusArrivedText: {
+    color: C.green,
+  },
+
+  donorArrivedMessage: {
+    fontSize: 9,
+    lineHeight: 12,
+    color: C.sub,
+    marginTop: 6,
   },
 
   /* ------------------------------------------------- delivery area map */

@@ -76,6 +76,8 @@ export default function HospitalVerifyDonorScreen() {
   const [ticketText, setTicketText] = useState("");
   const [isVerifying, setIsVerifying] = useState(false);
   const [checkInError, setCheckInError] = useState<string | null>(null);
+  /** The request id the scanned ticket was bound to, used to show "this is your request" after check-in. */
+  const [checkedInRequestId, setCheckedInRequestId] = useState<string | null>(null);
 
   // Derived (not stored): a cold open without a request id shows the error
   // banner without a setState round-trip inside the effect.
@@ -153,6 +155,7 @@ export default function HospitalVerifyDonorScreen() {
 
     try {
       await verifyDonorCheckIn(ticket.requestId, ticket.secret);
+      setCheckedInRequestId(ticket.requestId);
       setWorkflow(await getRequestWorkflow(ticket.requestId));
       setTicketText("");
       setIsScanning(false);
@@ -547,6 +550,64 @@ export default function HospitalVerifyDonorScreen() {
                   </Pressable>
                 </View>
               </View>
+
+              {/* ================= CHECK-IN CONFIRMED ================= */}
+              {checkedInRequestId !== null && hasArrived && (
+                <View style={styles.checkInConfirmedCard}>
+                  <View style={styles.checkInHead}>
+                    <Feather name="check-circle" size={20} color={Surface.online} />
+                    <Text style={styles.checkInTitle}>Donor Checked In</Text>
+                  </View>
+
+                  <View style={styles.checkInDetail}>
+                    <View style={styles.checkInInfo}>
+                      <Text style={styles.checkInLabel}>Donor</Text>
+                      <Text style={styles.checkInValue}>{donor?.fullName ?? "Verified Donor"}</Text>
+                    </View>
+                    <View style={styles.checkInInfo}>
+                      <Text style={styles.checkInLabel}>Blood Group</Text>
+                      <Text style={styles.checkInValue}>{donor?.bloodGroup ?? "—"}</Text>
+                    </View>
+                    <View style={styles.checkInInfo}>
+                      <Text style={styles.checkInLabel}>Patient</Text>
+                      <Text style={styles.checkInValue}>{request.patientName}</Text>
+                    </View>
+                    <View style={styles.checkInInfo}>
+                      <Text style={styles.checkInLabel}>Hospital</Text>
+                      <Text style={styles.checkInValue}>{request.hospital}</Text>
+                    </View>
+                    <View style={styles.checkInInfo}>
+                      <Text style={styles.checkInLabel}>Units</Text>
+                      <Text style={styles.checkInValue}>
+                        {request.units} {request.units === 1 ? "unit" : "units"}
+                      </Text>
+                    </View>
+                    <View style={styles.checkInInfo}>
+                      <Text style={styles.checkInLabel}>Urgency</Text>
+                      <Text style={styles.checkInValue}>{request.urgency}</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.checkInReference}>
+                    <Text style={styles.checkInRefLabel}>Request Reference</Text>
+                    <Text style={styles.checkInRefValue}>#BL-{referenceFor(request.id)}</Text>
+                  </View>
+
+                  {checkedInRequestId === requestId ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Open this request"
+                      onPress={() => {
+                        router.push(ROUTES.hospitalRequests);
+                      }}
+                      style={styles.checkInGoTo}
+                    >
+                      <Feather name="arrow-right" size={14} color={Surface.onPrimary} />
+                      <Text style={styles.checkInGoToText}>Go to this request on the board</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              )}
 
               {/* ================= DONOR MATCH ================= */}
 
@@ -1755,4 +1816,91 @@ const styles = StyleSheet.create({
     color: Blood.primary,
     fontWeight: "600",
   },
+
+  /* ================= CHECK-IN CONFIRMED ================= */
+
+  checkInConfirmedCard: {
+    gap: 12,
+    padding: 16,
+    borderRadius: Radius.card,
+    borderWidth: 1,
+    borderColor: Surface.softGreenBorder,
+    backgroundColor: Surface.softGreen,
+    marginTop: 12,
+  },
+
+  checkInHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 8,
+  },
+
+  checkInTitle: {
+    ...Typography.cardTitle,
+    color: Surface.text,
+  },
+
+  checkInDetail: {
+    gap: 10,
+  },
+
+  checkInInfo: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingVertical: 4,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Surface.softGreenBorder,
+  },
+
+  checkInLabel: {
+    ...Typography.small,
+    color: Surface.textSecondary,
+  },
+
+  checkInValue: {
+    ...Typography.small,
+    fontWeight: "700",
+    color: Surface.text,
+  },
+
+  checkInReference: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    padding: 10,
+    borderRadius: Radius.pill,
+    backgroundColor: Surface.card,
+    borderWidth: 1,
+    borderColor: Surface.softGreenBorder,
+    marginTop: 4,
+  },
+
+  checkInRefLabel: {
+    ...Typography.micro,
+    color: Surface.textSecondary,
+  },
+
+  checkInRefValue: {
+    ...Typography.small,
+    fontWeight: "800",
+    color: Blood.primary,
+  },
+
+  checkInGoTo: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    minHeight: 44,
+    paddingHorizontal: 14,
+    borderRadius: Radius.field,
+    backgroundColor: Blood.primary,
+    marginTop: 12,
+  },
+
+  checkInGoToText: {
+    ...Typography.button,
+    color: Surface.onPrimary,
+  },
 });
+

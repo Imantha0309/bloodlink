@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import QRCode from "react-native-qrcode-svg";
 import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
@@ -35,6 +35,9 @@ function IntakeContent() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Ref tracking the last issued ticket so `load` doesn't depend on `ticket` state
+   *  and re-trigger the focus effect on every ticket rotation. */
+  const ticketRef = useRef<DonorCheckInTicket | null>(null);
 
   const load = useCallback(async (rotateTicket: boolean) => {
     try {
@@ -42,12 +45,16 @@ function IntakeContent() {
       const traveling = list.find((item) => item.donorStage === "en_route") ?? null;
       const current = traveling ?? list.find((item) => item.donorStage === "arrived") ?? null;
       setCommitment(current);
-      if (traveling && (rotateTicket || !ticket || new Date(ticket.expiresAt).getTime() <= Date.now())) {
-        setTicket(await createDonorCheckInTicket(traveling.id));
+      if (traveling && (rotateTicket || !ticketRef.current || new Date(ticketRef.current.expiresAt).getTime() <= Date.now())) {
+        const nextTicket = await createDonorCheckInTicket(traveling.id);
+        setTicket(nextTicket);
+        ticketRef.current = nextTicket;
       } else if (!current) {
         setTicket(null);
+        ticketRef.current = null;
       } else if (current.donorStage === "arrived") {
         setTicket(null);
+        ticketRef.current = null;
       }
       setError(null);
     } catch (caught) {
@@ -56,7 +63,7 @@ function IntakeContent() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [ticket]);
+  }, []);
 
   useFocusEffect(useCallback(() => {
     void load(false);
@@ -68,7 +75,9 @@ function IntakeContent() {
     if (!commitment) return;
     setRefreshing(true);
     try {
-      setTicket(await createDonorCheckInTicket(commitment.id));
+      const nextTicket = await createDonorCheckInTicket(commitment.id);
+      setTicket(nextTicket);
+      ticketRef.current = nextTicket;
       setError(null);
     } catch (caught) {
       setError(apiErrorMessage(caught));

@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import { useFocusEffect, usePathname, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { AppState, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -89,6 +89,9 @@ export function DashboardShell({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
 
+  /** Guards against overlapping reloads from the polling interval. */
+  const isLoadingRef = useRef(false);
+
   /**
    * How a settled fetch becomes state. Shared by the mount effect and the
    * event-driven reloads so the two cannot drift apart.
@@ -114,11 +117,15 @@ export function DashboardShell({
   /** Reloads triggered by the user, where a spinner is expected. */
   const runLoad = useCallback(
     async (silent: boolean): Promise<void> => {
+      // Prevent overlapping reloads from the polling interval.
+      if (isLoadingRef.current) return;
+      isLoadingRef.current = true;
       try {
         applySummary(await getDashboardSummary());
       } catch (caught) {
         applyError(caught, silent);
       } finally {
+        isLoadingRef.current = false;
         setIsLoading(false);
         setIsRefreshing(false);
       }

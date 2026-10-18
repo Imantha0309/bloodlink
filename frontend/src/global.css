@@ -6,4 +6,20 @@
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, Courier New, monospace;
   --font-rounded: 'SF Pro Rounded', 'Hiragino Maru Gothic ProN', Meiryo, 'MS PGothic', sans-serif;
   --font-serif: Georgia, 'Times New Roman', serif;
+
+  /* BloodLink brand tokens — mirrored from @/constants/colors for web styling. */
+  --blood-primary: #C8102E;
+  --blood-dark: #B51224;
+  --blood-light: #E5566B;
+  --surface-background: #F7F9FC;
+  --surface-card: #FFFFFF;
+  --surface-border: #E4E8ED;
+  --surface-border-strong: #D0D5DD;
+  --surface-text: #18212B;
+  --surface-text-secondary: #687586;
+  --surface-text-muted: #929AA6;
+  --surface-on-primary: #FFFFFF;
+  --radius-card: 18px;
+  --radius-field: 14px;
+  --radius-full: 999px;
 }

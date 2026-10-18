@@ -1,543 +1,443 @@
-import { StatusBar } from "expo-status-bar";
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
-import {
-  Animated,
-  Easing,
-  Image,
-  Linking,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { Feather } from "@expo/vector-icons";
+import { useEffect } from "react";
 
-import { Blood } from "@/constants/colors";
-import { ROLE_HOME, ROUTES } from "@/constants/routes";
 import { useAuth } from "@/providers/auth-provider";
+import { Blood, Elevation, Surface } from "@/constants/colors";
+import { Radius } from "@/constants/radius";
+import { ROLE_CARDS } from "@/constants/roles";
+import { ROLE_HOME, ROUTES } from "@/constants/routes";
+import { Typography } from "@/constants/typography";
 
-export default function LoadingScreen() {
+/**
+ * BloodLink web home page.
+ *
+ * Public landing page for unauthenticated visitors — hero, role selection and
+ * a three-step explainer. Signed-in users are redirected straight to their
+ * role dashboard (`ROLE_HOME`). While the stored session is still resolving,
+ * nothing renders so the router's auth guards stay closed.
+ */
+export default function HomeScreen() {
+  const { status, session } = useAuth();
   const router = useRouter();
-  const { session, status } = useAuth();
-
-  /**
-   * "Get Started" has to respect the guards in `_layout.tsx`: `login` is only
-   * reachable while signed out, so pushing it from an authenticated session
-   * would bounce. A signed-in user goes straight to their own dashboard.
-   */
-  function handleGetStarted() {
-    if (status === "authenticated" && session !== null) {
-      router.replace(ROLE_HOME[session.user.role]);
-      return;
-    }
-
-    if (status === "unauthenticated") {
-      router.push(ROUTES.login);
-    }
-  }
-
-  // Lazy `useState` initialisers rather than `useRef(...).current`: same stable
-  // per-instance Animated.Value, but nothing reads a ref during render.
-  const [fadeAnim] = useState(() => new Animated.Value(0));
-  const [scaleAnim] = useState(() => new Animated.Value(0.85));
 
   useEffect(() => {
-    // =========================
-    // LOGO FADE + SCALE
-    // =========================
-
-    const intro = Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 900,
-        easing: Easing.out(Easing.ease),
-        useNativeDriver: true,
-      }),
-
-      Animated.spring(scaleAnim, {
-        toValue: 1,
-        friction: 7,
-        tension: 45,
-        useNativeDriver: true,
-      }),
-    ]);
-
-    intro.start();
-
-    return () => {
-      intro.stop();
-    };
-  }, [fadeAnim, scaleAnim]);
-
-  /**
-   * A restored session has to lead somewhere. `/login` and `/role-select` are
-   * guarded to signed-out users, so a signed-in user who lands here after a
-   * reload — the app always starts at `/` — would have no reachable action and
-   * the Get Started button would do nothing. Send them to their dashboard.
-   */
-  useEffect(() => {
-    if (status === "authenticated" && session !== null) {
+    if (status === "authenticated" && session?.user.role) {
       router.replace(ROLE_HOME[session.user.role]);
     }
   }, [status, session, router]);
 
+  if (status === "loading") {
+    return null;
+  }
+
   return (
-    <View style={styles.container}>
-      <StatusBar style="dark" />
-
-      <SafeAreaView style={styles.safeArea}>
-        <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={styles.content}
-          showsVerticalScrollIndicator={false}
-          bounces={false}
-        >
-          {/* ================= LOGO ================= */}
-
-          <Animated.View
-            style={[
-              styles.logoContainer,
-              {
-                opacity: fadeAnim,
-                transform: [{ scale: scaleAnim }],
-              },
-            ]}
-          >
-            <View style={styles.logo}>
-              <View style={styles.logoDrop} />
+    <ScrollView
+      style={styles.root}
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}
+    >
+      {/* ---------- Hero ---------- */}
+      <View style={styles.hero}>
+        <Image
+          source={{
+            uri:
+              "https://images.unsplash.com/photo-1551077885-bb0193992345?q=80&w=2000&auto=format&fit=crop",
+          }}
+          style={styles.heroImage}
+          alt="Blood donation hero banner"
+        />
+        <View style={styles.heroOverlay}>
+          <View style={styles.heroContent}>
+            <Feather name="heart" size={34} color={Surface.onPrimary} />
+            <Text style={styles.heroKicker}>BloodLink</Text>
+            <Text style={styles.heroTitle}>
+              Emergency blood donation for Sri Lanka
+            </Text>
+            <Text style={styles.heroSubtitle}>
+              Recipients raise urgent requests, verified donors respond, and
+              hospital staff collect through intake, screening and donation.
+            </Text>
+            <View style={styles.heroActions}>
+              <Pressable
+                onPress={() => router.push(ROUTES.emergencyRequest)}
+                accessibilityRole="button"
+                accessibilityLabel="Request emergency blood"
+                style={styles.primaryButton}
+              >
+                <Text style={styles.buttonText}>I need blood</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => router.push(ROUTES.roleSelect)}
+                accessibilityRole="button"
+                accessibilityLabel="Become a donor"
+                style={styles.secondaryButton}
+              >
+                <Text style={styles.buttonText}>I want to donate</Text>
+              </Pressable>
             </View>
+          </View>
+        </View>
+      </View>
 
-            <View style={styles.brandArea}>
-              <View style={styles.brandRow}>
-                <Text style={styles.brandName}>BloodLink</Text>
+      {/* ---------- How it works ---------- */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>How it works</Text>
+        <View style={styles.steps}>
+          <StepCard
+            number="1"
+            title="Request"
+            body="A recipient or their family raises an emergency blood request with blood group, units and target hospital."
+          />
+          <StepCard
+            number="2"
+            title="Match"
+            body="Nearby verified donors are alerted and matched against the two inverse donor–recipient compatibility maps."
+          />
+          <StepCard
+            number="3"
+            title="Donate"
+            body="Hospital staff verify the donor, run intake and screening, then collect through the standard donation workflow."
+          />
+        </View>
+      </View>
 
-                <View style={styles.proBadge}>
-                  <Text style={styles.proText}>PRO</Text>
+      {/* ---------- Choose your role ---------- */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Choose your role</Text>
+        <View style={styles.roleGrid}>
+          {ROLE_CARDS.map((meta) => (
+            <Pressable
+              key={meta.role}
+              onPress={() => router.push(`${ROUTES.login}?role=${meta.role}`)}
+              accessibilityRole="button"
+              accessibilityLabel={`Join as ${meta.title}`}
+              style={styles.roleCard}
+            >
+              <View style={styles.roleCardImageWrap}>
+                <Image
+                  source={{
+                    uri: roleImageUri(meta.role),
+                  }}
+                  style={styles.roleCardImage}
+                  alt={`${meta.title} illustration`}
+                />
+                <View style={styles.roleCardBadge}>
+                  <Text style={styles.roleCardBadgeText}>{meta.badge}</Text>
                 </View>
               </View>
-
-              <Text style={styles.brandSubtitle}>
-                National Blood Transfusion Service • LK
-              </Text>
-            </View>
-          </Animated.View>
-
-          {/* ================= HERO ================= */}
-
-          <Animated.View
-            style={[
-              styles.heroContainer,
-              {
-                opacity: fadeAnim,
-              },
-            ]}
-          >
-            <Image
-              source={require("../../assets/images/loadingScreenimage.png")}
-              style={styles.heroImage}
-              resizeMode="cover"
-            />
-          </Animated.View>
-
-          {/* ================= TEXT ================= */}
-
-          <Animated.View
-            style={[
-              styles.textArea,
-              {
-                opacity: fadeAnim,
-                transform: [
-                  {
-                    translateY: fadeAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [20, 0],
-                    }),
-                  },
-                ],
-              },
-            ]}
-          >
-            <Text style={styles.smallLabel}>RAPID LIFE CONNECTION</Text>
-
-            <Text style={styles.title}>Every drop connects a</Text>
-
-            <Text style={styles.redTitle}>life in critical seconds.</Text>
-
-            <Text style={styles.description}>
-              Connecting donors, hospitals and blood
-              {"\n"}
-              banks across Sri Lanka in real-time.
-            </Text>
-          </Animated.View>
-
-          {/* ================= LOADING ================= */}
-
-          <Animated.View
-            style={[
-              styles.loadingArea,
-              {
-                opacity: fadeAnim,
-              },
-            ]}
-          >
-            <View style={styles.loadingDots}>
-              <LoadingDot delay={0} />
-              <LoadingDot delay={180} />
-              <LoadingDot delay={360} />
-            </View>
-
-            <Text style={styles.loadingText}>
-              Connecting you to life-saving services
-            </Text>
-          </Animated.View>
-
-          {/* ================= GET STARTED ================= */}
-
-          <Animated.View style={[styles.actionArea, { opacity: fadeAnim }]}>
-            <Pressable
-              style={styles.getStartedButton}
-              accessibilityRole="button"
-              accessibilityLabel="Get Started"
-              disabled={status === "loading"}
-              onPress={handleGetStarted}
-            >
-              <Text style={styles.getStartedText}>Get Started →</Text>
+              <Text style={styles.roleCardTitle}>{meta.title}</Text>
+              <Text style={styles.roleCardDesc}>{meta.description}</Text>
             </Pressable>
+          ))}
+        </View>
+      </View>
 
-            <Pressable
-              style={styles.nbtsLink}
-              accessibilityRole="link"
-              accessibilityLabel="Visit National Blood Transfusion Service website"
-              onPress={() => {
-                Linking.openURL("https://nbts.health.gov.lk/");
-              }}
-            >
-              <Text style={styles.nbtsLinkText}>
-                Visit National Blood Transfusion Service
-              </Text>
-            </Pressable>
-          </Animated.View>
+      {/* ---------- Demo credentials hint ---------- */}
+      <View style={styles.demoHint}>
+        <Feather name="info" size={14} color={Surface.textMuted} />
+        <Text style={styles.demoHintText}>
+          Dev accounts are listed on the sign-in screen — Donor, Hospital,
+          Recipient and Administrator.
+        </Text>
+      </View>
 
-          {/* ================= FOOTER ================= */}
+      <View style={styles.spacer} />
+      <View style={styles.footer}>
+        <Text style={styles.footerText}>
+          BloodLink &middot; Sri Lanka blood-donation platform
+        </Text>
+      </View>
+    </ScrollView>
+  );
+}
 
-          <Text style={styles.footer}>NBTS & Ministry of Health Endorsed</Text>
-        </ScrollView>
-      </SafeAreaView>
+/** Unsplash photo (open source, free for commercial use) per role. */
+function roleImageUri(role: string): string {
+  const map: Record<string, string> = {
+    recipient:
+      "https://images.unsplash.com/photo-1579684376925-05055e83575e?q=80&w=800&auto=format&fit=crop",
+    donor:
+      "https://images.unsplash.com/photo-1522726281693-18cb929291c2?q=80&w=800&auto=format&fit=crop",
+    hospital:
+      "https://images.unsplash.com/photo-1551077885-bb0193992345?q=80&w=800&auto=format&fit=crop",
+  };
+  return (
+    map[role] ??
+    "https://images.unsplash.com/photo-1552664734-d7358e776357?q=80&w=800&auto=format&fit=crop"
+  );
+}
+
+/** One "how it works" step card. */
+function StepCard({ number, title, body }: { number: string | number; title: string; body: string }) {
+  return (
+    <View style={stepStyles.card}>
+      <View style={stepStyles.numberWrap}>
+        <Text style={stepStyles.number}>{number}</Text>
+      </View>
+      <Text style={stepStyles.title}>{title}</Text>
+      <Text style={stepStyles.body}>{body}</Text>
     </View>
   );
 }
 
-/* =====================================================
-   LOADING DOT
-===================================================== */
-
-function LoadingDot({ delay }: { delay: number }) {
-  const [opacity] = useState(() => new Animated.Value(0.3));
-  const [scale] = useState(() => new Animated.Value(0.8));
-
-  useEffect(() => {
-    const animation = Animated.loop(
-      Animated.sequence([
-        Animated.delay(delay),
-
-        Animated.parallel([
-          Animated.timing(opacity, {
-            toValue: 1,
-            duration: 350,
-            useNativeDriver: true,
-          }),
-
-          Animated.timing(scale, {
-            toValue: 1.2,
-            duration: 350,
-            useNativeDriver: true,
-          }),
-        ]),
-
-        Animated.parallel([
-          Animated.timing(opacity, {
-            toValue: 0.3,
-            duration: 350,
-            useNativeDriver: true,
-          }),
-
-          Animated.timing(scale, {
-            toValue: 0.8,
-            duration: 350,
-            useNativeDriver: true,
-          }),
-        ]),
-      ]),
-    );
-
-    animation.start();
-
-    return () => animation.stop();
-  }, [delay, opacity, scale]);
-
-  return (
-    <Animated.View
-      style={[
-        styles.loadingDot,
-        {
-          opacity,
-          transform: [{ scale }],
-        },
-      ]}
-    />
-  );
-}
-
-/* =====================================================
-   STYLES
-===================================================== */
-
-/**
- * Vertical spacing scale. Every gap between sections comes from this so the
- * screen stays balanced instead of stretching or crowding unevenly.
- */
-const GAP = 14;
-const GAP_SM = 10;
+const ControlHeight = {
+  button: 54,
+} as const;
 
 const styles = StyleSheet.create({
-  container: {
+  root: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
-  },
-
-  safeArea: {
-    flex: 1,
-  },
-
-  scroll: {
-    flex: 1,
+    backgroundColor: Surface.background,
   },
 
   content: {
-    flexGrow: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: GAP,
-    paddingHorizontal: 22,
-    paddingTop: 20,
-    paddingBottom: 18,
+    paddingHorizontal: 24,
+    paddingBottom: 40,
+    gap: 32,
   },
 
-  /* ================= LOGO ================= */
-
-  logoContainer: {
+  // Hero is a full-bleed banner. The image is constrained by maxHeight so it
+  // never dominates a tall desktop viewport.
+  hero: {
     width: "100%",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  logo: {
-    width: 46,
-    height: 46,
-    borderRadius: 14,
-    backgroundColor: "#D7193F",
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: GAP_SM,
-  },
-
-  logoDrop: {
-    width: 21,
-    height: 27,
-    backgroundColor: "#FFFFFF",
-    borderTopLeftRadius: 14,
-    borderTopRightRadius: 14,
-    borderBottomLeftRadius: 14,
-    borderBottomRightRadius: 4,
-    transform: [{ rotate: "45deg" }],
-  },
-
-  brandArea: {
-    alignItems: "flex-start",
-    flexShrink: 1,
-  },
-
-  brandRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-
-  brandName: {
-    fontSize: 21,
-    fontWeight: "800",
-    color: "#1D2632",
-    letterSpacing: -0.6,
-  },
-
-  proBadge: {
-    marginLeft: 7,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 5,
-    backgroundColor: "#FFF0F3",
-  },
-
-  proText: {
-    fontSize: 7,
-    fontWeight: "900",
-    color: "#D7193F",
-  },
-
-  brandSubtitle: {
-    marginTop: 3,
-    fontSize: 8,
-    color: "#858D97",
-  },
-
-  /* ================= HERO ================= */
-
-  heroContainer: {
-    width: "100%",
-    aspectRatio: 1802 / 873,
-    borderRadius: 26,
-    overflow: "hidden",
-    backgroundColor: "#F4F5F6",
     position: "relative",
-
-    shadowColor: "#8B9299",
-    shadowOpacity: 0.18,
-    shadowRadius: 18,
-    shadowOffset: {
-      width: 0,
-      height: 8,
-    },
-
-    elevation: 5,
+    overflow: "hidden",
+    borderRadius: Radius.card,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Surface.border,
+    backgroundColor: Surface.card,
+    ...Elevation.card,
   },
 
   heroImage: {
     width: "100%",
-    height: "100%",
+    height: 360,
+    maxHeight: 420,
+    borderRadius: Radius.card,
   },
 
-  /* ================= TEXT ================= */
-
-  textArea: {
-    width: "100%",
-    alignItems: "center",
-  },
-
-  smallLabel: {
-    fontSize: 9,
-    fontWeight: "800",
-    color: "#D7193F",
-    letterSpacing: 0.5,
-    marginBottom: GAP_SM,
-  },
-
-  title: {
-    textAlign: "center",
-    fontSize: 25,
-    lineHeight: 30,
-    fontWeight: "800",
-    color: "#18212D",
-    letterSpacing: -0.6,
-  },
-
-  redTitle: {
-    textAlign: "center",
-    fontSize: 25,
-    lineHeight: 30,
-    fontWeight: "800",
-    color: "#D7193F",
-    letterSpacing: -0.6,
-  },
-
-  description: {
-    textAlign: "center",
-    marginTop: GAP_SM,
-    fontSize: 11.5,
-    lineHeight: 17,
-    color: "#78818C",
-  },
-
-  /* ================= LOADING ================= */
-
-  loadingArea: {
-    alignItems: "center",
-  },
-
-  loadingDots: {
-    flexDirection: "row",
+  heroOverlay: {
+    position: "absolute",
+    inset: 0,
+    borderRadius: Radius.card,
+    backgroundColor: "rgba(0, 0, 0, 0.45)",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: GAP_SM,
+    padding: 24,
+    gap: 16,
   },
 
-  loadingDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 7,
-    backgroundColor: "#D7193F",
-    marginHorizontal: 3,
-  },
-
-  loadingText: {
-    fontSize: 8.5,
-    color: "#8A929C",
-    fontWeight: "500",
-  },
-
-  /* ================= ACTIONS ================= */
-
-  actionArea: {
-    width: "100%",
+  heroContent: {
     alignItems: "center",
+    gap: 12,
+    maxWidth: 720,
   },
 
-  getStartedButton: {
-    width: "100%",
-    minHeight: 52,
-    borderRadius: 14,
+  heroKicker: {
+    ...Typography.micro,
+    color: Surface.onPrimary,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
+
+  heroTitle: {
+    ...Typography.screenTitle,
+    color: Surface.onPrimary,
+    textAlign: "center",
+    lineHeight: 30,
+  },
+
+  heroSubtitle: {
+    ...Typography.body,
+    color: "rgba(255, 255, 255, 0.9)",
+    textAlign: "center",
+    lineHeight: 22,
+    maxWidth: 560,
+  },
+
+  heroActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: 12,
+    marginTop: 4,
+  },
+
+  primaryButton: {
+    minHeight: ControlHeight.button,
+    borderRadius: Radius.field,
     backgroundColor: Blood.primary,
     alignItems: "center",
     justifyContent: "center",
-
-    shadowColor: Blood.glow,
-    shadowOpacity: 0.55,
-    shadowRadius: 14,
-    shadowOffset: {
-      width: 0,
-      height: 6,
-    },
-
-    elevation: 8,
+    paddingHorizontal: 24,
+    ...Elevation.button,
   },
 
-  getStartedText: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: "#FFFFFF",
-    letterSpacing: 0.2,
+  secondaryButton: {
+    minHeight: ControlHeight.button,
+    borderRadius: Radius.field,
+    backgroundColor: "rgba(255, 255, 255, 0.15)",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(255, 255, 255, 0.4)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 24,
   },
 
-  nbtsLink: {
-    marginTop: GAP_SM,
-
-    /* Grows the touch target toward 44dp without moving the text. */
-    paddingVertical: 12,
+  buttonText: {
+    ...Typography.button,
+    color: Surface.onPrimary,
   },
 
-  nbtsLinkText: {
-    fontSize: 13,
-    color: Blood.dark,
-    textAlign: "center",
-    textDecorationLine: "underline",
+  // Sections
+  section: {
+    gap: 16,
   },
 
-  /* ================= FOOTER ================= */
+  sectionTitle: {
+    ...Typography.screenTitle,
+    color: Surface.text,
+  },
+
+  steps: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 16,
+  },
+
+  // Role grid — 4 cards across on desktop, fewer on narrow viewports.
+  roleGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 16,
+  },
+
+  roleCard: {
+    width: "100%",
+    maxWidth: 280,
+    borderRadius: Radius.card,
+    borderWidth: 1.5,
+    borderColor: Surface.border,
+    backgroundColor: Surface.card,
+    overflow: "hidden",
+    ...Elevation.card,
+  },
+
+  roleCardImageWrap: {
+    position: "relative",
+    width: "100%",
+    height: 160,
+    backgroundColor: Surface.card,
+  },
+
+  roleCardImage: {
+    width: "100%",
+    height: 160,
+  },
+
+  roleCardBadge: {
+    position: "absolute",
+    top: 10,
+    right: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: Radius.pill,
+    backgroundColor: Blood.primary,
+  },
+
+  roleCardBadgeText: {
+    ...Typography.micro,
+    color: Surface.onPrimary,
+  },
+
+  roleCardTitle: {
+    ...Typography.cardTitle,
+    color: Surface.text,
+    marginTop: 12,
+    marginHorizontal: 14,
+  },
+
+  roleCardDesc: {
+    ...Typography.small,
+    color: Surface.textSecondary,
+    lineHeight: 18,
+    marginHorizontal: 14,
+    marginBottom: 14,
+  },
+
+  // Demo hint
+  demoHint: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    padding: 14,
+    borderRadius: Radius.field,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Surface.border,
+    backgroundColor: Surface.card,
+    maxWidth: 600,
+    alignSelf: "center",
+  },
+
+  demoHintText: {
+    ...Typography.small,
+    color: Surface.textSecondary,
+  },
+
+  spacer: {
+    height: 24,
+  },
 
   footer: {
-    fontSize: 7.5,
-    color: "#7B838D",
-    textAlign: "center",
+    alignItems: "center",
+    paddingBottom: 8,
+  },
+
+  footerText: {
+    ...Typography.micro,
+    color: Surface.textMuted,
+  },
+});
+
+const stepStyles = StyleSheet.create({
+  card: {
+    flex: 1,
+    minWidth: 220,
+    maxWidth: 320,
+    padding: 18,
+    borderRadius: Radius.card,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Surface.border,
+    backgroundColor: Surface.card,
+    gap: 10,
+    ...Elevation.card,
+  },
+
+  numberWrap: {
+    width: 30,
+    height: 30,
+    borderRadius: Radius.full,
+    backgroundColor: Blood.primary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  number: {
+    ...Typography.micro,
+    color: Surface.onPrimary,
+  },
+
+  title: {
+    ...Typography.cardTitle,
+    color: Surface.text,
+  },
+
+  body: {
+    ...Typography.small,
+    color: Surface.textSecondary,
+    lineHeight: 18,
   },
 });

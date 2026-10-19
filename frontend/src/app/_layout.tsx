@@ -2,8 +2,10 @@ import * as Linking from "expo-linking";
 import * as Notifications from "expo-notifications";
 import { Stack, useRouter, type Href } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { View } from "react-native";
 
+import { WelcomeScreen } from "@/components/common/welcome-screen";
 import { ConfirmProvider } from "@/components/ui/confirm-provider";
 import { Surface } from "@/constants/colors";
 import { ROLE_HOME, ROUTES } from "@/constants/routes";
@@ -57,14 +59,15 @@ export default function RootLayout() {
 /**
  * Split out so it can read auth state from the provider above it.
  *
- * Also owns hiding the native splash: it stays up until the stored session has
- * been resolved, so a signed-in user never sees a flash of the login screen on
- * cold start.
+ * Holds a branded welcome screen over the app on each cold launch until the
+ * user chooses to continue. The native splash stays visible while the stored
+ * session is resolved.
  */
 function AppNavigator() {
   const { status, session } = useAuth();
   const isResolved = status !== "loading";
   const router = useRouter();
+  const [hasStarted, setHasStarted] = useState(false);
 
   useEffect(() => {
     if (isResolved) {
@@ -126,71 +129,79 @@ function AppNavigator() {
   }, [isResolved, router]);
 
   return (
-    <Stack
-      screenOptions={{
-        headerShown: false,
-        contentStyle: screenBackground,
-      }}
-    >
-      {/* Always reachable. */}
-      <Stack.Screen name="index" />
+    <View style={{ flex: 1 }}>
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          contentStyle: screenBackground,
+        }}
+      >
+        {/* Always reachable. */}
+        <Stack.Screen name="index" />
 
-      {/* "Zero Login" — the account-free urgent request path, so it must stay
+        {/* "Zero Login" — the account-free urgent request path, so it must stay
           reachable whether or not anyone is signed in. */}
-      <Stack.Screen name="emergency-request" options={{ contentStyle: screenBackground }} />
+        <Stack.Screen name="emergency-request" options={{ contentStyle: screenBackground }} />
 
-      {/* Public pass verification screen for QR code scans. */}
-      <Stack.Screen name="pass-details" options={{ contentStyle: screenBackground }} />
+        {/* Public pass verification screen for QR code scans. */}
+        <Stack.Screen name="pass-details" options={{ contentStyle: screenBackground }} />
 
-      {/* Catch-all for unmatched paths — a stale or truncated QR payload lands
+        {/* Catch-all for unmatched paths — a stale or truncated QR payload lands
           here rather than on a screen that would render invented details. Kept
           outside both guards so it resolves signed in or out. */}
-      <Stack.Screen name="+not-found" options={{ contentStyle: screenBackground }} />
+        <Stack.Screen name="+not-found" options={{ contentStyle: screenBackground }} />
 
-      <Stack.Protected guard={status === "authenticated"}>
-        <Stack.Screen
-          name="dashboard/recipient"
-          options={{ contentStyle: screenBackground }}
+        <Stack.Protected guard={status === "authenticated"}>
+          <Stack.Screen
+            name="dashboard/recipient"
+            options={{ contentStyle: screenBackground }}
+          />
+          <Stack.Screen name="dashboard/donor" options={{ contentStyle: screenBackground }} />
+          <Stack.Screen name="dashboard/donor-requests" options={{ contentStyle: screenBackground }} />
+          <Stack.Screen name="dashboard/donor-transit" options={{ contentStyle: screenBackground }} />
+          <Stack.Screen name="dashboard/donor-intake" options={{ contentStyle: screenBackground }} />
+          <Stack.Screen name="dashboard/donor-profile" options={{ contentStyle: screenBackground }} />
+          <Stack.Screen
+            name="dashboard/hospital"
+            options={{ contentStyle: screenBackground }}
+          />
+
+          {/* Admin tabs: queue, banks and accounts. */}
+          <Stack.Screen name="dashboard/admin" options={{ contentStyle: screenBackground }} />
+
+          {/* Recipient destinations the home screen links to. */}
+          <Stack.Screen name="dashboard/requests" options={{ contentStyle: screenBackground }} />
+          <Stack.Screen name="dashboard/alerts" options={{ contentStyle: screenBackground }} />
+          <Stack.Screen name="dashboard/profile" options={{ contentStyle: screenBackground }} />
+          <Stack.Screen name="donors" options={{ contentStyle: screenBackground }} />
+          <Stack.Screen name="compatibility" options={{ contentStyle: screenBackground }} />
+          <Stack.Screen name="blood-bank-detail" options={{ contentStyle: screenBackground }} />
+          <Stack.Screen name="location" options={{ contentStyle: screenBackground }} />
+
+          {/* The Donate tab is a route so it can be linked to directly. */}
+          <Stack.Screen name="dashboard/donate" options={{ contentStyle: screenBackground }} />
+
+          <Stack.Screen name="dashboard/request-status" options={{ contentStyle: screenBackground }} />
+
+          {/* The pass scanner, plus the admin profile that hosts one. */}
+          <Stack.Screen name="scan" options={{ contentStyle: screenBackground }} />
+          <Stack.Screen name="dashboard/admin-profile" options={{ contentStyle: screenBackground }} />
+          <Stack.Screen name="settings" options={{ contentStyle: screenBackground }} />
+        </Stack.Protected>
+
+        <Stack.Protected guard={status === "unauthenticated"}>
+          <Stack.Screen name="role-select" options={{ contentStyle: screenBackground }} />
+          <Stack.Screen name="login" options={{ contentStyle: screenBackground }} />
+          <Stack.Screen name="register" options={{ contentStyle: screenBackground }} />
+          <Stack.Screen name="forgot-password" options={{ contentStyle: screenBackground }} />
+        </Stack.Protected>
+      </Stack>
+      {isResolved && !hasStarted ? (
+        <WelcomeScreen
+          onLayout={() => void SplashScreen.hideAsync()}
+          onGetStarted={() => setHasStarted(true)}
         />
-        <Stack.Screen name="dashboard/donor" options={{ contentStyle: screenBackground }} />
-        <Stack.Screen name="dashboard/donor-requests" options={{ contentStyle: screenBackground }} />
-        <Stack.Screen name="dashboard/donor-transit" options={{ contentStyle: screenBackground }} />
-        <Stack.Screen name="dashboard/donor-intake" options={{ contentStyle: screenBackground }} />
-        <Stack.Screen name="dashboard/donor-profile" options={{ contentStyle: screenBackground }} />
-        <Stack.Screen
-          name="dashboard/hospital"
-          options={{ contentStyle: screenBackground }}
-        />
-
-        {/* Admin tabs: queue, banks and accounts. */}
-        <Stack.Screen name="dashboard/admin" options={{ contentStyle: screenBackground }} />
-
-        {/* Recipient destinations the home screen links to. */}
-        <Stack.Screen name="dashboard/requests" options={{ contentStyle: screenBackground }} />
-        <Stack.Screen name="dashboard/alerts" options={{ contentStyle: screenBackground }} />
-        <Stack.Screen name="dashboard/profile" options={{ contentStyle: screenBackground }} />
-        <Stack.Screen name="donors" options={{ contentStyle: screenBackground }} />
-        <Stack.Screen name="compatibility" options={{ contentStyle: screenBackground }} />
-        <Stack.Screen name="blood-bank-detail" options={{ contentStyle: screenBackground }} />
-        <Stack.Screen name="location" options={{ contentStyle: screenBackground }} />
-
-        {/* The Donate tab is a route so it can be linked to directly. */}
-        <Stack.Screen name="dashboard/donate" options={{ contentStyle: screenBackground }} />
-
-        <Stack.Screen name="dashboard/request-status" options={{ contentStyle: screenBackground }} />
-
-        {/* The pass scanner, plus the admin profile that hosts one. */}
-        <Stack.Screen name="scan" options={{ contentStyle: screenBackground }} />
-        <Stack.Screen name="dashboard/admin-profile" options={{ contentStyle: screenBackground }} />
-        <Stack.Screen name="settings" options={{ contentStyle: screenBackground }} />
-      </Stack.Protected>
-
-      <Stack.Protected guard={status === "unauthenticated"}>
-        <Stack.Screen name="role-select" options={{ contentStyle: screenBackground }} />
-        <Stack.Screen name="login" options={{ contentStyle: screenBackground }} />
-        <Stack.Screen name="register" options={{ contentStyle: screenBackground }} />
-        <Stack.Screen name="forgot-password" options={{ contentStyle: screenBackground }} />
-      </Stack.Protected>
-    </Stack>
+      ) : null}
+    </View>
   );
 }

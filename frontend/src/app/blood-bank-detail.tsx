@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
-import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { DashboardTabBar, type DashboardTabKey } from "@/components/dashboard/dashboard-tab-bar";
 import { StepHeader } from "@/components/emergency/step-header";
@@ -104,6 +104,13 @@ export default function BloodBankDetailScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
+        <Image
+          source={require("../../assets/images/bloodbank.png")}
+          style={styles.bankCover}
+          resizeMode="cover"
+          alt="Blood bank facility"
+        />
+
         <Text style={styles.subtitle}>
           {bankId !== null
             ? "Live stock levels, contact details and opening hours."
@@ -288,6 +295,12 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     paddingBottom: 18,
     gap: 10,
+  },
+
+  bankCover: {
+    width: "100%",
+    height: 150,
+    borderRadius: Radius.field,
   },
 
   subtitle: {

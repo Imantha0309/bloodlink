@@ -1,130 +1,131 @@
-# BloodLink
+<div align="center">
 
-A blood-donation platform: recipients raise emergency requests, donors accept
-them, and hospital staff take the donation through intake, screening and
-collection. Sri Lanka–focused (nine provinces, district-scoped hospital stock).
+<img src="https://capsule-render.vercel.app/api?type=waving&color=0:B91C1C,100:7F1D1D&height=160&section=header&text=BloodLink&fontSize=56&fontColor=ffffff&animation=fadeIn" width="100%" alt="BloodLink" />
 
-Two folders, one repository:
+**Every drop counts. Every second matters.**
 
-| Folder | What it is |
-| --- | --- |
-| `backend/` | Express 5 + MongoDB Atlas API. Holds the connection string and every business rule. |
-| `frontend/` | Expo / React Native app (expo-router). Talks to the API over HTTP and holds no credentials. |
+Request blood without an account. Match to compatible donors instantly.
 
-## Running it
+<a href="https://www.figma.com/design/2gpsKZkbtjpAxAqHiXh5fp/Untitled?node-id=0-1&t=punO9S48wM2eIGND-1">
+  <img src="https://img.shields.io/badge/Figma-Design-F24E1E?style=for-the-badge&logo=figma&logoColor=white" alt="View the design on Figma" />
+</a>
 
-You need Node 20+ and a MongoDB Atlas cluster (the free M0 tier is enough).
+</div>
 
-### 1. Backend
+---
+
+## What it does
+
+BloodLink connects people who need blood with people who can give it, in a
+country where the difference is often measured in minutes.
+
+- **Emergency requests** — submit in seconds, signed out. No account needed.
+- **Compatibility matching** — donors only see requests their blood group can serve.
+- **Hospital triage queue** — pending and verified requests, grouped.
+- **Donor availability** — donors can pause themselves; paused donors are never counted as reachable.
+- **Revocable sessions** — signing out really ends the session.
+- **Built for Sri Lanka** — 25 districts, 9 provinces, local mobile formats.
+
+## Tech
+
+**App:** Expo 57, React Native 0.86, React 19, TypeScript, expo-router, AsyncStorage
+
+**Server:** Node.js 22.5+, Express, SQLite (`better-sqlite3`), Zod
+
+**Design:** [Figma](https://www.figma.com/design/2gpsKZkbtjpAxAqHiXh5fp/Untitled?node-id=0-1&t=punO9S48wM2eIGND-1)
+
+## Requirements
+
+- Node.js **22.5 or newer** (check with `node -v`)
+- Android Studio with an emulator, and JDK 17
+
+## Quick start
+
+**1. Install the app**
 
 ```bash
-cd backend
 npm install
-cp .env.example .env      # then fill in MONGODB_URI and JWT_SECRET
-npx tsc --noEmit          # typecheck
-npm run seed              # demo accounts, blood banks, inventory
-npm run dev               # http://localhost:4000
+cp .env.example .env        # PowerShell: Copy-Item .env.example .env
 ```
 
-Sanity check, no token required:
+**2. Install, seed and start the server** (keep this terminal open)
 
 ```bash
-curl localhost:4000/health
-curl localhost:4000/blood-banks
+cd server
+npm install
+npm run seed
+npm run dev
 ```
 
-`npm run seed` is idempotent — run it again after pulling, and it re-syncs the
-indexes and refreshes the fixtures without duplicating anything.
+Check it works: `curl http://localhost:4000/health` should return `{"ok":true}`.
 
-### 2. Frontend
+**3. Start the app** (in a second terminal, from the repository root)
 
 ```bash
-cd frontend
-npm install
+npx expo start --clear
+```
+
+Press `a` to open the Android emulator.
+
+> Use `--clear` whenever you change `.env`, because Expo bakes those values in at build time.
+
+**Next time:** run `npm run dev` inside `server/`, and `npx expo start` in the root. Seeding is only needed once.
+
+## Demo accounts
+
+| Sign in with | Password | Role |
+|---|---|---|
+| `0771234567` | `Donor@123` | Donor |
+| `0779876543` | `Hospital@123` | Hospital |
+| `0775551234` | `Recipient@123` | Recipient |
+| `admin@bloodlink.lk` | `Admin@123` | Admin |
+
+## API address
+
+Set `EXPO_PUBLIC_API_URL` in `.env` for where the app runs:
+
+| Target | Value |
+|---|---|
+| Android emulator | `http://10.0.2.2:4000` |
+| iOS simulator / web | `http://localhost:4000` |
+| Physical device | `http://<your-computer-ip>:4000` (same Wi-Fi) |
+
+If it is unset, the app uses fake in-memory data and nothing is saved.
+
+## Project layout
+
+```
+src/
+  app/          routes and route guards
+  components/   UI pieces
+  constants/    colours, blood groups, districts
+  providers/    auth session
+  services/     all API access (screens never call fetch)
+  utils/        validators
+server/         the backend (see server/README.md)
+```
+
+## Checks
+
+```bash
 npx tsc --noEmit
-npm run web               # or: npm start
+npm run lint
+cd server && npm run typecheck
 ```
 
-`frontend/.env` is **optional in development**. With no `EXPO_PUBLIC_API_URL`
-set, the app calls the API on the host Metro served the bundle from, so a
-physical device and an Android emulator both work without anyone having to look
-up this machine's IP — `localhost` would have meant the phone, not the machine.
-Set it only to override that, e.g. pointing the app at a deployed API.
+## Troubleshooting
 
-Metro inlines `EXPO_PUBLIC_*` at build time, so a change to that value needs
-`npx expo start --clear`.
+- **"Unable to connect"** — the server isn't running, or `EXPO_PUBLIC_API_URL` is wrong for your target.
+- **`.env` change ignored** — restart with `npx expo start --clear`.
+- **`npm install` fails in `server/`** — check you are on Node 22.5 or newer.
+- **Port 4000 in use** — run `PORT=4001 npm run dev` and update `.env`.
+- **Phone can't reach the server** — usually a firewall; test `curl http://<ip>:4000/health` from another machine.
 
-### 3. Demo accounts
+## Before deploying
 
-Seeded by `backend/scripts/seed.ts`, and listed on the sign-in screen in dev
-builds:
+This is a local development setup. Before going live:
 
-| Role | Identifier | Password |
-| --- | --- | --- |
-| Donor | `0771234567` | `Donor@123` |
-| Hospital | `0779876543` | `Hospital@123` |
-| Recipient | `0775551234` | `Recipient@123` |
-| Admin | `admin@bloodlink.lk` | `Admin@123` |
-
-## Credentials: where they live
-
-- The MongoDB connection string lives in **`backend/.env` only**.
-- Never put it in `frontend/.env`, and never under an `EXPO_PUBLIC_*` name.
-  Metro compiles those into the shipped bundle — anyone with the app could read
-  the cluster admin password out of it.
-- `.env` is gitignored in both folders. `.env.example` is the template and holds
-  no real values.
-
-Password-reset links are **printed to the backend console** rather than emailed.
-Real delivery needs an email provider and a verified sending domain, which is out
-of scope here; saying plainly where the link went is better than pretending to
-send mail.
-
-## Architecture notes
-
-**Business rules live on the server, not in queries.** Every rule that used to be
-a `WHERE` clause is now TypeScript under `backend/src/domain/`. Two things are
-worth knowing before changing anything there:
-
-- **Two inverse blood-compatibility maps.** `DONORS_FOR_RECIPIENT` answers "the
-  patient needs X — who can give?" and `REQUESTS_FOR_DONOR` answers "this donor
-  has Y — what may they serve?". They are not each other's inverse, and getting
-  them the wrong way round is the easiest bug to write here.
-- **Uniqueness is enforced by indexes, not by checks.** In particular the partial
-  unique index on `donor_request_responses` where `response: "accepted"` is the
-  only thing stopping two donors claiming the same request under a race. An
-  application-level check cannot do that job.
-
-**The request lifecycle** is `pending → {verified, fulfilled, cancelled}` and
-`verified → {fulfilled, cancelled}`; terminal states never reopen. **A donation**
-is `accepted → en_route → arrived → completed`, and a response is only mutable
-while it is still `accepted`.
-
-**Intake tickets are hashed.** The donor's device generates a secret, sends only
-its SHA-256 hash, and the hash is cleared the moment it is used or the decision
-changes. A stolen ticket is useless after fifteen minutes and cannot be replayed.
-
-**One list route, three audiences.** `GET /emergency` branches on the caller: a
-donor gets the open requests their blood can serve, staff get the triage queue
-for their own district (admins get the whole country), and a recipient gets the
-requests they raised. A recipient who has set a blood group is also
-donor-eligible and would otherwise be handed the donor feed — so the recipient
-screens ask for their own list explicitly, with `?mine=true`.
-
-**Auth is a self-hosted session JWT.** Sign-out deletes the session row, so it
-takes effect immediately rather than whenever the token expires. Tokens are
-long-lived by design — the app has no refresh flow and discards a session the
-moment it expires, so a short access token would sign the user out mid-session.
-
-**Live updates are polled, not pushed.** React Native has no built-in
-`EventSource`, so `frontend/src/data/use-polling-query.ts` refetches on an
-interval while a screen is focused. App-foreground refetching is global, in
-`QueryCacheProvider`.
-
-## Adding a route
-
-The app validates every payload field by field before rendering, and rejects a
-row whose `createdAt` is not a string or whose `id` is missing. So a new endpoint
-should build its response with the helpers in `backend/src/domain/serialize.ts`
-rather than returning a Mongoose document's `toJSON` — those helpers produce
-exactly the keys the client's readers expect.
+- Add authentication to the admin surface, rate limiting and HTTPS.
+- Remove the reset code from `POST /auth/forgot-password`, and stop it revealing whether an account exists.
+- Never run `npm run seed` on real data. The demo passwords are public.
+- Replace SQLite with a real database (only `server/src/db.ts` changes).
